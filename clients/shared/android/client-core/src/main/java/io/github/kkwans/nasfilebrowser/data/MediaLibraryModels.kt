@@ -82,7 +82,7 @@ data class MediaScan(
 )
 
 /** A failure is not a capability declaration. NOT_FOUND can also mean inaccessible. */
-enum class MediaFailureKind { AUTHENTICATION, FORBIDDEN, NOT_FOUND, INVALID, CONFLICT, UNAVAILABLE, SERVER, NETWORK, INVALID_RESPONSE, STORAGE }
+enum class MediaFailureKind { AUTHENTICATION, FORBIDDEN, NOT_FOUND, INVALID, CONFLICT, UNAVAILABLE, SERVER, NETWORK, INVALID_RESPONSE, STORAGE, CURSOR_STALE, CURSOR_EXPIRED, RATE_LIMITED }
 data class MediaFailure(val kind: MediaFailureKind, val status: Int? = null, val mutationMayHaveCommitted: Boolean = false)
 
 sealed interface MediaReadResult<out T> {

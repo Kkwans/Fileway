@@ -18,6 +18,7 @@ class MediaLibraryRepository(
     private val journal: MediaWriteJournal,
 ) {
     val scope: MediaSessionScope = mediaSessionScope(context)
+    private val catalogDeviceSession: String = context.api.identity.deviceSessionId
 
     fun newOperation(): MediaOperation = MediaOperation.new(scope.account)
 
@@ -43,6 +44,160 @@ class MediaLibraryRepository(
             checkCurrent()
             MediaReadResult.Failure(scope, mediaFailure(error, false))
         }
+    }
+
+    private fun checkCatalogCredential() {
+        if (context.api.identity.deviceSessionId != catalogDeviceSession) throw CancellationException("影视设备会话已切换")
+    }
+
+    private suspend fun <T> catalogRead(cursor: MediaCatalogCursor?, block: suspend () -> T): MediaReadResult<T> {
+        val result = read {
+            checkCatalogCredential()
+            val value = block()
+            checkCatalogCredential()
+            value
+        }
+        checkCatalogCredential()
+        return when (result) {
+            is MediaReadResult.Success -> result
+            is MediaReadResult.Failure -> {
+                val kind = when (result.error.status) {
+                    410 -> if (cursor != null) MediaFailureKind.CURSOR_EXPIRED else MediaFailureKind.UNAVAILABLE
+                    409 -> if (cursor != null) MediaFailureKind.CURSOR_STALE else MediaFailureKind.CONFLICT
+                    422 -> MediaFailureKind.INVALID
+                    429 -> MediaFailureKind.RATE_LIMITED
+                    else -> result.error.kind
+                }
+                result.copy(error = result.error.copy(kind = kind))
+            }
+        }
+    }
+
+    /** A stable item reference bound to this repository's live account/session. */
+    fun catalogRef(libraryId: String, itemId: String): MediaCatalogRef =
+        MediaCatalogRef(scope, libraryId, itemId, catalogDeviceSession)
+
+    suspend fun home(): MediaReadResult<MediaCatalogHome> = catalogRead(null) {
+        parseCatalogHome(context.api.request("GET", "/api/media-library/v1/home"), scope, catalogDeviceSession)
+    }
+
+    suspend fun homeRow(id: MediaCatalogRowId, cursor: MediaCatalogCursor? = null): MediaReadResult<MediaCatalogHomeRow> {
+        val base = catalogRowEndpoint(id)
+        val endpoint = catalogContinuation(base, cursor)
+        return catalogRead(cursor) { parseCatalogHomeRow(context.api.request("GET", endpoint), scope, catalogDeviceSession, id, cursor) }
+    }
+
+    suspend fun catalog(query: MediaCatalogQuery = MediaCatalogQuery(), cursor: MediaCatalogCursor? = null): MediaReadResult<MediaCatalogPage<MediaCatalogCard>> {
+        val base = catalogQueryEndpoint(query)
+        val endpoint = catalogContinuation(base, cursor)
+        return catalogRead(cursor) {
+            parseCatalogPage(context.api.request("GET", endpoint), scope, catalogDeviceSession, base, query.limit, cursor) { row ->
+                parseCatalogCard(row, scope, catalogDeviceSession).also { if (query.libraryId != null) require(it.ref.libraryId == query.libraryId) }
+            }
+        }
+    }
+
+    /** A partial detail contains only its scoped continuation, not an empty item. */
+    suspend fun catalogDetail(ref: MediaCatalogRef, cursor: MediaCatalogCursor? = null): MediaReadResult<MediaCatalogDetail> {
+        ref.requireBound(scope, catalogDeviceSession)
+        val base = itemEndpoint(ref.libraryId, ref.itemId)
+        val endpoint = catalogContinuation(base, cursor)
+        return catalogRead(cursor) { parseCatalogDetail(context.api.request("GET", endpoint), ref, catalogDeviceSession, base, cursor) }
+    }
+
+    suspend fun seasons(series: MediaCatalogRef, limit: Int = 20, cursor: MediaCatalogCursor? = null): MediaReadResult<MediaCatalogPage<MediaCatalogSeason>> {
+        series.requireBound(scope, catalogDeviceSession); require(limit in 1..100)
+        val base = "${itemEndpoint(series.libraryId, series.itemId)}/seasons?limit=$limit"
+        val endpoint = catalogContinuation(base, cursor)
+        return catalogRead(cursor) {
+            parseCatalogPage(context.api.request("GET", endpoint), scope, catalogDeviceSession, base, limit, cursor) {
+                parseCatalogSeason(it, series, catalogDeviceSession)
+            }.also { page ->
+                if (page.items.isNotEmpty()) require(page.orderId != null && page.items.all { it.orderId == page.orderId })
+            }
+        }
+    }
+
+    suspend fun episodes(series: MediaCatalogRef, season: MediaCatalogSeason, limit: Int = 20, cursor: MediaCatalogCursor? = null): MediaReadResult<MediaCatalogPage<MediaCatalogEpisode>> {
+        require(season.series == series) { "所选季不属于当前剧集" }
+        season.ref.requireBound(scope, catalogDeviceSession)
+        return episodesById(series, season.ref.itemId, season.orderId, limit, cursor)
+    }
+
+    /** Deep links may supply IDs; the server still verifies season/order membership and permissions. */
+    suspend fun episodesById(series: MediaCatalogRef, seasonId: String, orderId: String? = null, limit: Int = 20, cursor: MediaCatalogCursor? = null): MediaReadResult<MediaCatalogPage<MediaCatalogEpisode>> {
+        series.requireBound(scope, catalogDeviceSession); requireMediaRouteId(seasonId); orderId?.let(::requireMediaRouteId); require(limit in 1..100)
+        val base = "${itemEndpoint(series.libraryId, series.itemId)}/episodes?seasonId=$seasonId&limit=$limit" + (orderId?.let { "&orderId=$it" } ?: "")
+        val endpoint = catalogContinuation(base, cursor)
+        return catalogRead(cursor) {
+            parseCatalogPage(context.api.request("GET", endpoint), scope, catalogDeviceSession, base, limit, cursor) {
+                parseCatalogEpisode(it, series, seasonId, catalogDeviceSession)
+            }.also { page ->
+                if (page.items.isNotEmpty()) require(page.orderId != null && page.items.all { it.orderId == page.orderId })
+                if (orderId != null && page.orderId != null) require(page.orderId == orderId)
+            }
+        }
+    }
+
+    suspend fun episodeCounts(series: MediaCatalogRef, season: MediaCatalogSeason? = null): MediaReadResult<MediaCatalogEpisodeCounts> {
+        season?.let { require(it.series == series); it.ref.requireBound(scope, catalogDeviceSession) }
+        return episodeCountsById(series, season?.ref?.itemId)
+    }
+
+    suspend fun episodeCountsById(series: MediaCatalogRef, seasonId: String? = null): MediaReadResult<MediaCatalogEpisodeCounts> {
+        series.requireBound(scope, catalogDeviceSession)
+        seasonId?.let(::requireMediaRouteId)
+        val endpoint = "${itemEndpoint(series.libraryId, series.itemId)}/episode-counts" + (seasonId?.let { "?seasonId=$it" } ?: "")
+        return catalogRead(null) { parseCatalogCounts(context.api.request("GET", endpoint), series, seasonId) }
+    }
+
+    /** Variants are current source choices, not a download permission or a promise of timeline continuity. */
+    suspend fun playbackVariants(ref: MediaCatalogRef, limit: Int = 20, cursor: MediaCatalogCursor? = null): MediaReadResult<MediaCatalogVariantPage> {
+        ref.requireBound(scope, catalogDeviceSession); require(limit in 1..100)
+        val base = "${itemEndpoint(ref.libraryId, ref.itemId)}/variants?limit=$limit"
+        val endpoint = catalogContinuation(base, cursor, 512)
+        return catalogRead(cursor) { parseCatalogVariants(context.api.request("GET", endpoint), ref, catalogDeviceSession, base, limit, cursor) }
+    }
+
+    /** Explicit selection creates a short-lived server lease; never auto-retry an unknown outcome. */
+    suspend fun resolvePlayback(variant: MediaCatalogVariant): MediaReadResult<MediaCatalogPlaybackResolution> {
+        variant.ref.requireBound(scope, catalogDeviceSession)
+        val endpoint = "${itemEndpoint(variant.ref.libraryId, variant.ref.itemId)}/playback-resolutions"
+        val body = JSONObject().put("editionId", variant.editionId).put("variantId", variant.variantId).put("bindingId", variant.bindingId)
+        return when (val result = catalogRead(null) { parseCatalogPlayback(context.api.request("POST", endpoint, body), variant) }) {
+            is MediaReadResult.Success -> result
+            is MediaReadResult.Failure -> {
+                // The response may have been lost after the server created a short lease.
+                val status = result.error.status
+                val unknown = status == null || status >= 500
+                result.copy(error = result.error.copy(mutationMayHaveCommitted = unknown))
+            }
+        }
+    }
+
+    private fun checkCatalogCurrentNow() {
+        if (!isCurrent(context) || context.api.identity.id != scope.account.userId ||
+            context.api.sessionHealth.value?.code == SessionHealthCode.ACCOUNT_CHANGED) throw CancellationException("媒体库会话已切换")
+        checkCatalogCredential()
+    }
+
+    /** Resolve an artwork path only for the session that received its card. */
+    fun artworkEndpoint(artwork: MediaCatalogArtwork): String {
+        checkCatalogCurrentNow()
+        artwork.ref.requireBound(scope, catalogDeviceSession)
+        return artwork.serviceRelativePath()
+    }
+
+    /** Returns the validated service-relative lease path only while this repository is current. */
+    fun playbackEndpoint(resolution: MediaCatalogPlaybackResolution): String? {
+        checkCatalogCurrentNow()
+        resolution.ref.requireBound(scope, catalogDeviceSession)
+        return resolution.endpoint?.serviceRelativePath()
+    }
+
+    private fun catalogContinuation(base: String, cursor: MediaCatalogCursor?, maxBytes: Int = 4096): String {
+        val value = cursor?.use(scope, catalogDeviceSession, base)?.let { catalogCursorValue(it, maxBytes) } ?: return base
+        return base + (if ('?' in base) "&" else "?") + "cursor=" + URLEncoder.encode(value, "UTF-8")
     }
 
     suspend fun listLibraries(limit: Int = 50, cursor: String? = null, archived: Boolean = false): MediaReadResult<MediaPage<MediaLibrarySummary>> {
@@ -251,6 +406,13 @@ private fun revisionBody(operation: MediaOperation, revision: Long) = operationB
 private fun generationBody(operation: MediaOperation, generation: Long) = operationBody(operation).put("expectedGeneration", generation)
 private fun libraryEndpoint(id: String) = "/api/media-library/v1/libraries/$id"
 private fun itemEndpoint(libraryId: String, itemId: String) = "${libraryEndpoint(libraryId)}/items/$itemId"
+
+private fun catalogQueryEndpoint(query: MediaCatalogQuery): String = buildString {
+    append("/api/media-library/v1/catalog/items?limit=").append(query.limit).append("&sort=").append(query.sort.wire)
+    query.libraryId?.let { append("&libraryId=").append(it) }
+    query.structureKind?.let { append("&structureKind=").append(it.wire) }
+    query.matchState?.let { append("&matchState=").append(it.wire) }
+}
 
 private fun pageQuery(limit: Int, cursor: String?, maxCursorBytes: Int): String {
     require(limit in 1..100)
