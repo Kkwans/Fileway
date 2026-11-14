@@ -379,7 +379,15 @@ class MediaLibraryRepository(
 
     suspend fun pendingMatchConfirmation(ref: MediaCatalogRef): MediaOperation? {
         ref.requireBound(scope, catalogDeviceSession); checkCurrent(); checkCatalogCredential()
-        return journal.firstUnresolved(scope.account, setOf(MediaMutationKind.CONFIRM_PROVIDER_MATCH), ref.libraryId, ref.itemId)
+        return journal.firstUnresolved(scope.account, setOf(MediaMutationKind.CONFIRM_PROVIDER_MATCH, MediaMutationKind.UNDO_PROVIDER_MATCH), ref.libraryId, ref.itemId)
+    }
+
+    suspend fun undoMatch(operation: MediaOperation, item: MediaProviderIdentification): MediaWriteResult<MediaProviderUndoReceipt> {
+        item.ref.requireBound(scope, catalogDeviceSession)
+        val matchRevision = requireNotNull(item.undoMatchRevision)
+        return providerWrite(mutation(operation, MediaMutationKind.UNDO_PROVIDER_MATCH, item.ref.libraryId, itemId = item.ref.itemId,
+            body = operationBody(operation).put("itemRevision", item.itemRevision)
+                .put("structureRevision", item.structureRevision).put("matchRevision", matchRevision)))
     }
 
     private suspend fun <T> providerWrite(request: MediaMutationRequest): MediaWriteResult<T> {
@@ -523,7 +531,7 @@ class MediaLibraryRepository(
     suspend fun retryOperation(operation: MediaOperation): MediaWriteResult<Any> {
         require(operation.account == scope.account) { "操作不属于当前账号或服务器" }
         val request = journal.replay(operation)
-        val catalogBound = request.kind in setOf(MediaMutationKind.PATCH_USER_STATE, MediaMutationKind.UPDATE_METADATA_POLICY, MediaMutationKind.CONFIRM_PROVIDER_MATCH)
+        val catalogBound = request.kind == MediaMutationKind.PATCH_USER_STATE || request.kind in providerMutationKinds
         if (catalogBound) checkCatalogCredential()
         val result = write(request)
         if (catalogBound) { checkCurrent(); checkCatalogCredential() }
@@ -577,7 +585,7 @@ class MediaLibraryRepository(
     private suspend fun write(request: MediaMutationRequest): MediaWriteResult<Any> {
         checkCurrent()
         require(request.operation.account == scope.account) { "操作不属于当前账号或服务器" }
-        val providerRequest = request.kind in setOf(MediaMutationKind.UPDATE_METADATA_POLICY, MediaMutationKind.CONFIRM_PROVIDER_MATCH)
+        val providerRequest = request.kind in providerMutationKinds
         val previouslyUnknown = providerRequest && journal.records(scope.account).any {
             it.operation == request.operation && (it.state == MediaWriteState.UNKNOWN || it.state == MediaWriteState.ACKNOWLEDGED_INVALID_RESPONSE)
         }
@@ -731,5 +739,9 @@ private fun receipt(request: MediaMutationRequest, value: Any): MediaWriteReceip
         revision = value.revision.takeIf { it > 0 }, itemId = request.itemId)
     is MediaProviderPolicy -> MediaWriteReceipt(value.libraryId, revision = value.revision.takeIf { it > 0 })
     is MediaProviderMatchReceipt -> MediaWriteReceipt(value.libraryId, revision = value.itemRevision, itemId = value.itemId)
+    is MediaProviderUndoReceipt -> MediaWriteReceipt(value.libraryId, revision = value.itemRevision, itemId = value.itemId)
     else -> error("媒体库回执类型无效")
 }
+
+private val providerMutationKinds = setOf(MediaMutationKind.UPDATE_METADATA_POLICY,
+    MediaMutationKind.CONFIRM_PROVIDER_MATCH, MediaMutationKind.UNDO_PROVIDER_MATCH)

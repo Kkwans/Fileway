@@ -62,7 +62,7 @@ internal data class PhoneMediaMatchState(val itemId: String, val revision: Strin
     val evidence: List<String>, val query: String, val candidates: MediaSection<MediaMatchCandidate>,
     val selectedCandidate: String? = null, val impact: MediaMatchImpact? = null, val busy: Boolean = false,
     val canApply: Boolean = false, val suggestionOnly: Boolean = false, val conflict: MediaProblem? = null,
-    val problem: MediaProblem? = null)
+    val problem: MediaProblem? = null, val canUndo: Boolean = false)
 
 internal data class MediaSourceRoot(val id: String, val name: String, val description: String,
     val available: Boolean, val unavailableReason: String? = null)
@@ -111,6 +111,7 @@ internal sealed interface PhoneMediaAction {
     data class PreviewMatch(val candidateId: String, val expectedRevision: String) : PhoneMediaAction
     data class ApplyMatch(val candidateId: String, val expectedRevision: String, val suggestion: Boolean) : PhoneMediaAction
     data class ReloadMatch(val itemId: String) : PhoneMediaAction
+    data object UndoMatch : PhoneMediaAction
     data class SetupDraft(val value: MediaLibraryDraft) : PhoneMediaAction
     data class SubmitLibrary(val value: MediaLibraryDraft) : PhoneMediaAction
 }

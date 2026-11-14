@@ -64,6 +64,7 @@ class MediaProviderIdentification internal constructor(
     val ref: MediaCatalogRef, val title: String, val structureKind: MediaItemKind, val matchState: MediaCatalogMatchState,
     val itemRevision: Long, val structureRevision: Long, val externalIds: List<MediaExternalId>,
     val externalIdsNextCursor: String?, val file: MediaProviderIdentificationFile?,
+    val undoMatchRevision: Long? = null,
 ) {
     override fun toString(): String = "MediaProviderIdentification(redacted)"
 }
@@ -80,6 +81,7 @@ data class MediaProviderCandidatePage(val items: List<MediaProviderCandidate>, v
 data class MediaProviderMatchReceipt(
     val libraryId: String, val itemId: String, val kind: MediaProviderMatchKind, val externalId: String, val itemRevision: Long,
 )
+data class MediaProviderUndoReceipt(val libraryId: String, val itemId: String, val itemRevision: Long, val restored: Boolean)
 data class MediaOnlineMatch(val provider: String, val kind: MediaProviderMatchKind, val externalId: String, val fetchedAt: Long)
 
 internal fun requireProviderConnectionId(value: String) {
@@ -195,8 +197,15 @@ internal fun parseProviderIdentification(row: JSONObject, ref: MediaCatalogRef):
                 require(it.provider.toByteArray(Charsets.UTF_8).size <= 64 && it.entityKind.toByteArray(Charsets.UTF_8).size <= 64 && it.value.toByteArray(Charsets.UTF_8).size <= 256)
             }
         },
-        row.providerOptionalText("externalIdsNextCursor", 256)?.also(::mediaCursor), file)
+        row.providerOptionalText("externalIdsNextCursor", 256)?.also(::mediaCursor), file,
+        if (row.has("undoMatchRevision")) row.providerLong("undoMatchRevision", 1) else null)
 }
+
+internal fun parseProviderUndoReceipt(row: JSONObject) = MediaProviderUndoReceipt(
+    row.providerText("libraryId", 200).also(::requireMediaRouteId),
+    row.providerText("itemId", 200).also(::requireMediaRouteId),
+    row.providerLong("itemRevision", 1), row.providerBoolean("restored"),
+)
 
 internal fun parseProviderCandidates(
     row: JSONObject, identification: MediaProviderIdentification, kind: MediaProviderMatchKind, page: Int, connectionId: String?,

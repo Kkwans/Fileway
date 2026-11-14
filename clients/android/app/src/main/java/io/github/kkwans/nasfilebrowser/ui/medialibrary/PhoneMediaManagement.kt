@@ -9,6 +9,10 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
@@ -27,6 +31,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
     onAction: (PhoneMediaAction) -> Unit, modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState()) {
     val focus = LocalFocusManager.current
+    var confirmUndo by remember(state.itemId, state.revision) { mutableStateOf(false) }
     Column(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).imePadding()) {
         FilewayTopAppBar(if (state.suggestionOnly) "提交识别建议" else "纠正识别", leadingIcon = R.drawable.ic_arrow_back,
             leadingDescription = "返回", onLeadingClick = { onAction(PhoneMediaAction.Back) })
@@ -37,6 +42,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                 Text(state.currentTitle, style = MaterialTheme.typography.titleMedium)
                 state.evidence.forEach { Text(it, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp)) }
+                if (state.canUndo) TextButton(onClick = { confirmUndo = true }, enabled = !state.busy) { Text("撤销 TMDB 匹配") }
             }
             item(key = "search") {
                 OutlinedTextField(state.query, { onAction(PhoneMediaAction.MatchQuery(it)) }, modifier = Modifier.fillMaxWidth(),
@@ -99,6 +105,13 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
             if (state.busy) item(key = "busy") { MediaLoading("正在处理，请稍候") }
         }
     }
+    if (confirmUndo) AlertDialog(
+        onDismissRequest = { confirmUndo = false },
+        title = { Text("撤销本次匹配？") },
+        text = { Text("将恢复上一次 TMDB 匹配或回到未匹配。手动修改和观看记录会保留。") },
+        confirmButton = { TextButton(onClick = { confirmUndo = false; onAction(PhoneMediaAction.UndoMatch) }) { Text("撤销匹配") } },
+        dismissButton = { TextButton(onClick = { confirmUndo = false }) { Text("取消") } },
+    )
 }
 
 /** Host-provided source roots and policy choices are authoritative: do not invent local/NAS

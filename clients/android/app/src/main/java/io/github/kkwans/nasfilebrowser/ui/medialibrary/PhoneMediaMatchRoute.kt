@@ -68,15 +68,18 @@ internal fun PhoneMediaMatchRoute(repository: MediaLibraryRepository, ref: Media
                 } finally { loading = false }
             }
         }
-        fun confirm(candidate: MediaProviderCandidate?) {
+        fun submit(candidate: MediaProviderCandidate? = null, undo: MediaProviderIdentification? = null) {
             val previous = pending
-            if (busy || previous == null && candidate?.canConfirm != true) return
+            if (busy || previous == null && candidate?.canConfirm != true && undo?.undoMatchRevision == null) return
             val operation = previous ?: repository.newOperation()
             busy = true; error = null
             scope.launch {
                 try {
-                    val result = if (previous != null) repository.retryOperation(previous)
-                        else repository.confirmMatch(operation, requireNotNull(candidate))
+                    val result = when {
+                        previous != null -> repository.retryOperation(previous)
+                        undo != null -> repository.undoMatch(operation, undo)
+                        else -> repository.confirmMatch(operation, requireNotNull(candidate))
+                    }
                     when (result) {
                         is MediaWriteResult.Success -> { repository.forgetResolvedOperation(operation); onMatched() }
                         is MediaWriteResult.Failure -> {
@@ -101,16 +104,18 @@ internal fun PhoneMediaMatchRoute(repository: MediaLibraryRepository, ref: Media
                     } }.joinToString(" · ").ifBlank { null })
             }, loading = loading, hasMore = nextPage != null), selected?.externalId,
             selected?.let { MediaMatchImpact(it.externalId, revision, "为此条目使用《${it.title}》的 TMDB 资料。", listOf("原视频和已经锁定的字段会保留。"), it.canConfirm) },
-            busy = busy, canApply = pending == null, problem = error ?: pending?.let { MediaProblem("结果待确认", "可以确认上次的匹配操作。", "确认上次操作") }),
+            busy = busy, canApply = pending == null, problem = error ?: pending?.let { MediaProblem("结果待确认", "可以确认上次的匹配操作。", "确认上次操作") },
+            canUndo = pending == null && !loading && item?.undoMatchRevision != null),
             imageLoader, onAction = { action ->
                 when (action) {
                     PhoneMediaAction.Back -> if (!busy) onBack()
                     is PhoneMediaAction.MatchQuery -> { query = action.query; selected = null }
                     is PhoneMediaAction.SearchMatches -> if (!busy && pending == null) search(action.query, 1)
                     is PhoneMediaAction.PreviewMatch -> selected = candidates.firstOrNull { it.externalId == action.candidateId }
-                    is PhoneMediaAction.ApplyMatch -> confirm(selected?.takeIf { it.externalId == action.candidateId })
+                    is PhoneMediaAction.ApplyMatch -> submit(selected?.takeIf { it.externalId == action.candidateId })
+                    PhoneMediaAction.UndoMatch -> submit(undo = identification)
                     is PhoneMediaAction.LoadMore -> nextPage?.let { search(searchedQuery, it) }
-                    is PhoneMediaAction.Retry -> if (pending != null) confirm(null) else refresh++
+                    is PhoneMediaAction.Retry -> if (pending != null) submit() else refresh++
                     is PhoneMediaAction.ReloadMatch -> refresh++
                     else -> Unit
                 }
