@@ -177,7 +177,7 @@ internal static class FloatingNotice
             _bar.BorderBrush = ThemePalette.Brush("FwStrokeBrush", theme);
             _bar.BorderThickness = new Thickness(1);
             _bar.CornerRadius = new CornerRadius(Compact ? 16 : 10);
-            _bar.Background = Compact ? PopupMaterials.InWindowBrush(theme) : background;
+            _bar.Background = Compact ? PopupMaterials.NoticeBrush(theme) : background;
         }
         private void OpenChanged()
         {

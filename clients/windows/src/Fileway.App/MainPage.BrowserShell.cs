@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Input;
+using Microsoft.UI.Xaml.Media;
 using Windows.System;
 
 namespace Fileway.App;
@@ -171,6 +172,18 @@ public sealed partial class MainPage
         if (_directory is null) EndPathEdit();
     }
     private void EditPath_Click(object sender, RoutedEventArgs args) => BeginPathEdit();
+    private void PathLocationHost_Tapped(object sender, TappedRoutedEventArgs args)
+    {
+        if (PathBox.Visibility == Visibility.Visible) return;
+        for (var source = args.OriginalSource as DependencyObject;
+             source is not null && source != PathLocationHost;
+             source = VisualTreeHelper.GetParent(source))
+            if (source is BreadcrumbBarItem or ButtonBase) return;
+
+        BeginPathEdit();
+        args.Handled = PathBox.Visibility == Visibility.Visible;
+    }
+
     private void BeginPathEdit()
     {
         if (_directory is null || _disposed || _connecting || Workspace.Visibility != Visibility.Visible || ConnectionPanel.Visibility == Visibility.Visible) return;

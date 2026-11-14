@@ -4,6 +4,7 @@ using Fileway.Core.Contracts;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Automation;
 using Windows.Foundation;
 
 namespace Fileway.App;
@@ -70,9 +71,7 @@ public sealed partial class MainPage
     {
         if (_disposed) return false;
         var hasLayout = _noticeLayouts.TryGetValue(bar, out var layout);
-        var compact = hasLayout && _compactNoticeLayer is not null && !string.IsNullOrWhiteSpace(bar.Title) &&
-            string.IsNullOrWhiteSpace(bar.Message) &&
-            bar.Severity is InfoBarSeverity.Success or InfoBarSeverity.Informational or InfoBarSeverity.Warning;
+        var compact = hasLayout && _compactNoticeLayer is not null;
         if (compact && _noticeLayouts.Keys.Any(other =>
                 other != bar && other.IsOpen && Controls.FloatingNotice.IsCompact(other) &&
                 Controls.FloatingNotice.IsInteracting(other)))
@@ -82,6 +81,12 @@ public sealed partial class MainPage
         }
         if (hasLayout)
         {
+            if (compact)
+            {
+                AutomationProperties.SetHelpText(bar, bar.Message);
+                ToolTipService.SetToolTip(bar, string.IsNullOrWhiteSpace(bar.Message) ? null : bar.Message);
+                if (string.IsNullOrWhiteSpace(bar.Title)) bar.Title = bar.Message;
+            }
             Panel destination = compact ? _compactNoticeLayer! : FeedbackLayout;
             if (bar.Parent is Panel parent && !ReferenceEquals(parent, destination))
             {
@@ -120,15 +125,18 @@ public sealed partial class MainPage
             else layer.LayoutUpdated -= CompactNoticeLayoutUpdated;
             _observingCompactNoticeLayout = observe;
         }
+        titleBar.SetNoticeRegion(notice);
         if (notice is null || layer.ActualWidth <= 24 || layer.ActualHeight <= 0) return;
 
-        const double sideInset = 12;
-        var maxWidth = Math.Min(400, layer.ActualWidth - 2 * sideInset);
+        var slot = titleBar.GetNoticeSlot(layer);
+        var windowCenter = layer.ActualWidth / 2;
+        var centeredWidth = 2 * Math.Min(windowCenter - slot.Left, slot.Right - windowCenter);
+        var maxWidth = Math.Min(slot.Width, Math.Clamp(centeredWidth, 232, 300));
         if (notice.MaxWidth != maxWidth) notice.MaxWidth = maxWidth;
         notice.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
         var size = notice.DesiredSize;
-        var position = new Point(Math.Max(sideInset, layer.ActualWidth - size.Width - sideInset),
-            titleBar.ActualHeight + 8);
+        var center = Math.Clamp(windowCenter, slot.Left + maxWidth / 2, slot.Left + (slot.Width - maxWidth / 2));
+        var position = new Point(center - size.Width / 2, slot.Top + Math.Max(0, (slot.Height - size.Height) / 2));
         if (Canvas.GetLeft(notice) != position.X) Canvas.SetLeft(notice, position.X);
         if (Canvas.GetTop(notice) != position.Y) Canvas.SetTop(notice, position.Y);
     }
@@ -141,6 +149,7 @@ public sealed partial class MainPage
 
         if (_compactNoticeLayer is { } layer && _observingCompactNoticeLayout)
             layer.LayoutUpdated -= CompactNoticeLayoutUpdated;
+        _applicationTitleBar?.SetNoticeRegion(null);
         Controls.FloatingNotice.Detach(LoginNotice);
         foreach (var (bar, layout) in _noticeLayouts)
         {

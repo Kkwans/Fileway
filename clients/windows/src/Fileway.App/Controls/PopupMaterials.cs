@@ -145,4 +145,15 @@ internal static class PopupMaterials
             _ => surface,
         };
     }
+
+    internal static Brush NoticeBrush(ElementTheme theme)
+    {
+        var surface = ThemePalette.Brush("FwSurfaceRaisedBrush", theme);
+        return Effective switch
+        {
+            PopupMaterial.Acrylic => new FwBlurBrush { Tint = surface.Color, Radius = 23f, BackdropAmount = 0.36f },
+            PopupMaterial.SoftBlur => new FwBlurBrush { Tint = surface.Color },
+            _ => surface,
+        };
+    }
 }

@@ -4,6 +4,7 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
+using Windows.Foundation;
 
 namespace Fileway.App.Controls;
 
@@ -31,6 +32,8 @@ public sealed partial class WindowTitleBar : UserControl
 
     public FrameworkElement DragRegion => DragSurface;
     public FrameworkElement MaximizeButtonElement => MaximizeButton;
+    private IReadOnlyList<FrameworkElement> _browserMenuRegions = [];
+    private FrameworkElement? _noticeRegion;
     public IReadOnlyList<FrameworkElement> InteractiveRegions { get; private set; } = [];
     public double MinimumWindowWidth { get; private set; }
     public double MinimumWindowHeight { get; private set; }
@@ -77,7 +80,29 @@ public sealed partial class WindowTitleBar : UserControl
         ToolTipService.SetToolTip(DragSurface, null);
         NavigationPresenter.Content = content;
         NavigationPresenter.Visibility = Visibility.Visible;
-        InteractiveRegions = interactiveRegions;
+        _browserMenuRegions = InteractiveRegions = interactiveRegions;
+    }
+
+    internal void SetNoticeRegion(FrameworkElement? notice)
+    {
+        if (ReferenceEquals(_noticeRegion, notice)) return;
+        _noticeRegion = notice;
+        InteractiveRegions = notice is null ? _browserMenuRegions : [.. _browserMenuRegions, notice];
+    }
+
+    internal Rect GetNoticeSlot(FrameworkElement layer)
+    {
+        const double margin = 8;
+        if (!IsLoaded || Visibility != Visibility.Visible)
+            return new Rect(margin, margin, Math.Max(0, layer.ActualWidth - 2 * margin), 32);
+
+        var left = _browserMenuRegions.Where(element => element.IsLoaded && element.Visibility == Visibility.Visible)
+            .Select(element => Bounds(element).Right).DefaultIfEmpty(0).Max() + margin;
+        var right = Bounds(MinimizeButton).Left - margin;
+        return new Rect(left, 0, Math.Max(0, right - left), ActualHeight);
+
+        Rect Bounds(FrameworkElement element) => element.TransformToVisual(layer).TransformBounds(
+            new Rect(0, 0, element.ActualWidth, element.ActualHeight));
     }
 
     public event EventHandler? MinimizeRequested;

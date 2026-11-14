@@ -13,6 +13,8 @@ public sealed class FwBlurBrush : XamlCompositionBrushBase
     private CompositionBackdropBrush? _source;
 
     public Color Tint { get; init; }
+    internal float Radius { get; init; } = 12f;
+    internal float BackdropAmount { get; init; } = 0.24f;
 
     protected override void OnConnected()
     {
@@ -23,11 +25,11 @@ public sealed class FwBlurBrush : XamlCompositionBrushBase
             var graph = new ArithmeticCompositeEffect
             {
                 MultiplyAmount = 0,
-                Source1Amount = 0.24f,
-                Source2Amount = 0.76f,
+                Source1Amount = BackdropAmount,
+                Source2Amount = 1f - BackdropAmount,
                 Source1 = new GaussianBlurEffect
                 {
-                    BlurAmount = 12f,
+                    BlurAmount = Radius,
                     BorderMode = EffectBorderMode.Hard,
                     Optimization = EffectOptimization.Balanced,
                     Source = new CompositionEffectSourceParameter("backdrop"),
