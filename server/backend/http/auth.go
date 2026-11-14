@@ -98,6 +98,40 @@ func renewableErr(err error, d *data) bool {
 	return true
 }
 
+// liveRequestAuthCheck revalidates the original request credential against the
+// current signing settings during bounded media reads. The credential remains
+// in the request only; it is never placed in a lease or persisted.
+func liveRequestAuthCheck(r *http.Request, d *data, viewer uint, session string) func() error {
+	return func() error {
+		configuration, err := d.store.Settings.Get()
+		if err != nil || configuration == nil {
+			return fmt.Errorf("身份验证不可用")
+		}
+		keyFunc := func(token *jwt.Token) (interface{}, error) {
+			if token.Header["kid"] == "fileway.device.v1" {
+				if d.store.Devices == nil {
+					return nil, fmt.Errorf("设备授权不可用")
+				}
+				return d.store.Devices.SigningKey()
+			}
+			if _, present := token.Header["kid"]; present {
+				return nil, fmt.Errorf("未知签名密钥")
+			}
+			return configuration.Key, nil
+		}
+		var claims authToken
+		parser := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithExpirationRequired())
+		token, err := request.ParseFromRequest(r, &extractor{}, keyFunc, request.WithClaims(&claims), request.WithParser(parser))
+		if token == nil || ((err != nil || !token.Valid) && (token.Header["kid"] != nil || !renewableErr(err, &data{settings: configuration}))) {
+			return fmt.Errorf("身份验证已失效")
+		}
+		if claims.User.ID != viewer || claims.DeviceSession != session || session != "" && (token.Header["kid"] != "fileway.device.v1" || claims.Scope != "media") {
+			return fmt.Errorf("身份验证已失效")
+		}
+		return nil
+	}
+}
+
 func withUser(fn handleFunc) handleFunc {
 	return func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
 		keyFunc := func(token *jwt.Token) (interface{}, error) {
@@ -160,6 +194,7 @@ func withUser(fn handleFunc) handleFunc {
 			copy.Commands = []string{}
 			d.user = &copy
 		}
+		d.authCheck = liveRequestAuthCheck(r, d, d.user.ID, d.deviceSession)
 		return fn(w, r, d)
 	}
 }

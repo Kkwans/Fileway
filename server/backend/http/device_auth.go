@@ -30,7 +30,35 @@ func deviceMediaRoute(method, path string, user uint) bool {
 	if method == http.MethodPost && path == "/api"+subtitlePagesRoute {
 		return true
 	}
+	parts := strings.Split(p, "/")
+	if method == http.MethodPost && len(parts) == 7 && parts[0] == "media-library" && parts[1] == "v1" && parts[2] == "libraries" && parts[4] == "items" && parts[6] == "playback-resolutions" {
+		return true
+	}
 	if method == http.MethodGet || method == http.MethodHead {
+		if len(parts) >= 3 && parts[0] == "media-library" && parts[1] == "v1" {
+			if parts[2] == "streams" && len(parts) == 5 && parts[4] == "original" {
+				return true
+			}
+			if parts[2] == "libraries" {
+				if len(parts) == 3 || len(parts) == 4 || len(parts) == 5 && parts[4] == "items" {
+					return true
+				}
+				if len(parts) >= 6 && parts[4] == "items" {
+					if len(parts) == 6 {
+						return true
+					}
+					if len(parts) == 7 {
+						switch parts[6] {
+						case "variants", "credits", "ratings", "artwork", "external-ids", "issues":
+							return true
+						}
+					}
+					if len(parts) == 8 && parts[6] == "artwork" {
+						return true
+					}
+				}
+			}
+		}
 		if strings.HasPrefix(path, "/api"+subtitleFileRoute+"/") {
 			return true
 		}

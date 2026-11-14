@@ -14,6 +14,10 @@ func openSubtitleResource(afero.Fs, string, string, bool, bool) (*SubtitleResour
 	return nil, ErrSubtitleScopeUnavailable
 }
 
+func openSubtitleChild(*os.File, string) (*SubtitleResource, error) {
+	return nil, ErrSubtitleScopeUnavailable
+}
+
 func subtitleResourceStamp(*os.File, os.FileInfo) (string, error) {
 	return "", ErrSubtitleScopeUnavailable
 }

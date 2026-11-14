@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/Kkwans/nas-file-browser/backend/mediasource"
 	"github.com/spf13/afero"
 )
 
@@ -61,6 +63,55 @@ func TestBindingProofDistinguishesOfflineScopeChangeAndReplacement(t *testing.T)
 	}
 	if _, err := VerifyLocalBindingProof(t.Context(), 7, "fixture", root, authority, nil); !errors.Is(err, ErrBindingUnverified) {
 		t.Fatalf("legacy proof accepted: %v", err)
+	}
+}
+
+func TestAttestedRootHandleKeepsChildLookupOnProvenDirectory(t *testing.T) {
+	f := newScanFixture(t)
+	authority, err := f.resolve(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := []byte("/media")
+	proof, err := CaptureLocalBindingProof(t.Context(), 7, "fixture", root, authority)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.root, "media", "one.mp4"), []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	held, err := OpenAttestedLocalRoot(t.Context(), 7, "fixture", root, authority, proof)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = held.Close() }()
+	if err := os.Rename(filepath.Join(f.root, "media"), filepath.Join(f.root, "old-media")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(f.root, "media"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(f.root, "media", "one.mp4"), []byte("replacement"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	local, err := mediasource.NewLocal(string(root), f.resolve)
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := local.OpenFromVerifiedRoot(t.Context(), authority, held, "one.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = child.Close() }()
+	content, err := io.ReadAll(child.File)
+	if err != nil || string(content) != "original" {
+		t.Fatalf("child crossed root handle: %q %v", content, err)
+	}
+	if _, err := OpenAttestedLocalRoot(t.Context(), 7, "fixture", root, authority, proof); !errors.Is(err, ErrBindingChanged) {
+		t.Fatalf("replacement root accepted: %v", err)
+	}
+	if _, err := local.OpenFromVerifiedRoot(t.Context(), authority, held, "../media/one.mp4"); err == nil {
+		t.Fatal("parent traversal accepted")
 	}
 }
 

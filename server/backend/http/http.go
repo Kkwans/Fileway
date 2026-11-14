@@ -36,10 +36,12 @@ type archiveCacheHandler struct {
 	cache         *archivefs.EntryCache
 	subtitlePages *subtitlePages
 	mediaScans    *mediascan.Scheduler
+	mediaLeases   *mediaPlaybackLeases
 }
 
 func (handler *archiveCacheHandler) Close() error {
 	handler.subtitlePages.close()
+	handler.mediaLeases.close()
 	return errors.Join(handler.mediaScans.Close(), handler.cache.Close())
 }
 
@@ -113,6 +115,8 @@ func NewHandler(
 	api := r.PathPrefix("/api").Subrouter()
 	spriteService := newVideoSpriteService(fileCache)
 	subtitlePages := newSubtitlePages()
+	mediaLeases := newMediaPlaybackLeases()
+	artworkPermits := make(chan struct{}, 2)
 
 	api.Handle("/login", monkey(loginHandler(), ""))
 	api.Handle("/signup", monkey(signupHandler, ""))
@@ -132,6 +136,10 @@ func NewHandler(
 	api.Handle("/media-library/v1/libraries/{id}/sources/{bindingId}/attest", monkey(mediaLibraryAttestSourceHandler, "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/items", monkey(mediaItemsListHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}", monkey(mediaItemGetHandler, "")).Methods("GET")
+	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/variants", monkey(mediaVariantsHandler, "")).Methods("GET")
+	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/artwork/{artworkId}", monkey(mediaArtworkHandler(artworkPermits), "")).Methods("GET", "HEAD")
+	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/playback-resolutions", monkey(mediaPlaybackResolutionHandler(mediaLeases), "")).Methods("POST")
+	api.Handle("/media-library/v1/streams/{lease}/original", monkey(mediaPlaybackStreamHandler(mediaLeases), "")).Methods("GET", "HEAD")
 	for _, kind := range []string{"credits", "ratings", "artwork", "external-ids", "issues"} {
 		api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/"+kind, monkey(mediaItemCollectionHandler(kind), "")).Methods("GET")
 	}
@@ -288,5 +296,5 @@ func NewHandler(
 	public.PathPrefix("/dl").Handler(monkey(publicDlHandler, "/api/public/dl/")).Methods("GET")
 	public.PathPrefix("/share").Handler(monkey(publicShareHandler, "/api/public/share/")).Methods("GET")
 
-	return &archiveCacheHandler{Handler: stripPrefix(server.BaseURL, r), cache: entryCache, subtitlePages: subtitlePages, mediaScans: mediaScans}, nil
+	return &archiveCacheHandler{Handler: stripPrefix(server.BaseURL, r), cache: entryCache, subtitlePages: subtitlePages, mediaScans: mediaScans, mediaLeases: mediaLeases}, nil
 }

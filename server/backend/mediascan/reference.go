@@ -9,6 +9,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/Kkwans/nas-file-browser/backend/files"
 	"github.com/Kkwans/nas-file-browser/backend/mediasource"
 )
 
@@ -87,4 +88,39 @@ func relativeLocalLocator(root, locator []byte) (string, error) {
 		return "", fs.ErrInvalid
 	}
 	return relative, nil
+}
+
+// RelativeLocalLocator preserves the locator's original bytes while proving it
+// is a descendant of the stored binding root.
+func RelativeLocalLocator(root, locator []byte) (string, error) {
+	return relativeLocalLocator(root, locator)
+}
+
+// MatchOpenedLocalReference checks the actual open handle against scan evidence.
+// A path-only identity establishes neither continuity nor an object identity;
+// callers must retain the opened handle and mark cross-open resume unsafe.
+func MatchOpenedLocalReference(resource *files.SubtitleResource, key []byte, kind, version string) error {
+	if resource == nil || resource.File == nil || len(key) == 0 || version == "" {
+		return ErrBindingUnverified
+	}
+	info, _, err := resource.State()
+	if err != nil {
+		return err
+	}
+	if info == nil || !info.Mode().IsRegular() || fmt.Sprintf("v1:%d:%d", info.Size(), info.ModTime().UnixNano()) != version {
+		return ErrBindingChanged
+	}
+	switch IdentityKind(kind) {
+	case IdentityNative:
+		actual, ok := nativeObjectKey(resource.File)
+		if !ok || !bytes.Equal(actual, key) {
+			return ErrBindingChanged
+		}
+	case IdentityPathUnverified, IdentityKind("legacy_unverified"):
+		// Version is a change marker only; it does not prove this object is the
+		// one observed during scanning.
+	default:
+		return ErrBindingUnverified
+	}
+	return nil
 }

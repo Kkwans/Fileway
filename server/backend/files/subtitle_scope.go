@@ -74,6 +74,23 @@ func OpenSubtitleResource(filesystem afero.Fs, serverRoot, name string, director
 	return openSubtitleResource(filesystem, serverRoot, name, directory, readData)
 }
 
+// OpenSubtitleChild opens a regular child beneath an already opened directory.
+// The caller must first authenticate that exact directory handle and check the
+// current path policy. No path lookup from the process root is performed.
+func OpenSubtitleChild(root *SubtitleResource, relative string) (*SubtitleResource, error) {
+	if root == nil || root.File == nil || relative == "" || strings.HasPrefix(relative, "/") || path.Clean(relative) != relative || relative == ".." || strings.HasPrefix(relative, "../") || strings.ContainsRune(relative, 0) {
+		return nil, fs.ErrInvalid
+	}
+	info, _, err := root.State()
+	if err != nil {
+		return nil, err
+	}
+	if info == nil || !info.IsDir() || IsPrivateMediaFile(info) {
+		return nil, fs.ErrPermission
+	}
+	return openSubtitleChild(root.File, relative)
+}
+
 // Resolve the configured user filesystem relative to the administrator's
 // server root. The native opener still verifies every component below it.
 func subtitleBasePath(filesystem afero.Fs, serverRoot string) (root, scope string, err error) {

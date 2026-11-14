@@ -98,9 +98,10 @@ func openSubtitleWindows(root string, scope, requested []string, directory, read
 		last := i == len(segments)-1
 		isDir := !last || directory
 		access = windows.FILE_READ_ATTRIBUTES | windows.SYNCHRONIZE
-		if !last {
+		if !last || isDir {
 			access |= windows.FILE_TRAVERSE
-		} else if readData {
+		}
+		if last && readData {
 			// FILE_READ_DATA and FILE_LIST_DIRECTORY use the same bit.
 			access |= windows.FILE_READ_DATA
 		}
@@ -136,6 +137,59 @@ func openSubtitleWindows(root string, scope, requested []string, directory, read
 		resource.watch = watch
 	}
 	return resource, nil
+}
+
+func openSubtitleChild(root *os.File, relative string) (*SubtitleResource, error) {
+	if !utf8.ValidString(relative) || strings.ContainsRune(relative, '\\') {
+		return nil, fs.ErrPermission
+	}
+	process := windows.CurrentProcess()
+	var handle windows.Handle
+	if err := windows.DuplicateHandle(process, windows.Handle(root.Fd()), process, &handle, 0, false, windows.DUPLICATE_SAME_ACCESS); err != nil {
+		return nil, err
+	}
+	defer func() { _ = windows.CloseHandle(handle) }()
+	canonical, err := subtitleWindowsFinalPath(handle)
+	if err != nil {
+		return nil, err
+	}
+	segments := strings.Split(relative, "/")
+	for i, segment := range segments {
+		if !filepath.IsLocal(segment) || strings.ContainsAny(segment, `\\/:`) || strings.TrimRight(segment, ". ") != segment {
+			return nil, fs.ErrPermission
+		}
+		last := i == len(segments)-1
+		access := uint32(windows.FILE_READ_ATTRIBUTES | windows.SYNCHRONIZE | windows.FILE_TRAVERSE)
+		if last {
+			access = windows.FILE_READ_ATTRIBUTES | windows.SYNCHRONIZE | windows.FILE_READ_DATA
+		}
+		child, err := openSubtitleWindowsChild(handle, segment, access, !last)
+		if err != nil {
+			return nil, err
+		}
+		_ = windows.CloseHandle(handle)
+		handle = child
+		actual, err := subtitleWindowsFinalPath(handle)
+		if err != nil {
+			return nil, err
+		}
+		actualParent, actualName := filepath.Split(actual)
+		if strings.TrimRight(actualParent, `\`) != strings.TrimRight(canonical, `\`) || actualName != segment {
+			return nil, fs.ErrPermission
+		}
+		canonical = actual
+	}
+	if !subtitleWindowsVolume(handle, canonical) {
+		return nil, ErrSubtitleScopeUnavailable
+	}
+	file := os.NewFile(uintptr(handle), canonical)
+	handle = windows.InvalidHandle
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || IsPrivateMediaFile(info) {
+		_ = file.Close()
+		return nil, fs.ErrPermission
+	}
+	return &SubtitleResource{File: file}, nil
 }
 
 func subtitleWindowsVolume(handle windows.Handle, name string) bool {

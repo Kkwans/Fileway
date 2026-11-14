@@ -225,6 +225,71 @@ is unavailable while any metadata source for the item is restricted.
 Both mutations return a receipt `{itemId, revision, metadataRevision}`; fetch
 the current detail separately. Their receipts and edits commit atomically.
 
+## Local artwork and original-media access
+
+These routes are an incremental local-source capability, not a declaration that
+the complete media-library player protocol is ready. All paths below retain the
+`/api/media-library/v1` prefix. Ordinary authenticated accounts and explicitly
+authorized media device sessions may read; device sessions do not gain library
+management or metadata-write permissions.
+
+The current native opener retains the subtitle subsystem's filesystem limits:
+Linux permits ext4, Btrfs, XFS and tmpfs; Windows requires a supported local
+volume. Mounted SMB/NFS and container overlay paths are not yet supported by
+this implementation. Supporting them requires separating safe handle access
+from directory notification/snapshot guarantees; this is a remaining first-release
+requirement, not an authorization to bypass root or identity checks.
+
+`GET /libraries/{id}/items/{itemId}/variants` accepts `limit` (1–100, default 20)
+and an optional opaque `cursor`. It returns `{items, nextCursor?}`. Each candidate
+contains `itemId`, `editionId`, `variantId`, `bindingId`, `sourceFileId`,
+`editionName`, `isDefault`, `sourceLabel`, `displayName`, `contentType`, `size`,
+`fileRevision`, `identityEpoch`, and `weakIdentity`. `durationSeconds` and
+`resolution` are currently null; they must not be presented as measured values.
+The first currently authorized binding is selected for each variant. Inaccessible
+variants are omitted, without disclosing hidden counts or physical paths. A page
+may therefore be empty with a next cursor; clients must follow that cursor.
+
+`POST /libraries/{id}/items/{itemId}/playback-resolutions` takes `editionId`,
+`variantId`, and `bindingId`. It returns `itemId`, `editionId`, `variantId`,
+`sourceFileId`, `fileRevision`, `identityEpoch`, `weakIdentity`, `displayName`,
+`contentType`, `size`, nullable `durationSeconds` and `resolution`,
+`rangeSupported`, `canResumeAcrossOpen`, `resumeRequiresSameRevision`, `url`,
+and `expiresAt` (Unix milliseconds). The URL is a same-origin authenticated
+`/streams/{lease}/original` resource supporting GET and HEAD, conditional
+requests and HTTP byte ranges. It never contains a source credential or an
+upstream media URL. A lease is bound to the requesting account and device
+session; knowledge of its opaque ID is not authorization.
+
+The current lease retains its initial verified file handle and expires after
+five minutes. Same-lease range seeks are supported. Both native and weak file
+identities currently return `canResumeAcrossOpen: false` and
+`resumeRequiresSameRevision: true`: native IDs and size/mtime markers alone do
+not prove an unchanged timeline across opens. Lease renewal, reliable cross-open
+resume and long-play integration remain required work before the player is
+release-ready; clients must not blindly reopen and reuse an offset on expiry.
+
+`GET|HEAD /libraries/{id}/items/{itemId}/artwork/{artworkId}` reads an authorized
+local NFO artwork declaration. This stage accepts only relative JPEG/PNG files
+within the attested source root, limits input and output to 8 MiB, limits each
+dimension to 8192 and total pixels to 16 Mi, and permits two concurrent decodes.
+Images are decoded and re-encoded before delivery. URLs, absolute paths, root
+escapes and SVG are rejected. This route currently preserves image dimensions;
+display-sized thumbnail variants and their cache are not yet implemented.
+Standalone local artwork discovery without an NFO is also pending.
+
+Reads keep the viewer separate from the source owner and check both the current
+library grant and current source-owner authority. They use the same verified
+root handle for child opens and fence source identity, binding proof, mapping
+and authorization revisions. JWT/device validity and authorization are checked
+before conditional responses and before each bounded block of media bytes.
+Revoked or changed access invalidates the lease; metadata-only edits and library
+renaming do not intentionally interrupt playback. Images additionally verify
+the NFO digest, artwork declaration and an authorized video source. Existing
+file download permission is not granted to shared-library viewers. Subtitles,
+fonts, media probes and compatibility transcodes are not exposed by these new
+routes yet and must not fall back to impersonating the library owner.
+
 ## Failures and compatibility
 
 The endpoints use the existing server HTTP error envelope. Invalid query
@@ -233,5 +298,7 @@ catalog 503. Internal SQLite details and filesystem paths are not returned. An
 empty library list is distinct from a disabled catalog or a failed request.
 
 Clients must not interpret an HTTP failure as a permanently unsupported server,
-nor retry a mutation against a legacy file endpoint. Playback is a separate,
-not-yet-implemented authority boundary.
+nor retry a mutation against a legacy file endpoint. Inaccessible local media
+and artwork return a deliberately non-disclosing 404. Lease capacity or artwork
+decode saturation returns 503. The local read routes above do not imply complete
+player, watch-state or handoff compatibility.

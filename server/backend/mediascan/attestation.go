@@ -98,34 +98,33 @@ func mappingDigest(owner uint, configuration string, root []byte, authority medi
 	return sum[:], nil
 }
 
-func bindingRootIdentity(ctx context.Context, root []byte, authority mediasource.LocalAuthority) (kind string, identity []byte, resultErr error) {
+func openBindingRoot(ctx context.Context, root []byte, authority mediasource.LocalAuthority) (*files.SubtitleResource, error) {
 	if err := ctx.Err(); err != nil {
-		return "", nil, err
+		return nil, err
 	}
 	if authority.Check == nil || !authority.Check(string(root)) || files.IsPrivateResourcePath(authority.FS, string(root)) {
-		return "", nil, fs.ErrPermission
+		return nil, fs.ErrPermission
 	}
 	if drive, ok := authority.FS.(*files.DriveFs); ok && files.IsVirtualComputerRoot(authority.ServerRoot) && bytes.Equal(root, []byte("/")) {
 		if _, err := drive.RealPath("/"); err != nil {
 			// The computer container is a chooser, not a single physical root.
 			// Reject before enumerating drives; actual selected volumes still work.
-			return "", nil, ErrBindingRootSelection
+			return nil, ErrBindingRootSelection
 		}
 	}
 	resource, err := files.OpenSubtitleResource(authority.FS, authority.ServerRoot, string(root), true, false)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
-	defer func() {
-		if err := resource.Close(); resultErr == nil && err != nil {
-			resultErr = err
-		}
-	}()
+	return resource, nil
+}
+
+func bindingHandleIdentity(resource *files.SubtitleResource) (string, []byte, error) {
 	info, _, err := resource.State()
 	if err != nil {
 		return "", nil, err
 	}
-	if info == nil && resource.File == nil && files.IsVirtualComputerRoot(authority.ServerRoot) && bytes.Equal(root, []byte("/")) {
+	if info == nil && resource.File == nil {
 		return "", nil, ErrBindingRootSelection
 	}
 	if info == nil || !info.IsDir() || resource.File == nil || files.IsPrivateMediaFile(info) {
@@ -136,6 +135,51 @@ func bindingRootIdentity(ctx context.Context, root []byte, authority mediasource
 		return "", nil, ErrBindingUnverified
 	}
 	return "native", append([]byte("fileway/root/v1\x00"), key...), nil
+}
+
+func bindingRootIdentity(ctx context.Context, root []byte, authority mediasource.LocalAuthority) (kind string, identity []byte, resultErr error) {
+	resource, err := openBindingRoot(ctx, root, authority)
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() {
+		if err := resource.Close(); resultErr == nil && err != nil {
+			resultErr = err
+		}
+	}()
+	return bindingHandleIdentity(resource)
+}
+
+// OpenAttestedLocalRoot returns the very directory handle whose mapping and
+// native identity were proven. Open children through this handle, never by
+// reopening a root pathname after the proof check.
+func OpenAttestedLocalRoot(ctx context.Context, owner uint, configuration string, root []byte, authority mediasource.LocalAuthority, proof *medialibrary.BindingProof) (*files.SubtitleResource, error) {
+	if proof == nil || proof.Version != 1 || len(proof.MappingDigest) != sha256.Size || len(proof.RootIdentity) == 0 {
+		return nil, ErrBindingUnverified
+	}
+	digest, err := mappingDigest(owner, configuration, root, authority)
+	if err != nil {
+		return nil, err
+	}
+	if !bytes.Equal(digest, proof.MappingDigest) {
+		return nil, ErrBindingChanged
+	}
+	resource, err := openBindingRoot(ctx, root, authority)
+	if err != nil {
+		return nil, err
+	}
+	kind, identity, err := bindingHandleIdentity(resource)
+	if err == nil && (kind != proof.RootIdentityKind || !bytes.Equal(identity, proof.RootIdentity)) {
+		err = ErrBindingChanged
+	}
+	if err == nil {
+		err = ctx.Err()
+	}
+	if err != nil {
+		_ = resource.Close()
+		return nil, err
+	}
+	return resource, nil
 }
 
 // CaptureLocalBindingProof is used only after an explicit owner action. It

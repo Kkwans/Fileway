@@ -105,6 +105,42 @@ func openSubtitleResource(filesystem afero.Fs, serverRoot, name string, director
 	return resource, nil
 }
 
+func openSubtitleChild(root *os.File, relative string) (*SubtitleResource, error) {
+	fd, err := unix.Openat2(int(root.Fd()), relative, &subtitleOpenHow)
+	if errors.Is(err, unix.ELOOP) || errors.Is(err, unix.EXDEV) {
+		return nil, fs.ErrPermission
+	}
+	if err != nil {
+		return nil, err
+	}
+	file := os.NewFile(uintptr(fd), "/proc/self/fd/"+strconv.Itoa(fd))
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() || IsPrivateMediaFile(info) {
+		_ = file.Close()
+		if err != nil {
+			return nil, err
+		}
+		return nil, fs.ErrPermission
+	}
+	var filesystemState unix.Statfs_t
+	if unix.Fstatfs(fd, &filesystemState) != nil || !subtitleLinuxFilesystem(int64(filesystemState.Type)) {
+		_ = file.Close()
+		return nil, ErrSubtitleScopeUnavailable
+	}
+	// Reopen the held object, not its mutable original pathname.
+	opened, err := os.Open("/proc/self/fd/" + strconv.Itoa(fd))
+	_ = file.Close()
+	if err != nil {
+		return nil, err
+	}
+	current, err := opened.Stat()
+	if err != nil || !os.SameFile(info, current) || IsPrivateMediaFile(current) {
+		_ = opened.Close()
+		return nil, fs.ErrPermission
+	}
+	return &SubtitleResource{File: opened}, nil
+}
+
 func subtitleLinuxFilesystem(kind int64) bool {
 	// Remote writers on network filesystems and updates through an overlay's
 	// lower/upper mounts do not reliably reach this directory's inotify queue.

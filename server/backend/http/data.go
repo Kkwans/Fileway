@@ -31,6 +31,7 @@ type data struct {
 	store         *storage.Storage
 	user          *users.User
 	deviceSession string
+	authCheck     func() error
 	apiPath       string
 	raw           interface{}
 }
@@ -90,6 +91,9 @@ func handle(fn handleFunc, prefix string, store *storage.Storage, server *settin
 			loggedPath := r.URL.Path
 			if prefix == "/api"+subtitleFileRoute {
 				loggedPath = prefix
+			}
+			if strings.HasPrefix(r.URL.Path, "/api/media-library/v1/streams/") {
+				loggedPath = "/api/media-library/v1/streams/{lease}"
 			}
 			log.Printf("%s: %v %s %v", loggedPath, status, clientIP, err)
 		}

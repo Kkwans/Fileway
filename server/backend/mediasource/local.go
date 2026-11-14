@@ -88,6 +88,46 @@ func (source *Local) Open(ctx context.Context, locator string, directory bool) (
 	return resource, nil
 }
 
+// OpenFromVerifiedRoot opens a file below the exact root handle authenticated
+// by the caller. Policy checks remain against the source owner's live rules.
+// The caller must resolve the authority and attest root in the same operation.
+func (source *Local) OpenFromVerifiedRoot(ctx context.Context, authority LocalAuthority, root *files.SubtitleResource, locator string) (*files.SubtitleResource, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if locator == "" || strings.HasPrefix(locator, "/") || path.Clean(locator) != locator || locator == ".." || strings.HasPrefix(locator, "../") || invalidLocalPath(locator) {
+		return nil, fs.ErrInvalid
+	}
+	if authority.FS == nil || !authority.CanRead || authority.Check == nil {
+		return nil, fs.ErrPermission
+	}
+	target := path.Join(source.root, locator)
+	for current := target; ; current = path.Dir(current) {
+		if !authority.Check(current) || files.IsPrivateResourcePath(authority.FS, current) {
+			return nil, fs.ErrPermission
+		}
+		if current == source.root {
+			break
+		}
+		if current == "/" {
+			return nil, fs.ErrPermission
+		}
+	}
+	resource, err := files.OpenSubtitleChild(root, locator)
+	if err != nil {
+		return nil, err
+	}
+	if err := checkOpenedResource(resource, false); err != nil {
+		_ = resource.Close()
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
+		_ = resource.Close()
+		return nil, err
+	}
+	return resource, nil
+}
+
 // The path policy can race with a rename or hard-link swap. Inspect the actual
 // opened object as well, for both files and directories, before returning it.
 // A nil info is only valid for the explicitly virtual computer directory.
