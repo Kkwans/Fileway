@@ -72,7 +72,7 @@ type TMDBClient struct {
 
 func NewTMDBClient(client *http.Client, token TokenSource) *TMDBClient {
 	if client == nil {
-		client = &http.Client{Timeout: 15 * time.Second}
+		client = NewTMDBHTTPClient(TMDBHosts{})
 	}
 	copy := *client
 	copy.Jar = nil
@@ -106,11 +106,19 @@ func (client *TMDBClient) get(ctx context.Context, route string, query url.Value
 	if err != nil || token == "" || strings.ContainsAny(token, "\r\n") {
 		return &Error{Code: NeedsConfig}
 	}
+	if validV3Key(token) {
+		if query == nil {
+			query = make(url.Values)
+		}
+		query.Set("api_key", token)
+	}
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, tmdbAPI+route+"?"+query.Encode(), nil)
 	if err != nil {
 		return &Error{Code: InvalidRequest}
 	}
-	request.Header.Set("Authorization", "Bearer "+token)
+	if !validV3Key(token) {
+		request.Header.Set("Authorization", "Bearer "+token)
+	}
 	request.Header.Set("Accept", "application/json")
 	response, err := client.http.Do(request)
 	if err != nil {
@@ -156,6 +164,18 @@ func (client *TMDBClient) get(ctx context.Context, route string, query url.Value
 		return &Error{Code: InvalidResponse}
 	}
 	return ctx.Err()
+}
+
+func validV3Key(value string) bool {
+	if len(value) != 32 {
+		return false
+	}
+	for _, c := range value {
+		if !(c >= '0' && c <= '9' || c >= 'a' && c <= 'f' || c >= 'A' && c <= 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 func parseRetryAfter(value string, now time.Time) time.Time {
