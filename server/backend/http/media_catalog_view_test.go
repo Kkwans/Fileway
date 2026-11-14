@@ -163,7 +163,7 @@ func TestCatalogHTTPRealOfflineJourneyAndSourceFiltering(t *testing.T) {
 		"show/Season 1/Show.S01E01.720p.mkv": "copy",
 		"show/Season 1/Show.S01E02E03.mkv":   "combined",
 		"film.mkv":                           "movie",
-		"film.nfo":                           `<movie><title>Visible movie</title></movie>`,
+		"film.nfo":                           `<movie><title>Visible movie</title><uniqueid type="tmdb">123</uniqueid></movie>`,
 		"unmatched.mkv":                      "unmatched",
 	} {
 		catalogFixtureWrite(t, f, name, content)
@@ -245,6 +245,20 @@ func TestCatalogHTTPRealOfflineJourneyAndSourceFiltering(t *testing.T) {
 		t.Fatalf("episode order: %+v", episodes)
 	}
 	episodeBase := fmt.Sprintf("/api/media-library/v1/libraries/%s/items/%s", library.ID, episodes.Items[0].EpisodeID)
+	movieIdentification := fmt.Sprintf("/api/media-library/v1/libraries/%s/items/%s/identification", library.ID, movieID)
+	identified := f.call(t, f.viewer.ID, http.MethodGet, movieIdentification, nil)
+	var identification mediaIdentificationResponse
+	if identified.Code != http.StatusOK || json.Unmarshal(identified.Body.Bytes(), &identification) != nil ||
+		identification.MatchState != "local_confirmed" || identification.File == nil || identification.File.Filename != "film.mkv" ||
+		len(identification.ExternalIDs) != 1 || identification.ExternalIDs[0].Provider != "tmdb" || identification.ExternalIDs[0].Value != "123" {
+		t.Fatalf("identification: %d %s", identified.Code, identified.Body)
+	}
+	seriesIdentification := f.call(t, f.viewer.ID, http.MethodGet, base+"/identification", nil)
+	identification = mediaIdentificationResponse{}
+	if seriesIdentification.Code != http.StatusOK || json.Unmarshal(seriesIdentification.Body.Bytes(), &identification) != nil ||
+		identification.Title != "Visible series" || identification.File != nil {
+		t.Fatalf("series identification used episode filename: %d %s", seriesIdentification.Code, seriesIdentification.Body)
+	}
 	variantResponse := f.call(t, f.viewer.ID, http.MethodGet, episodeBase+"/variants", nil)
 	var variants struct {
 		Items []mediaVariantResponse `json:"items"`
@@ -297,6 +311,12 @@ func TestCatalogHTTPRealOfflineJourneyAndSourceFiltering(t *testing.T) {
 	if err = f.h.storage.Users.Update(owner, "Rules"); err != nil {
 		t.Fatal(err)
 	}
+	hiddenEvidence := f.call(t, f.viewer.ID, http.MethodGet, movieIdentification, nil)
+	identification = mediaIdentificationResponse{}
+	if hiddenEvidence.Code != http.StatusOK || json.Unmarshal(hiddenEvidence.Body.Bytes(), &identification) != nil ||
+		identification.Title == "Visible movie" || identification.MatchState != "unmatched" || len(identification.ExternalIDs) != 0 || identification.File == nil {
+		t.Fatalf("identification leaked a revoked NFO or removed a visible file: %d %s", hiddenEvidence.Code, hiddenEvidence.Body)
+	}
 	restricted := f.call(t, f.viewer.ID, http.MethodGet, base, nil)
 	if restricted.Code != http.StatusOK || strings.Contains(restricted.Body.String(), "Visible series") || strings.Contains(restricted.Body.String(), "Series private plot") {
 		t.Fatalf("parent NFO leaked: %d %s", restricted.Code, restricted.Body)
@@ -323,6 +343,9 @@ func TestCatalogHTTPRealOfflineJourneyAndSourceFiltering(t *testing.T) {
 	}
 	if r := f.call(t, f.viewer.ID, http.MethodGet, fmt.Sprintf("/api/media-library/v1/libraries/%s/items/%s", library.ID, movieID), nil); r.Code != http.StatusNotFound {
 		t.Fatalf("revoked video visible: %d %s", r.Code, r.Body)
+	}
+	if r := f.call(t, f.viewer.ID, http.MethodGet, movieIdentification, nil); r.Code != http.StatusNotFound {
+		t.Fatalf("revoked video evidence visible: %d %s", r.Code, r.Body)
 	}
 	owner.Rules = []rules.Rule{{Path: "/films/show/Season 1/Show.S01E01.mkv", Allow: false}, {Path: "/films/show/Season 1/Show.S01E01.720p.mkv", Allow: false}}
 	if err = f.h.storage.Users.Update(owner, "Rules"); err != nil {

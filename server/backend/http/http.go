@@ -139,6 +139,7 @@ func NewHandler(
 	api.Handle("/media-library/v1/libraries/{id}/sources/{bindingId}/attest", monkey(mediaLibraryAttestSourceHandler, "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/items", monkey(mediaItemsListHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}", monkey(mediaItemGetHandler, "")).Methods("GET")
+	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/identification", monkey(mediaIdentificationHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/seasons", monkey(mediaCatalogSeasonsHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/episodes", monkey(mediaCatalogEpisodesHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/episode-counts", monkey(mediaCatalogEpisodeCountsHandler, "")).Methods("GET")

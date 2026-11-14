@@ -57,6 +57,22 @@ only currently confirmed and visible movies or series. `canActions` and
 sessions cannot claim metadata or library-management writes. Watch-state and
 online matching actions are `feature_unavailable` until implemented.
 
+## Identification evidence
+
+`GET /libraries/{id}/items/{itemId}/identification` returns the current
+authorized display title, structure and match state with item and structure
+revisions. The first page includes up to 20 visible typed external IDs.
+Continue through the existing `external-ids` route using
+`externalIdsNextCursor` and `itemRevision`.
+
+For a leaf item, `file` can describe filename evidence from the selected
+visible source, including title/year hints, parsed season/episode numbers,
+explicit provider ID hints and review reasons. This is local identification
+evidence. A series or season never uses a descendant's filename as its own
+evidence. A revoked NFO stops contributing IDs and classification even if
+the associated video is still visible. The response contains no source
+locator, credential or provider request.
+
 ## Series and playback
 
 - `GET /libraries/{id}/items/{series}/seasons` returns authorized seasons in
