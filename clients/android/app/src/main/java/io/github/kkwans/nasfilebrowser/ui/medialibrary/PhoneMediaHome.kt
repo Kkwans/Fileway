@@ -49,8 +49,7 @@ import io.github.kkwans.fileway.design.R as Art
                     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (onDrawer != null) MediaIconAction(Art.drawable.fileway_ic_menu, "打开导航菜单", onDrawer)
                         Text("影视", Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.headlineMedium)
-                        if (state.canManage) MediaIconAction(R.drawable.ic_settings, "管理媒体库",
-                            { onAction(PhoneMediaAction.ManageLibraries) })
+                        MediaIconAction(R.drawable.ic_settings, "影视设置", { onAction(PhoneMediaAction.Settings) })
                     }
                 }
                 state.problem?.let { problem -> item(key = "problem", span = { GridItemSpan(maxLineSpan) }) {

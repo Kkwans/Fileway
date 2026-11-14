@@ -40,7 +40,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
             }
             item(key = "search") {
                 OutlinedTextField(state.query, { onAction(PhoneMediaAction.MatchQuery(it)) }, modifier = Modifier.fillMaxWidth(),
-                    label = { Text("片名、年份或外部 ID") }, singleLine = true,
+                    label = { Text("片名") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = {
                         if (state.query.isNotBlank() && !state.busy) {
                             focus.clearFocus(); onAction(PhoneMediaAction.SearchMatches(state.query))
@@ -61,7 +61,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
             } }
             item(key = "candidate-heading") { MediaHeading("匹配候选") }
             if (state.candidates.entries.isEmpty() && !state.candidates.loading && state.candidates.problem == null) item(key = "empty") {
-                FilewayEmptyState(R.drawable.ic_search, "暂无候选", "修改名称或补充年份后再次搜索；也可以使用提供方的外部 ID。")
+                FilewayEmptyState(R.drawable.ic_search, "暂无候选", "可用中文片名或原名查找作品。")
             }
             items(state.candidates.entries, key = { "candidate/${it.id}" }) { candidate ->
                 Surface(shape = MaterialTheme.shapes.medium,
@@ -69,7 +69,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                     Row(Modifier.fillMaxWidth().selectable(candidate.id == state.selectedCandidate, enabled = !state.busy,
                         role = Role.RadioButton, onClick = { onAction(PhoneMediaAction.PreviewMatch(candidate.id, state.revision)) })
                         .padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                        MediaImage(candidate.poster, imageLoader, Modifier.width(64.dp).aspectRatio(2f / 3f))
+                        if (candidate.poster != null) MediaImage(candidate.poster, imageLoader, Modifier.width(64.dp).aspectRatio(2f / 3f))
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             Text(candidate.title, style = MaterialTheme.typography.titleMedium)
                             Text(candidate.metadata, style = MaterialTheme.typography.bodySmall)

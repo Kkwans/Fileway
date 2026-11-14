@@ -83,6 +83,7 @@ internal enum class MediaTargetKind { ITEM, EPISODE, CONTINUE }
 internal sealed interface PhoneMediaAction {
     data object Back : PhoneMediaAction
     data object Search : PhoneMediaAction
+    data object Settings : PhoneMediaAction
     data object ManageLibraries : PhoneMediaAction
     data object CreateLibrary : PhoneMediaAction
     data object Filters : PhoneMediaAction

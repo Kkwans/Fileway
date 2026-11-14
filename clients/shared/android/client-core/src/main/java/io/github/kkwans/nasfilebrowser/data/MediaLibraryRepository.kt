@@ -247,6 +247,148 @@ class MediaLibraryRepository(
         } }
     }
 
+    suspend fun providerStatus(): MediaReadResult<MediaProviderStatus> = catalogRead(null) {
+        parseProviderStatus(context.api.request("GET", "/api/media-library/v1/provider-status"))
+    }
+
+    suspend fun providerConnections(limit: Int = 50, cursor: MediaProviderConnectionCursor? = null): MediaReadResult<MediaProviderConnectionPage> {
+        require(limit in 1..100)
+        val previous = cursor?.use(scope, catalogDeviceSession, limit)
+        val query = pageQuery(limit, previous, 64)
+        return catalogRead(null) {
+            val row = context.api.request("GET", "/api/media-library/v1/provider-connections?$query")
+            val items = row.getJSONArray("items")
+            require(items.length() <= limit)
+            val next = if (row.has("nextCursor")) (row.get("nextCursor") as? String ?: error("资料连接分页无效")) else null
+            next?.let { requireProviderConnectionId(it); require(it != previous) }
+            MediaProviderConnectionPage((0 until items.length()).map { parseProviderConnection(items.getJSONObject(it), scope) },
+                next?.let { MediaProviderConnectionCursor(it, scope, catalogDeviceSession, limit) })
+        }
+    }
+
+    /** HTTP 422 means the provider rejected the stored credential; 429 means busy or rate limited. */
+    suspend fun checkProviderConnection(connectionId: String): MediaReadResult<MediaProviderCheck> {
+        requireProviderConnectionId(connectionId)
+        return catalogRead(null) {
+            parseProviderCheck(context.api.request("POST", "/api/media-library/v1/provider-connections/$connectionId/check", JSONObject()), connectionId)
+        }
+    }
+
+    /** The token is sent only in this call and is never added to the persistent write journal. */
+    suspend fun createPersonalProvider(operation: MediaOperation, token: String): MediaProviderCredentialResult {
+        requireProviderToken(token)
+        return providerCredentialWrite(operation, "POST", "/api/media-library/v1/provider-connections",
+            operationBody(operation).put("ownerKind", "user").put("token", token), null)
+    }
+
+    /** Rotate only a personal connection received in this session. Refresh after an unknown result. */
+    suspend fun rotatePersonalProvider(operation: MediaOperation, connection: MediaProviderConnection, token: String): MediaProviderCredentialResult {
+        requireProviderToken(token)
+        require(connection.scope == scope && connection.owner == MediaProviderOwner.USER && connection.ownerUserId == scope.account.userId)
+        requireProviderConnectionId(connection.id)
+        return providerCredentialWrite(operation, "PUT", "/api/media-library/v1/provider-connections/${connection.id}",
+            revisionBody(operation, connection.revision).put("token", token), connection.id)
+    }
+
+    private suspend fun providerCredentialWrite(operation: MediaOperation, method: String, endpoint: String, body: JSONObject,
+        expectedId: String?): MediaProviderCredentialResult {
+        checkCurrent(); checkCatalogCredential()
+        require(operation.account == scope.account) { "操作不属于当前账号或服务器" }
+        var acknowledged: MediaProviderCredentialResult? = null
+        try {
+            withTimeout(30_000) {
+                context.api.actionWithAcknowledgement(method, endpoint, body) { status, text ->
+                    acknowledged = try {
+                        require(!text.isNullOrBlank())
+                        val connection = parseProviderConnection(JSONObject(text), scope)
+                        require(connection.provider == "tmdb" && connection.owner == MediaProviderOwner.USER &&
+                            connection.ownerUserId == scope.account.userId && (expectedId == null || connection.id == expectedId))
+                        MediaProviderCredentialResult.Success(scope, operation, connection, context.api.sessionHealth.value)
+                    } catch (_: Exception) {
+                        MediaProviderCredentialResult.Failure(scope, operation,
+                            MediaFailure(MediaFailureKind.INVALID_RESPONSE, status, mutationMayHaveCommitted = true))
+                    }
+                }
+            }
+            checkCurrent(); checkCatalogCredential()
+            return when (val result = checkNotNull(acknowledged)) {
+                is MediaProviderCredentialResult.Success -> result.copy(sessionHealth = context.api.sessionHealth.value)
+                is MediaProviderCredentialResult.Failure -> result
+            }
+        } catch (_: TimeoutCancellationException) {
+            checkCurrent(); checkCatalogCredential()
+            return providerCredentialIncomplete(acknowledged) ?: MediaProviderCredentialResult.Failure(scope, operation,
+                MediaFailure(MediaFailureKind.NETWORK, mutationMayHaveCommitted = true))
+        } catch (error: CancellationException) { throw error }
+        catch (error: Exception) {
+            checkCurrent(); checkCatalogCredential()
+            return providerCredentialIncomplete(acknowledged) ?: MediaProviderCredentialResult.Failure(scope, operation, providerFailure(error, true))
+        }
+    }
+
+    suspend fun metadataPolicy(libraryId: String): MediaReadResult<MediaProviderPolicy> {
+        requireMediaRouteId(libraryId)
+        return catalogRead(null) {
+            parseProviderPolicy(context.api.request("GET", "${libraryEndpoint(libraryId)}/metadata-policy")).also { require(it.libraryId == libraryId) }
+        }
+    }
+
+    suspend fun updateMetadataPolicy(operation: MediaOperation, libraryId: String, expectedRevision: Long,
+        mode: MediaProviderPolicyMode, connectionId: String? = null, language: String = "", region: String = "",
+        allowEditorJobs: Boolean = false): MediaWriteResult<MediaProviderPolicy> {
+        requireProviderPolicy(mode, connectionId, language, region)
+        return providerWrite(mutation(operation, MediaMutationKind.UPDATE_METADATA_POLICY, libraryId,
+            body = revisionBody(operation, expectedRevision).put("mode", mode.wire).put("connectionId", connectionId ?: "")
+                .put("language", language).put("region", region).put("allowEditorJobs", allowEditorJobs)))
+    }
+
+    suspend fun identification(ref: MediaCatalogRef): MediaReadResult<MediaProviderIdentification> {
+        ref.requireBound(scope, catalogDeviceSession)
+        return catalogRead(null) { parseProviderIdentification(context.api.request("GET", "${itemEndpoint(ref.libraryId, ref.itemId)}/identification"), ref) }
+    }
+
+    /** Page is an explicit bounded provider query; searching does not change the match. */
+    suspend fun searchMatchCandidates(identification: MediaProviderIdentification, kind: MediaProviderMatchKind, page: Int = 1,
+        title: String? = null, year: Int? = null, connectionId: String? = null): MediaReadResult<MediaProviderCandidatePage> {
+        identification.ref.requireBound(scope, catalogDeviceSession)
+        require(page in 1..500 && (year == null || year in 1000..9999))
+        connectionId?.let(::requireProviderConnectionId)
+        title?.let { require(it.toByteArray(Charsets.UTF_8).size <= 512 && it.none { c -> c.isISOControl() || c == '/' || c == '\\' }) }
+        val body = JSONObject().put("itemRevision", identification.itemRevision).put("structureRevision", identification.structureRevision)
+            .put("kind", kind.wire).put("page", page).put("title", title ?: "").put("year", year ?: 0).put("connectionId", connectionId ?: "")
+        return catalogRead(null) {
+            val row = context.api.request("POST", "${itemEndpoint(identification.ref.libraryId, identification.ref.itemId)}/match-candidates", body)
+            parseProviderCandidates(row, identification, kind, page, connectionId)
+        }
+    }
+
+    /** Confirm only an explicitly chosen candidate; the exact request is recoverable in the journal. */
+    suspend fun confirmMatch(operation: MediaOperation, candidate: MediaProviderCandidate): MediaWriteResult<MediaProviderMatchReceipt> {
+        candidate.ref.requireBound(scope, catalogDeviceSession)
+        require(candidate.canConfirm) { "当前条目不支持此类型的在线匹配" }
+        return providerWrite(mutation(operation, MediaMutationKind.CONFIRM_PROVIDER_MATCH, candidate.ref.libraryId, itemId = candidate.ref.itemId,
+            body = operationBody(operation).put("kind", candidate.kind.wire).put("externalId", candidate.externalId)
+                .put("itemRevision", candidate.itemRevision).put("structureRevision", candidate.structureRevision)
+                .put("connectionId", candidate.connectionId ?: "")))
+    }
+
+    suspend fun pendingMetadataPolicyOperation(libraryId: String): MediaOperation? {
+        requireMediaRouteId(libraryId); checkCurrent(); checkCatalogCredential()
+        return journal.firstUnresolved(scope.account, setOf(MediaMutationKind.UPDATE_METADATA_POLICY), libraryId)
+    }
+
+    suspend fun pendingMatchConfirmation(ref: MediaCatalogRef): MediaOperation? {
+        ref.requireBound(scope, catalogDeviceSession); checkCurrent(); checkCatalogCredential()
+        return journal.firstUnresolved(scope.account, setOf(MediaMutationKind.CONFIRM_PROVIDER_MATCH), ref.libraryId, ref.itemId)
+    }
+
+    private suspend fun <T> providerWrite(request: MediaMutationRequest): MediaWriteResult<T> {
+        checkCatalogCredential()
+        val result = typedWrite<T>(request)
+        checkCurrent(); checkCatalogCredential()
+        return result
+    }
+
     suspend fun listItemCredits(libraryId: String, itemId: String, revision: Long, limit: Int = 20, cursor: String? = null) =
         itemPage(libraryId, itemId, "credits", revision, limit, cursor, ::parseMediaCredit)
     suspend fun listItemRatings(libraryId: String, itemId: String, revision: Long, limit: Int = 20, cursor: String? = null) =
@@ -329,6 +471,13 @@ class MediaLibraryRepository(
         typedWrite(mutation(operation, MediaMutationKind.START_SCAN, libraryId,
             body = revisionBody(operation, expectedRevision).put("bindingId", bindingId).put("rulesRevision", rulesRevision)))
 
+    suspend fun startScanBatch(operation: MediaOperation, libraryId: String, sources: List<MediaLibrarySource>, rulesRevision: Long): MediaWriteResult<MediaScanBatch> {
+        require(sources.all { it.libraryId == libraryId })
+        val entries = JSONArray(sources.sortedBy { it.id }.map { JSONObject().put("bindingId", it.id).put("expectedRevision", it.revision) })
+        return typedWrite(mutation(operation, MediaMutationKind.START_SCAN_BATCH, libraryId,
+            body = operationBody(operation).put("rulesRevision", rulesRevision).put("sources", entries)))
+    }
+
     suspend fun cancelScan(operation: MediaOperation, libraryId: String, scanId: String, expectedGeneration: Long): MediaWriteResult<MediaScan> =
         typedWrite(mutation(operation, MediaMutationKind.CANCEL_SCAN, libraryId, scanId, body = generationBody(operation, expectedGeneration)))
 
@@ -339,8 +488,11 @@ class MediaLibraryRepository(
     suspend fun retryOperation(operation: MediaOperation): MediaWriteResult<Any> {
         require(operation.account == scope.account) { "操作不属于当前账号或服务器" }
         val request = journal.replay(operation)
-        if (request.kind == MediaMutationKind.PATCH_USER_STATE) checkCatalogCredential()
-        return write(request)
+        val catalogBound = request.kind in setOf(MediaMutationKind.PATCH_USER_STATE, MediaMutationKind.UPDATE_METADATA_POLICY, MediaMutationKind.CONFIRM_PROVIDER_MATCH)
+        if (catalogBound) checkCatalogCredential()
+        val result = write(request)
+        if (catalogBound) { checkCurrent(); checkCatalogCredential() }
+        return result
     }
 
     suspend fun getUserState(ref: MediaCatalogRef): MediaReadResult<MediaCatalogUserState> {
@@ -374,7 +526,7 @@ class MediaLibraryRepository(
         checkCurrent()
         return journal.firstUnresolved(scope.account, setOf(
             MediaMutationKind.CREATE_LIBRARY, MediaMutationKind.CREATE_SOURCE,
-            MediaMutationKind.START_SCAN, MediaMutationKind.CANCEL_SCAN, MediaMutationKind.RETRY_SCAN,
+            MediaMutationKind.START_SCAN, MediaMutationKind.START_SCAN_BATCH, MediaMutationKind.CANCEL_SCAN, MediaMutationKind.RETRY_SCAN,
         ))
     }
 
@@ -390,6 +542,10 @@ class MediaLibraryRepository(
     private suspend fun write(request: MediaMutationRequest): MediaWriteResult<Any> {
         checkCurrent()
         require(request.operation.account == scope.account) { "操作不属于当前账号或服务器" }
+        val providerRequest = request.kind in setOf(MediaMutationKind.UPDATE_METADATA_POLICY, MediaMutationKind.CONFIRM_PROVIDER_MATCH)
+        val previouslyUnknown = providerRequest && journal.records(scope.account).any {
+            it.operation == request.operation && (it.state == MediaWriteState.UNKNOWN || it.state == MediaWriteState.ACKNOWLEDGED_INVALID_RESPONSE)
+        }
         val started = try { withTimeout(2_000) { journal.begin(scope, request) } }
         catch (_: TimeoutCancellationException) { false }
         if (!started) return MediaWriteResult.Failure(scope, request.operation, MediaFailure(MediaFailureKind.STORAGE), true)
@@ -397,6 +553,7 @@ class MediaLibraryRepository(
         try {
             // The account can change while the write-ahead record is being saved.
             checkCurrent()
+            if (providerRequest) checkCatalogCredential()
             withTimeout(30_000) {
                 context.api.actionWithAcknowledgement(request.method, request.endpoint, request.body()) { status, text ->
                     val parsed = try {
@@ -430,12 +587,12 @@ class MediaLibraryRepository(
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) {
             acknowledgement?.let { return syncIncomplete(it) }
-            val failure = mediaFailure(error, true)
+            val failure = if (providerRequest) providerFailure(error, true) else mediaFailure(error, true)
             // These endpoints recheck source authority after committing. A
             // 4xx from that second check is not proof that no write occurred.
             val postCommitCheck = request.kind in setOf(MediaMutationKind.CREATE_SOURCE, MediaMutationKind.ATTEST_SOURCE,
                 MediaMutationKind.PATCH_METADATA, MediaMutationKind.UNDO_METADATA)
-            return failedWrite(request, if (postCommitCheck && failure.status != null && failure.status in setOf(400, 403, 404, 409))
+            return failedWrite(request, if ((previouslyUnknown || postCommitCheck && failure.status != null && failure.status in setOf(400, 403, 404, 409)))
                 failure.copy(mutationMayHaveCommitted = true) else failure)
         } finally { journal.finish(request.operation) }
     }
@@ -451,6 +608,27 @@ class MediaLibraryRepository(
 private fun syncIncomplete(result: MediaWriteResult<Any>): MediaWriteResult<Any> = when (result) {
     is MediaWriteResult.Success -> result.copy(sessionSyncIncomplete = true)
     is MediaWriteResult.Failure -> result
+}
+
+private fun providerCredentialIncomplete(result: MediaProviderCredentialResult?): MediaProviderCredentialResult? = when (result) {
+    is MediaProviderCredentialResult.Success -> result.copy(sessionSyncIncomplete = true)
+    is MediaProviderCredentialResult.Failure, null -> result
+}
+
+private fun requireProviderToken(token: String) {
+    require(token.isNotEmpty() && token.toByteArray(Charsets.UTF_8).size <= 4096 &&
+        token.none { it.isWhitespace() || Character.isSpaceChar(it) || it.isISOControl() }) { "TMDB 凭据格式无效" }
+    require(runCatching { Charsets.UTF_8.newEncoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+        .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT).encode(java.nio.CharBuffer.wrap(token)) }.isSuccess) { "TMDB 凭据格式无效" }
+}
+
+private fun providerFailure(error: Exception, write: Boolean): MediaFailure {
+    val failure = mediaFailure(error, write)
+    return when (failure.status) {
+        422 -> failure.copy(kind = MediaFailureKind.INVALID, mutationMayHaveCommitted = false)
+        429 -> failure.copy(kind = MediaFailureKind.RATE_LIMITED, mutationMayHaveCommitted = false)
+        else -> failure
+    }
 }
 
 private fun mutation(operation: MediaOperation, kind: MediaMutationKind, libraryId: String? = null, scanId: String? = null,
@@ -506,9 +684,12 @@ private fun receipt(request: MediaMutationRequest, value: Any): MediaWriteReceip
     is MediaLibrarySource -> MediaWriteReceipt(value.libraryId, sourceBindingId = value.id.also(::requireMediaRouteId),
         revision = value.revision, libraryRevision = value.libraryRevision)
     is MediaScan -> MediaWriteReceipt(value.libraryId, scanId = value.id.also(::requireMediaRouteId), scanGeneration = value.generation)
+    is MediaScanBatch -> MediaWriteReceipt(value.libraryId)
     is MediaMetadataReceipt -> MediaWriteReceipt(requireNotNull(request.libraryId), revision = value.revision,
         itemId = value.itemId, metadataRevision = value.metadataRevision)
     is MediaCatalogUserState -> MediaWriteReceipt(requireNotNull(request.libraryId),
         revision = value.revision.takeIf { it > 0 }, itemId = request.itemId)
+    is MediaProviderPolicy -> MediaWriteReceipt(value.libraryId, revision = value.revision.takeIf { it > 0 })
+    is MediaProviderMatchReceipt -> MediaWriteReceipt(value.libraryId, revision = value.itemRevision, itemId = value.itemId)
     else -> error("媒体库回执类型无效")
 }

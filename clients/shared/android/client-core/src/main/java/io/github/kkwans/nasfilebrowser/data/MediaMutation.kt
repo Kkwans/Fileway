@@ -5,6 +5,7 @@ import org.json.JSONObject
 internal enum class MediaMutationKind {
     CREATE_LIBRARY, UPDATE_LIBRARY, ARCHIVE_LIBRARY, RESTORE_LIBRARY, GRANT_MEMBER, REVOKE_MEMBER,
     CREATE_SOURCE, START_SCAN, CANCEL_SCAN, RETRY_SCAN, ATTEST_SOURCE, PATCH_METADATA, UNDO_METADATA, PATCH_USER_STATE,
+    UPDATE_METADATA_POLICY, CONFIRM_PROVIDER_MATCH, START_SCAN_BATCH,
 }
 
 internal fun requireMediaRouteId(value: String) {
@@ -39,6 +40,7 @@ internal class MediaMutationRequest(
             MediaMutationKind.GRANT_MEMBER -> setOf("operationId", "expectedRevision", "role")
             MediaMutationKind.CREATE_SOURCE, MediaMutationKind.ATTEST_SOURCE -> setOf("operationId", "expectedRevision", "wireRoot")
             MediaMutationKind.START_SCAN -> setOf("operationId", "expectedRevision", "bindingId", "rulesRevision")
+            MediaMutationKind.START_SCAN_BATCH -> setOf("operationId", "rulesRevision", "sources")
             MediaMutationKind.CANCEL_SCAN, MediaMutationKind.RETRY_SCAN -> setOf("operationId", "expectedGeneration")
             MediaMutationKind.PATCH_METADATA -> setOf("operationId", "expectedRevision", "fields")
             MediaMutationKind.UNDO_METADATA -> setOf("operationId", "expectedRevision", "targetRevision")
@@ -51,19 +53,33 @@ internal class MediaMutationRequest(
                 }
                 require(size > 2)
             }
+            MediaMutationKind.UPDATE_METADATA_POLICY -> setOf("operationId", "expectedRevision", "mode", "connectionId", "language", "region", "allowEditorJobs")
+            MediaMutationKind.CONFIRM_PROVIDER_MATCH -> setOf("operationId", "itemRevision", "structureRevision", "kind", "externalId", "connectionId")
         }
         input.exactKeys(keys)
         // Normal JNI commands are capped at 1 MiB; leave headroom for the envelope.
         val maxBody = if (kind == MediaMutationKind.PATCH_METADATA) 768 * 1024 else 8192
         require(input.strictString("operationId") == operation.id && json.toByteArray(Charsets.UTF_8).size <= maxBody)
-        if ("expectedRevision" in keys) input.strictLong("expectedRevision", if (kind == MediaMutationKind.PATCH_USER_STATE) 0 else 1)
+        if ("expectedRevision" in keys) input.strictLong("expectedRevision", if (kind in setOf(MediaMutationKind.PATCH_USER_STATE, MediaMutationKind.UPDATE_METADATA_POLICY)) 0 else 1)
         if ("expectedGeneration" in keys) input.strictLong("expectedGeneration")
         if ("targetRevision" in keys) input.strictLong("targetRevision")
         if ("rulesRevision" in keys) input.strictLong("rulesRevision")
+        if (kind == MediaMutationKind.START_SCAN_BATCH) scanBatchBindings(input)
         if ("bindingId" in keys) input.strictString("bindingId").also(::requireMediaId)
         if ("wireRoot" in keys) MediaSourceRoot.fromWire(input.strictString("wireRoot"))
         if ("role" in keys) require(input.strictString("role") in setOf("viewer", "editor"))
         if ("fields" in keys) validateMediaMetadataPatch(input.getJSONObject("fields"))
+        if (kind == MediaMutationKind.UPDATE_METADATA_POLICY) {
+            val mode = MediaProviderPolicyMode.entries.firstOrNull { it != MediaProviderPolicyMode.UNKNOWN && it.wire == input.strictString("mode") }
+            requireProviderPolicy(requireNotNull(mode), input.strictString("connectionId").ifEmpty { null }, input.strictString("language"), input.strictString("region"))
+            require(input.get("allowEditorJobs") is Boolean)
+        }
+        if (kind == MediaMutationKind.CONFIRM_PROVIDER_MATCH) {
+            input.strictLong("itemRevision"); input.strictLong("structureRevision")
+            require(input.strictString("kind") in setOf("movie", "series"))
+            requireProviderExternalId(input.strictString("externalId"))
+            input.strictString("connectionId").takeIf(String::isNotEmpty)?.let(::requireProviderConnectionId)
+        }
         if ("name" in keys) {
             val name = input.strictString("name").trim()
             require(name.isNotEmpty() && name.codePointCount(0, name.length) <= 200 && name.none(Char::isISOControl))
@@ -72,7 +88,7 @@ internal class MediaMutationRequest(
         if (kind in setOf(MediaMutationKind.CANCEL_SCAN, MediaMutationKind.RETRY_SCAN)) requireMediaRouteId(requireNotNull(scanId)) else require(scanId == null)
         if (kind in setOf(MediaMutationKind.GRANT_MEMBER, MediaMutationKind.REVOKE_MEMBER)) require(userId != null && userId in 1..0xffff_ffffL) else require(userId == null)
         if (kind == MediaMutationKind.ATTEST_SOURCE) requireMediaRouteId(requireNotNull(bindingId)) else require(bindingId == null)
-        if (kind in setOf(MediaMutationKind.PATCH_METADATA, MediaMutationKind.UNDO_METADATA, MediaMutationKind.PATCH_USER_STATE)) requireMediaRouteId(requireNotNull(itemId)) else require(itemId == null)
+        if (kind in setOf(MediaMutationKind.PATCH_METADATA, MediaMutationKind.UNDO_METADATA, MediaMutationKind.PATCH_USER_STATE, MediaMutationKind.CONFIRM_PROVIDER_MATCH)) requireMediaRouteId(requireNotNull(itemId)) else require(itemId == null)
     }
 
     fun body(): JSONObject = JSONObject(json)
@@ -81,7 +97,7 @@ internal class MediaMutationRequest(
 
     val method: String get() = when (kind) {
         MediaMutationKind.UPDATE_LIBRARY, MediaMutationKind.PATCH_METADATA, MediaMutationKind.PATCH_USER_STATE -> "PATCH"
-        MediaMutationKind.GRANT_MEMBER -> "PUT"
+        MediaMutationKind.GRANT_MEMBER, MediaMutationKind.UPDATE_METADATA_POLICY -> "PUT"
         MediaMutationKind.REVOKE_MEMBER -> "DELETE"
         else -> "POST"
     }
@@ -99,7 +115,10 @@ internal class MediaMutationRequest(
             MediaMutationKind.PATCH_METADATA -> "$library/items/$itemId/metadata"
             MediaMutationKind.UNDO_METADATA -> "$library/items/$itemId/metadata/undo"
             MediaMutationKind.PATCH_USER_STATE -> "$library/items/$itemId/user-state"
+            MediaMutationKind.UPDATE_METADATA_POLICY -> "$library/metadata-policy"
+            MediaMutationKind.CONFIRM_PROVIDER_MATCH -> "$library/items/$itemId/match-confirmation"
             MediaMutationKind.START_SCAN -> "$library/scans"
+            MediaMutationKind.START_SCAN_BATCH -> "$library/scan-batches"
             MediaMutationKind.CANCEL_SCAN -> "$library/scans/$scanId/cancel"
             MediaMutationKind.RETRY_SCAN -> "$library/scans/$scanId/retry"
             MediaMutationKind.CREATE_LIBRARY -> error("invalid operation")
@@ -115,6 +134,19 @@ internal class MediaMutationRequest(
         }
         MediaMutationKind.PATCH_METADATA, MediaMutationKind.UNDO_METADATA -> parseMediaMetadataReceipt(row).also { require(it.itemId == itemId) }
         MediaMutationKind.PATCH_USER_STATE -> parseMediaCatalogUserState(row)
+        MediaMutationKind.START_SCAN_BATCH -> {
+            val expected = scanBatchBindings(body())
+            val items = row.getJSONArray("items")
+            require(items.length() == expected.size)
+            val jobs = (0 until items.length()).map { parseMediaScan(items.getJSONObject(it)) }
+            require(jobs.all { it.libraryId == libraryId } && jobs.mapNotNull { it.bindingId }.toSet() == expected)
+            MediaScanBatch(requireNotNull(libraryId), jobs)
+        }
+        MediaMutationKind.UPDATE_METADATA_POLICY -> parseProviderPolicy(row).also { require(it.libraryId == libraryId) }
+        MediaMutationKind.CONFIRM_PROVIDER_MATCH -> parseProviderMatchReceipt(row).also {
+            val input = body()
+            require(it.libraryId == libraryId && it.itemId == itemId && it.kind.wire == input.strictString("kind") && it.externalId == input.strictString("externalId"))
+        }
         MediaMutationKind.START_SCAN, MediaMutationKind.CANCEL_SCAN, MediaMutationKind.RETRY_SCAN -> parseMediaScan(row).also {
             require(it.libraryId == libraryId)
             if (kind == MediaMutationKind.CANCEL_SCAN) require(it.id == scanId)
@@ -148,6 +180,17 @@ internal class MediaMutationRequest(
             return MediaMutationRequest(operation, kind, library, scan, user, binding, item, value.getJSONObject("body"))
         }
     }
+}
+
+private fun scanBatchBindings(input: JSONObject): Set<String> {
+    val sources = input.getJSONArray("sources")
+    require(sources.length() in 1..60)
+    return (0 until sources.length()).map { index ->
+        val source = sources.getJSONObject(index)
+        source.exactKeys(setOf("bindingId", "expectedRevision"))
+        source.strictLong("expectedRevision")
+        source.strictString("bindingId").also(::requireMediaRouteId)
+    }.toSet().also { require(it.size == sources.length()) }
 }
 
 private val metadataFieldLimits = mapOf(

@@ -19,6 +19,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -45,8 +46,13 @@ internal fun PhoneMediaRoute(
     var library by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var season by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var managing by rememberSaveable(session.owner) { mutableStateOf(false) }
+    var createLibrary by rememberSaveable(session.owner) { mutableStateOf(false) }
+    var settings by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
+    var resumePolicy by rememberSaveable(session.owner) { mutableStateOf(false) }
+    var reviewing by rememberSaveable(session.owner) { mutableStateOf(false) }
     var autoAdvance by rememberSaveable(session.owner) { mutableStateOf(true) }
     val grid = rememberLazyGridState()
+    val pages = rememberSaveableStateHolder()
     val detailScroll = androidx.compose.runtime.key(item) { rememberLazyListState() }
     val detailId = item
     val libraryId = library
@@ -59,12 +65,21 @@ internal fun PhoneMediaRoute(
     LaunchedEffect(route.selectedSeason) { route.selectedSeason?.let { season = it } }
 
     fun back() {
-        if (route.sourceRef != null) route.closeSources()
+        if (reviewing) reviewing = false
+        else if (route.sourceRef != null) route.closeSources()
         else { item = null; library = null; season = null }
     }
 
-    BackHandler(detailId != null || managing) {
-        if (managing) managing = false else back()
+    fun closeSettings() {
+        if (settings == "provider") {
+            settings = if (resumePolicy) null else "home"
+            resumePolicy = false
+        } else settings = null
+    }
+
+    BackHandler(detailId != null || managing || settings != null) {
+        if (settings != null) closeSettings()
+        else if (managing) managing = false else back()
     }
     val action: (PhoneMediaAction) -> Unit = { intent ->
         val detailRef = if (libraryId != null && detailId != null) repository.catalogRef(libraryId, detailId) else null
@@ -75,7 +90,10 @@ internal fun PhoneMediaRoute(
         }
         when (intent) {
             PhoneMediaAction.Back -> back()
-            PhoneMediaAction.CreateLibrary, PhoneMediaAction.ManageLibraries -> managing = true
+            PhoneMediaAction.Settings -> settings = "home"
+            PhoneMediaAction.CreateLibrary -> { createLibrary = true; managing = true }
+            PhoneMediaAction.ManageLibraries -> { createLibrary = false; managing = true }
+            is PhoneMediaAction.ReviewMatch -> reviewing = detailRef != null
             is PhoneMediaAction.OpenItem -> {
                 val first = route.home?.hero?.items.orEmpty()
                 (route.catalog + first).firstOrNull { key(it.ref) == intent.id }?.let {
@@ -114,9 +132,22 @@ internal fun PhoneMediaRoute(
     }
     CompositionLocalProvider(LocalMediaArtworkBinding provides binding) {
         val safe = Modifier.fillMaxSize().statusBarsPadding().consumeWindowInsets(WindowInsets.statusBars)
-        if (managing) {
+        if (settings != null) {
             Column(safe) {
-                PhoneMediaLibraryManager(session, repository, { managing = false }, route::refreshHome)
+                if (settings == "provider") PhoneMediaProviderSettings(repository, ::closeSettings)
+                else PhoneMediaSettings(::closeSettings, { settings = null; createLibrary = false; managing = true }, { settings = "provider" })
+            }
+        } else if (managing) {
+            Column(safe) {
+                pages.SaveableStateProvider("media-manager/${session.owner}") {
+                    PhoneMediaLibraryManager(session, repository, { managing = false; settings = "home" }, route::refreshHome,
+                        onProvider = { resumePolicy = true; settings = "provider" }, createInitially = createLibrary)
+                }
+            }
+        } else if (reviewing && detailId != null && libraryId != null) {
+            Column(safe) {
+                PhoneMediaMatchRoute(repository, repository.catalogRef(libraryId, detailId), imageLoader,
+                    onBack = { reviewing = false }, onMatched = { reviewing = false; route.loadDetail(); route.refreshHome() })
             }
         } else if (detailId != null) {
             PhoneMediaDetail(route.detailState(session.owner, "$libraryId/$detailId"), imageLoader, action, safe, detailScroll)
@@ -171,6 +202,8 @@ private fun PhoneMediaRouteState.detailState(scope: String, id: String): PhoneMe
         originalTitle = card?.originalTitle, metadata = card?.let(::summary).orEmpty(),
         backdrop = card?.backdrop?.let { MediaArtwork(catalog = it) },
         overview = item?.fields?.get("plot")?.values?.firstOrNull(), canPlay = playable, canSelectSources = playable,
+        canReviewMatch = card?.actions?.can(MediaCatalogAction.EDIT_METADATA) == true && card.structureKind in setOf(
+            MediaItemKind.VIDEO, MediaItemKind.MOVIE, MediaItemKind.SERIES),
         canChangeUserState = state != null && card.actions.can(MediaCatalogAction.FAVORITE) && card.actions.can(MediaCatalogAction.MARK_WATCHED),
         userStateRevision = state?.revision, favorite = state?.favorite == true, watched = state?.manualWatched == true,
         userStateBusy = userStateBusy || pendingUserState != null,

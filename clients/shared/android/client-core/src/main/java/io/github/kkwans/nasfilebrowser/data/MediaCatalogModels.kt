@@ -6,7 +6,7 @@ import org.json.JSONObject
 enum class MediaItemKind { MOVIE, SERIES, SEASON, EPISODE, VIDEO, UNKNOWN }
 enum class MediaItemSourceState { AVAILABLE, OFFLINE, CHANGED, UNVERIFIED, UNKNOWN }
 enum class MediaItemMetadataState { NONE, AVAILABLE, OFFLINE, RESTRICTED, UNKNOWN }
-enum class MediaMetadataSource { FILENAME, NFO, MANUAL, UNKNOWN }
+enum class MediaMetadataSource { FILENAME, NFO, MANUAL, ONLINE, UNKNOWN }
 enum class MediaRatingMetric { USER_AVERAGE, CRITIC_APPROVAL, AUDIENCE_APPROVAL, CRITIC_AVERAGE, UNKNOWN }
 enum class MediaArtworkStatus { DECLARED, REMOTE_UNAVAILABLE, INVALID, UNKNOWN }
 
@@ -35,7 +35,7 @@ data class MediaItemDetail(
     val item: MediaItemSummary, val metadataRevision: Long, val fields: Map<String, MediaMetadataField>,
     val credits: MediaRevisionPage<MediaCredit>, val ratings: MediaRevisionPage<MediaRating>,
     val artwork: MediaRevisionPage<MediaArtwork>, val externalIds: MediaRevisionPage<MediaExternalId>,
-    val issues: List<String>, val candidates: MediaRevisionPage<MediaMetadataCandidate>,
+    val issues: List<String>, val candidates: MediaRevisionPage<MediaMetadataCandidate>, val onlineMatch: MediaOnlineMatch? = null,
 )
 data class MediaMetadataReceipt(val itemId: String, val revision: Long, val metadataRevision: Long)
 
@@ -129,7 +129,7 @@ internal fun parseMediaItemDetail(row: JSONObject): MediaItemDetail {
         val field = fields.getJSONObject(name)
         val source = when (field.text("source")) {
             "manual" -> MediaMetadataSource.MANUAL; "nfo" -> MediaMetadataSource.NFO
-            "filename" -> MediaMetadataSource.FILENAME; else -> MediaMetadataSource.UNKNOWN
+            "filename" -> MediaMetadataSource.FILENAME; "online" -> MediaMetadataSource.ONLINE; else -> MediaMetadataSource.UNKNOWN
         }
         MediaMetadataField(field.getJSONArray("values").strings(128), source, field.boolean("locked"),
             field.boolean("explicitClear"), field.integer("revision", 1))
@@ -140,7 +140,8 @@ internal fun parseMediaItemDetail(row: JSONObject): MediaItemDetail {
         MediaRevisionPage(row.getJSONArray("artwork").rows(20, ::parseMediaArtwork), row.cursor("artworkNextCursor"), item.revision),
         MediaRevisionPage(row.getJSONArray("externalIds").rows(20, ::parseMediaExternalId), row.cursor("externalIdsNextCursor"), item.revision),
         row.getJSONArray("issues").strings(20),
-        MediaRevisionPage(row.getJSONArray("candidates").rows(20, ::parseMediaCandidate), row.cursor("issuesNextCursor"), item.revision))
+        MediaRevisionPage(row.getJSONArray("candidates").rows(20, ::parseMediaCandidate), row.cursor("issuesNextCursor"), item.revision),
+        if (!row.has("onlineMatch") || row.isNull("onlineMatch")) null else parseMediaOnlineMatch(row.getJSONObject("onlineMatch")))
 }
 
 internal fun <T> parseMediaRevisionPage(row: JSONObject, limit: Int, cursor: String?, revision: Long, parse: (JSONObject) -> T): MediaRevisionPage<T> {

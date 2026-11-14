@@ -78,8 +78,9 @@ enum class MediaScanPhase { ENUMERATE, RECONCILE, READY, UNKNOWN }
 data class MediaScan(
     val id: String, val libraryId: String, val status: MediaScanStatus, val generation: Long,
     val attempt: Long, val rulesRevision: Long, val phase: MediaScanPhase, val processed: Long,
-    val createdAt: Long, val updatedAt: Long, val errorCode: String?,
+    val createdAt: Long, val updatedAt: Long, val errorCode: String?, val bindingId: String? = null,
 )
+data class MediaScanBatch(val libraryId: String, val items: List<MediaScan>)
 
 /** A failure is not a capability declaration. NOT_FOUND can also mean inaccessible. */
 enum class MediaFailureKind { AUTHENTICATION, FORBIDDEN, NOT_FOUND, INVALID, CONFLICT, UNAVAILABLE, SERVER, NETWORK, INVALID_RESPONSE, STORAGE, CURSOR_STALE, CURSOR_EXPIRED, RATE_LIMITED }
@@ -179,7 +180,7 @@ internal fun parseMediaScan(row: JSONObject): MediaScan {
     require(code == null || code.matches(Regex("[a-z0-9_]{1,80}"))) { "扫描错误码无效" }
     return MediaScan(row.mediaId("id"), row.mediaId("libraryId"), status, row.mediaLong("generation", 1),
         row.mediaLong("attempt", 0), row.mediaLong("rulesRevision", 1), phase, row.mediaLong("processed", 0),
-        row.mediaLong("createdAt", 1), row.mediaLong("updatedAt", 1), code)
+        row.mediaLong("createdAt", 1), row.mediaLong("updatedAt", 1), code, row.optionalMediaString("bindingId")?.also(::requireMediaRouteId))
 }
 
 internal fun parseMediaScanSupport(row: JSONObject): MediaScanSupport {
