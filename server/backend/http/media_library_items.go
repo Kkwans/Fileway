@@ -49,6 +49,15 @@ type mediaItemDetail struct {
 	ArtworkNextCursor     string                                `json:"artworkNextCursor,omitempty"`
 	ExternalIDsNextCursor string                                `json:"externalIdsNextCursor,omitempty"`
 	IssuesNextCursor      string                                `json:"issuesNextCursor,omitempty"`
+	OnlineMatch           *mediaOnlineMatch                     `json:"onlineMatch,omitempty"`
+	providerMatch         *medialibrary.ProviderMatch
+}
+
+type mediaOnlineMatch struct {
+	Provider   string `json:"provider"`
+	Kind       string `json:"kind"`
+	ExternalID string `json:"externalId"`
+	FetchedAt  int64  `json:"fetchedAt"`
 }
 
 type mediaMetadataCandidate struct {
@@ -107,6 +116,24 @@ func itemDetailFields(ctx context.Context, d *data, library *medialibrary.Librar
 		}
 	}
 	item := detail.Item
+	match, err := d.store.MediaLibrary.VisibleProviderMatch(ctx, d.user.ID, library.ID, item.ID, item.Revision)
+	if err != nil {
+		return mediaItemDetail{}, err
+	}
+	if match != nil {
+		for name, values := range match.Document.Item.Fields {
+			current, exists := fields[name]
+			if current.ExplicitClear || current.Locked || detail.Fields[name].ExplicitClear || detail.Fields[name].Locked {
+				continue
+			}
+			if !exists || match.OnlineFirst || current.Source == "filename" {
+				fields[name] = medialibrary.MetadataField{Values: values, Source: "online", Revision: match.Revision}
+			}
+		}
+		if access.metadataState == "none" {
+			access.metadataState = "available"
+		}
+	}
 	if title, allowed := fields["title"]; allowed && title.ExplicitClear {
 		item.Title = ""
 	} else if allowed && len(title.Values) > 0 {
@@ -114,7 +141,7 @@ func itemDetailFields(ctx context.Context, d *data, library *medialibrary.Librar
 	} else {
 		item.Title = access.fallbackTitle
 	}
-	return mediaItemDetail{Item: itemSummary(item, *access), MetadataRevision: detail.MetadataRevision, Fields: fields,
+	return mediaItemDetail{Item: itemSummary(item, *access), MetadataRevision: detail.MetadataRevision, Fields: fields, providerMatch: match,
 		Credits: []medialibrary.MetadataCredit{}, Ratings: []medialibrary.MetadataRating{}, Artwork: []medialibrary.MetadataArtwork{}, ExternalIDs: []medialibrary.MetadataExternalID{}, Issues: []string{}, Candidates: []mediaMetadataCandidate{}}, nil
 }
 

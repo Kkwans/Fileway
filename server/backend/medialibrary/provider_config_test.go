@@ -227,7 +227,7 @@ func TestMetadataPolicyV11MigratesAndSwitchesPriority(t *testing.T) {
 	library := createLibrary(t, store, 7, "Metadata policy")
 	conn := fixtureProvider(t, store, 7, false, "user", "migration-connection")
 	// Recreate the released v11 leaf table without disturbing the connection.
-	_, err = store.db.ExecContext(ctx, `DROP TABLE library_metadata_policy;`+schemaV11[strings.Index(schemaV11, "CREATE TABLE library_metadata_policy"):]+`PRAGMA user_version=11`)
+	_, err = store.db.ExecContext(ctx, `DROP TABLE item_provider_match; DROP TABLE library_metadata_policy;`+schemaV11[strings.Index(schemaV11, "CREATE TABLE library_metadata_policy"):]+`PRAGMA user_version=11`)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -199,6 +199,8 @@ func matchProviderError(w http.ResponseWriter, err error) (int, error) {
 			return writeCatalogError(w, http.StatusTooManyRequests, "provider_rate_limited", "TMDB 已限流，请稍后再试", true)
 		case mediaprovider.NeedsConfig, mediaprovider.Unauthorized:
 			return writeCatalogError(w, http.StatusServiceUnavailable, "provider_configuration_required", "请检查所选 TMDB 连接的凭据", true)
+		case mediaprovider.NotFound:
+			return writeCatalogError(w, http.StatusNotFound, "provider_entity_not_found", "TMDB 条目已不可用，请重新查询候选", false)
 		}
 	}
 	return writeCatalogError(w, http.StatusBadGateway, "provider_unavailable", "暂时无法从 TMDB 读取候选", true)

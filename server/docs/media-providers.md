@@ -6,7 +6,7 @@ no provider request and does not grant access to a library's files. The normal
 catalog and local NFO paths continue to work when no credential vault exists.
 
 `GET /provider-status` returns `credentialStoreAvailable`,
-`candidateSearchAvailable` and `networkJobsAvailable`. A connection with
+`candidateSearchAvailable`, `matchConfirmationAvailable` and `networkJobsAvailable`. A connection with
 `status: "configured"` has a sealed credential recorded. Its acceptance by the
 provider is established by an authorized request. `networkJobsAvailable` is
 false until background online jobs are supported. Without a protected vault
@@ -61,6 +61,18 @@ provider results only when supplied. Rows contain typed TMDB IDs, titles, years
 and match evidence. The lookup leaves the saved match and metadata untouched.
 Policy, permissions or source changes during lookup invalidate its result.
 The server may respond to a busy or rate-limited request with `Retry-After`.
+
+`POST /libraries/{id}/items/{itemId}/match-confirmation` confirms the selected
+`kind` and string `externalId`. Send `operationId`, `itemRevision`,
+`structureRevision`, and optionally `connectionId`. Confirming a movie can add
+movie presentation to an unmatched video. Series confirmation targets an
+existing series, and does not infer or change episode mappings. Confirmation
+fetches and saves the provider document separately from local inputs. The
+detail and cards apply the library's field order, keeping locked or cleared
+values. `local_only` hides the saved online projection. The detail reports
+`onlineMatch` and the provider rating when present. The server saves poster and
+backdrop references for the artwork stage. Client-visible cached artwork and
+online credit presentation are separate steps.
 
 Mutations use `operationId` and optimistic revisions. An exact retry returns the
 original sanitized receipt; a different request with the same operation or a
