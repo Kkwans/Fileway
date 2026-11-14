@@ -104,6 +104,17 @@ func TestCatalogDeviceCredentialDoesNotAdvertiseManagement(t *testing.T) {
 	if !page.Items[0].CanActions["play"] {
 		t.Fatal("device lost authorized playback")
 	}
+	statePath := fmt.Sprintf("/api/media-library/v1/libraries/%s/items/%s/user-state", library.ID, page.Items[0].Ref.ItemID)
+	stateRequest := httptest.NewRequest(http.MethodPatch, statePath, strings.NewReader(`{"operationId":"device-favorite","expectedRevision":0,"favorite":true}`))
+	stateRequest.Header.Set("X-Auth", signed)
+	stateResponse := httptest.NewRecorder()
+	f.router.ServeHTTP(stateResponse, stateRequest)
+	if stateResponse.Code != http.StatusOK || !strings.Contains(stateResponse.Body.String(), `"favorite":true`) {
+		t.Fatalf("device personal state: %d %s", stateResponse.Code, stateResponse.Body)
+	}
+	if deviceMediaRoute(http.MethodPatch, statePath+"/other", f.owner.ID) || deviceMediaRoute(http.MethodPost, statePath, f.owner.ID) {
+		t.Fatal("device state write scope widened")
+	}
 	homeRequest := httptest.NewRequest(http.MethodGet, "/api/media-library/v1/home", nil)
 	homeRequest.Header.Set("X-Auth", signed)
 	homeResponse := httptest.NewRecorder()

@@ -451,7 +451,7 @@ var mediaCatalogHomeHandler = catalogLibraryRead(func(w http.ResponseWriter, r *
 	if err != nil {
 		return catalogError(w, err)
 	}
-	result := catalogHome{SchemaVersion: 1, State: "no_libraries", Libraries: []mediaLibrarySummary{}, Rows: []catalogHomeRow{}, Capabilities: map[string]bool{"watchState": false, "favorites": false, "search": false, "collections": false, "categories": false, "localCatalog": true}, CanActions: map[string]bool{"createLibrary": d.deviceSession == ""}, ActionReasons: map[string]string{}}
+	result := catalogHome{SchemaVersion: 1, State: "no_libraries", Libraries: []mediaLibrarySummary{}, Rows: []catalogHomeRow{}, Capabilities: map[string]bool{"watchState": false, "favorites": false, "manualUserState": true, "search": false, "collections": false, "categories": false, "localCatalog": true}, CanActions: map[string]bool{"createLibrary": d.deviceSession == ""}, ActionReasons: map[string]string{}}
 	if d.deviceSession != "" {
 		result.ActionReasons["createLibrary"] = "not_granted"
 	}

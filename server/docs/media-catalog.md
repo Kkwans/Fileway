@@ -17,6 +17,40 @@ grant. Clients must continue to handle authorization and availability errors
 from individual catalog requests, and must not interpret a failed capability
 request as a successful response from an older server.
 
+## Explicit personal state
+
+`GET /libraries/{id}/items/{itemId}/user-state` returns the current actor's
+`favorite`, nullable `manualWatched`, `revision`, and `watchResetRevision`.
+An untouched item is `false`, `null`, `0`, `0`: null means no manual decision,
+not a conclusion about playback. State is keyed by account and the exact
+library item; no cross-library identity merge, edition propagation, implicit
+completion, resume position or legacy file history is inferred.
+
+`PATCH` to the same route takes `operationId`, `expectedRevision`, and at
+least one of `favorite` or `manualWatched` as an explicit boolean. The caller
+must use the revision from a fresh read. Every explicit `manualWatched: false`
+advances the separate reset revision, including another explicit reset when
+already false; an exact retry of the same operation returns its original
+receipt without advancing it. Reusing an operation ID with different inputs
+or a stale expected revision returns 409 `revision_conflict`. A receipt is not
+a fresh read; refresh after resolving an unknown outcome.
+
+Account and media-device sessions can change only their own state. Every read,
+write and receipt replay rechecks active membership, sharing policy and live
+item/source visibility. Archived, hidden or revoked content returns 404 before
+the write. If a write commits but post-write authority or identity revalidation
+fails, the response is 503 `write_outcome_unknown` without the resource state;
+the caller must preserve the operation ID and use the same request only after
+the user explicitly resolves or retries it. A transport failure can likewise
+leave the outcome unknown. No personal state is emitted to the shared catalog
+outbox in this slice.
+
+Authorized cards and complete item details include `userState` and advertise
+`canActions.favorite` and `canActions.markWatched`. Home capability
+`manualUserState` describes this item-level feature. The favorites row,
+continue watching, automatic completion and playback-event synchronization
+remain unsupported and are not represented as empty successes.
+
 ## Home and browse
 
 - `GET /home` returns visible libraries, a hero descriptor and independent

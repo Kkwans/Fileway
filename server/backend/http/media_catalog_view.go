@@ -437,28 +437,29 @@ func deferCatalogCounts(counts *catalogEpisodeCounts) {
 }
 
 type catalogCard struct {
-	Ref                      catalogRef            `json:"ref"`
-	Revision                 int64                 `json:"revision"`
-	StructureKind            string                `json:"structureKind"`
-	ContentCategories        []string              `json:"contentCategories"`
-	MatchState               string                `json:"matchState"`
-	Title                    string                `json:"title"`
-	OriginalTitle            *string               `json:"originalTitle"`
-	Year                     *int                  `json:"year"`
-	DisplayMode              string                `json:"displayMode"`
-	Artwork                  *catalogArtwork       `json:"artwork"`
-	Backdrop                 *catalogArtwork       `json:"backdrop,omitempty"`
-	PrimaryRating            *catalogRating        `json:"primaryRating"`
-	Duration                 *catalogDuration      `json:"duration"`
-	Episodes                 *catalogEpisodeCounts `json:"episodes"`
-	Availability             string                `json:"availability"`
-	MetadataState            string                `json:"metadataState"`
-	FirstAddedAt             int64                 `json:"firstAddedAt"`
-	SeriesUpdatedAt          *int64                `json:"seriesUpdatedAt"`
-	Size                     *int64                `json:"size"`
-	Extension                string                `json:"extension,omitempty"`
-	CanActions               map[string]bool       `json:"canActions"`
-	ActionReasons            map[string]string     `json:"actionReasons"`
+	Ref                      catalogRef              `json:"ref"`
+	Revision                 int64                   `json:"revision"`
+	StructureKind            string                  `json:"structureKind"`
+	ContentCategories        []string                `json:"contentCategories"`
+	MatchState               string                  `json:"matchState"`
+	Title                    string                  `json:"title"`
+	OriginalTitle            *string                 `json:"originalTitle"`
+	Year                     *int                    `json:"year"`
+	DisplayMode              string                  `json:"displayMode"`
+	Artwork                  *catalogArtwork         `json:"artwork"`
+	Backdrop                 *catalogArtwork         `json:"backdrop,omitempty"`
+	PrimaryRating            *catalogRating          `json:"primaryRating"`
+	Duration                 *catalogDuration        `json:"duration"`
+	Episodes                 *catalogEpisodeCounts   `json:"episodes"`
+	Availability             string                  `json:"availability"`
+	MetadataState            string                  `json:"metadataState"`
+	FirstAddedAt             int64                   `json:"firstAddedAt"`
+	SeriesUpdatedAt          *int64                  `json:"seriesUpdatedAt"`
+	Size                     *int64                  `json:"size"`
+	Extension                string                  `json:"extension,omitempty"`
+	UserState                *medialibrary.UserState `json:"userState"`
+	CanActions               map[string]bool         `json:"canActions"`
+	ActionReasons            map[string]string       `json:"actionReasons"`
 	classificationIncomplete bool
 	structureRevision        int64
 }
@@ -496,7 +497,8 @@ func catalogActions(library *medialibrary.Library, kind string, playable, mediaD
 			}
 		}
 	}
-	for _, name := range []string{"resume", "startOver", "searchMatch", "confirmMatch", "changeOrder", "refreshMetadata", "retryArtwork", "favorite", "markWatched", "removeFromContinue"} {
+	actions["favorite"], actions["markWatched"] = true, true
+	for _, name := range []string{"resume", "startOver", "searchMatch", "confirmMatch", "changeOrder", "refreshMetadata", "retryArtwork", "removeFromContinue"} {
 		actions[name] = false
 		reasons[name] = "feature_unavailable"
 	}
@@ -686,6 +688,10 @@ func (v *catalogView) projectCard(ctx context.Context, library *medialibrary.Lib
 	if access.budgetExhausted {
 		card.MetadataState = "partial"
 		card.classificationIncomplete = true
+	}
+	card.UserState, err = v.d.store.MediaLibrary.GetUserState(ctx, v.d.user.ID, library.ID, c.ID)
+	if err != nil {
+		return catalogCard{}, err
 	}
 	card.CanActions, card.ActionReasons = catalogActions(library, card.StructureKind, access.playable, v.d.deviceSession != "", card.Availability)
 	return card, nil

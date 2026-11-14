@@ -34,6 +34,7 @@ type mediaItemSummary struct {
 type mediaItemDetail struct {
 	Item                  mediaItemSummary                      `json:"item"`
 	Card                  *catalogCard                          `json:"card,omitempty"`
+	UserState             *medialibrary.UserState               `json:"userState,omitempty"`
 	PageState             string                                `json:"pageState,omitempty"`
 	MetadataRevision      int64                                 `json:"metadataRevision"`
 	Fields                map[string]medialibrary.MetadataField `json:"fields"`
@@ -523,6 +524,7 @@ var mediaItemGetHandler = mediaLibraryRead(func(w http.ResponseWriter, r *http.R
 		if !card.classificationIncomplete {
 			filtered.Card = &card
 		}
+		filtered.UserState = card.UserState
 		filtered.PageState = "ready"
 		if card.classificationIncomplete {
 			filtered.PageState = "partial_metadata"
@@ -598,6 +600,7 @@ var mediaItemGetHandler = mediaLibraryRead(func(w http.ResponseWriter, r *http.R
 	if !card.classificationIncomplete {
 		filtered.Card = &card
 	}
+	filtered.UserState = card.UserState
 	filtered.PageState = "ready"
 	if card.classificationIncomplete {
 		filtered.PageState = "partial_metadata"

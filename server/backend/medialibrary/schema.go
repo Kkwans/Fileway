@@ -1,5 +1,23 @@
 package medialibrary
 
+// Manual user state is scoped to one catalog item. A missing row is revision
+// zero; explicit unwatched is retained as a reset fence for future events.
+// No cross-database foreign key or cross-library identity is implied.
+const schemaV10 = `
+CREATE TABLE user_item_state (
+    user_id INTEGER NOT NULL CHECK(user_id > 0),
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    favorite INTEGER NOT NULL DEFAULT 0 CHECK(favorite IN (0,1)),
+    manual_watched INTEGER CHECK(manual_watched IN (0,1)),
+    watch_reset_revision INTEGER NOT NULL DEFAULT 0 CHECK(watch_reset_revision >= 0),
+    revision INTEGER NOT NULL CHECK(revision > 0),
+    updated_at INTEGER NOT NULL CHECK(updated_at >= 0),
+    PRIMARY KEY(user_id, library_id, item_id),
+    FOREIGN KEY(library_id, item_id) REFERENCES library_item(library_id, id)
+) STRICT;
+`
+
 // v1 establishes ownership and reference integrity, not authorization policy.
 // User IDs refer to the existing account database and are revalidated by the
 // service at access time; no cross-database foreign key or transaction is implied.
