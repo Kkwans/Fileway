@@ -973,6 +973,18 @@ AND c.seen_job_id IS lf.last_seen_job_id AND c.seen_generation IS lf.last_seen_g
 			}
 		}
 		r.Status, r.ErrorCode = finish.Status, finish.ErrorCode
+		// The library may have been archived while a filesystem error was in
+		// flight. Once archived it is the authoritative reason this job cannot
+		// publish; record that reason under the same write transaction.
+		if r.Status == "failed" {
+			library, err := visibleLibrary(ctx, tx, actor, r.LibraryID)
+			if err != nil {
+				return err
+			}
+			if library.ArchivedAt != nil {
+				r.ErrorCode = ScanErrorPermissionDenied
+			}
+		}
 		if finish.Status == "interrupted" {
 			r.Generation++
 		} else {

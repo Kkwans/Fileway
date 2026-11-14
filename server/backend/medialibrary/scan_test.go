@@ -72,6 +72,20 @@ func tableCount(t *testing.T, store *Store, table string) int {
 	return count
 }
 
+func TestFinishScanReportsArchiveInsteadOfStaleSourceFailure(t *testing.T) {
+	store := openTestStore(t)
+	library := createLibrary(t, store, 7, "Films")
+	binding := createBoundSource(t, store, library)
+	_, lease := testScan(t, store, binding, "archive-after-source-error")
+	if _, err := store.ArchiveLibrary(t.Context(), 7, library.ID, binding.LibraryRevision); err != nil {
+		t.Fatal(err)
+	}
+	job, err := store.FinishScan(t.Context(), 7, *lease, ScanFinish{Status: "failed", ErrorCode: ScanErrorSourceChanged})
+	if err != nil || job.ErrorCode != ScanErrorPermissionDenied {
+		t.Fatalf("archived scan outcome: %+v, %v", job, err)
+	}
+}
+
 func TestScanObservationRollbackReplayAndCancellationFence(t *testing.T) {
 	store := openTestStore(t)
 	library := createLibrary(t, store, 7, "Films")
