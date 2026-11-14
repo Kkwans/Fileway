@@ -64,8 +64,8 @@ android {
         applicationId = "io.github.kkwans.fileway.tv"
         minSdk = 28
         targetSdk = 37
-        versionCode = 12
-        versionName = "0.6.0"
+        versionCode = 13
+        versionName = "0.7.0"
         buildConfigField("String", "SOURCE_REVISION", "\"$sourceRevision\"")
         buildConfigField("boolean", "HAS_FFMPEG_AUDIO", hasFfmpegAudio.toString())
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
