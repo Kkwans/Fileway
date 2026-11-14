@@ -4,6 +4,27 @@ The media library is an instance-local domain shared by Android phone and TV.
 Linux and Windows use one API and storage implementation. This document defines
 the intended contract; individual capabilities are advertised only when integrated.
 
+## Client navigation and account entry
+
+The phone's five main destinations are Files (文件), Media (影视), Recent
+(最近), Library (资料), and Tasks (任务). Recent retains existing file-playback
+and recent-access history; the media home has a separate Continue Watching row.
+Do not move file history into the media catalog or drop its existing actions.
+
+My (我的) remains the existing settings/account page but is reached through the
+side drawer rather than a bottom tab. The drawer's top account module displays
+the current signed-in user and server context; tapping the entire module closes
+the drawer and opens My. It must not disconnect or switch accounts as a side
+effect. Server/account switching remains available inside My. Connect TV sits
+immediately below this account module and reuses the existing TV-control action.
+The header needs coherent identity, typography, spacing, accessibility and
+interaction states, including disconnected and long-name layouts.
+
+Navigation and asynchronous results remain bound to the current server/account
+session. Opening My or TV control must preserve a valid return destination;
+switching sessions must invalidate private page data and obsolete requests.
+TV uses its own remote-focused navigation and does not inherit phone tab layout.
+
 ## Identity and ownership
 
 - Preserve the existing server and user IDs. An address is not a server identity.
