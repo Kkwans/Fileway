@@ -34,7 +34,7 @@ func deviceMediaRoute(method, path string, user uint) bool {
 	if len(parts) >= 4 && parts[0] == "media-library" && parts[1] == "v1" && parts[2] == "playback-sessions" {
 		return method == http.MethodDelete && len(parts) == 4 || method == http.MethodPost && len(parts) == 5 && (parts[4] == "renew" || parts[4] == "progress")
 	}
-	if method == http.MethodPost && len(parts) == 7 && parts[0] == "media-library" && parts[1] == "v1" && parts[2] == "libraries" && parts[4] == "items" && parts[6] == "playback-resolutions" {
+	if method == http.MethodPost && len(parts) == 7 && parts[0] == "media-library" && parts[1] == "v1" && parts[2] == "libraries" && parts[4] == "items" && (parts[6] == "playback-resolutions" || parts[6] == "remove-continue") {
 		return true
 	}
 	if method == http.MethodPatch && len(parts) == 7 && parts[0] == "media-library" && parts[1] == "v1" && parts[2] == "libraries" && parts[4] == "items" && parts[6] == "user-state" {

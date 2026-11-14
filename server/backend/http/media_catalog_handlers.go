@@ -422,14 +422,15 @@ var mediaCatalogItemsHandler = catalogLibraryRead(func(w http.ResponseWriter, r 
 })
 
 type catalogHomeRow struct {
-	ID         string        `json:"id"`
-	Kind       string        `json:"kind"`
-	State      string        `json:"state"`
-	Endpoint   string        `json:"endpoint"`
-	Items      []catalogCard `json:"items,omitempty"`
-	NextCursor string        `json:"nextCursor,omitempty"`
-	HasMore    bool          `json:"hasMore"`
-	Revision   string        `json:"revision"`
+	ID         string                `json:"id"`
+	Kind       string                `json:"kind"`
+	State      string                `json:"state"`
+	Endpoint   string                `json:"endpoint"`
+	Items      []catalogCard         `json:"items,omitempty"`
+	Continuing []catalogContinueItem `json:"continuing,omitempty"`
+	NextCursor string                `json:"nextCursor,omitempty"`
+	HasMore    bool                  `json:"hasMore"`
+	Revision   string                `json:"revision"`
 }
 type catalogHome struct {
 	SchemaVersion int                   `json:"schemaVersion"`
@@ -451,7 +452,7 @@ var mediaCatalogHomeHandler = catalogLibraryRead(func(w http.ResponseWriter, r *
 	if err != nil {
 		return catalogError(w, err)
 	}
-	result := catalogHome{SchemaVersion: 1, State: "no_libraries", Libraries: []mediaLibrarySummary{}, Rows: []catalogHomeRow{}, Capabilities: map[string]bool{"watchState": false, "favorites": false, "manualUserState": true, "search": false, "collections": false, "categories": false, "localCatalog": true}, CanActions: map[string]bool{"createLibrary": d.deviceSession == ""}, ActionReasons: map[string]string{}}
+	result := catalogHome{SchemaVersion: 1, State: "no_libraries", Libraries: []mediaLibrarySummary{}, Rows: []catalogHomeRow{}, Capabilities: map[string]bool{"watchState": true, "favorites": false, "manualUserState": true, "search": false, "collections": false, "categories": false, "localCatalog": true}, CanActions: map[string]bool{"createLibrary": d.deviceSession == ""}, ActionReasons: map[string]string{}}
 	if d.deviceSession != "" {
 		result.ActionReasons["createLibrary"] = "not_granted"
 	}
@@ -471,7 +472,19 @@ var mediaCatalogHomeHandler = catalogLibraryRead(func(w http.ResponseWriter, r *
 	}
 	if len(result.Libraries) > 0 {
 		view := newCatalogView(d)
-		result.Rows = append(result.Rows, catalogHomeRow{ID: "continue", Kind: "continue", State: "unsupported", Endpoint: "/api/media-library/v1/home/rows/continue", Revision: catalogPublicRevision(d, snapshot, "continue", nil)})
+		continueView := newCatalogView(d)
+		continuing, err := continueView.continueRow(r.Context(), snapshot, "")
+		if err == nil {
+			err = continueView.revalidateSources(r.Context())
+		}
+		if err != nil {
+			if r.Context().Err() != nil {
+				return catalogError(w, r.Context().Err())
+			}
+			continuing = catalogHomeRow{ID: "continue", Kind: "continue", State: "deferred", Endpoint: continueEndpoint,
+				Revision: catalogPublicRevision(d, snapshot, "continue", nil)}
+		}
+		result.Rows = append(result.Rows, continuing)
 		added, err := view.browse(r.Context(), snapshot, browseRequest{Sort: "newest", Limit: 12}, "")
 		if err != nil {
 			return catalogError(w, err)
@@ -544,7 +557,7 @@ var mediaCatalogHomeHandler = catalogLibraryRead(func(w http.ResponseWriter, r *
 
 var mediaCatalogHomeRowHandler = catalogLibraryRead(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
 	id := mux.Vars(r)["rowId"]
-	if id == "continue" || id == "favorites" {
+	if id == "favorites" {
 		snapshot, err := beginCatalogSnapshot(r.Context(), d, "")
 		if err == nil {
 			err = verifyCatalogSnapshot(r.Context(), d, snapshot)
@@ -556,6 +569,7 @@ var mediaCatalogHomeRowHandler = catalogLibraryRead(func(w http.ResponseWriter, 
 	}
 	req := browseRequest{Limit: 12, Sort: "newest"}
 	switch id {
+	case "continue":
 	case "hero":
 		req.Hero = true
 		req.Limit = 5
@@ -574,6 +588,19 @@ var mediaCatalogHomeRowHandler = catalogLibraryRead(func(w http.ResponseWriter, 
 		return catalogError(w, err)
 	}
 	view := newCatalogView(d)
+	if id == "continue" {
+		row, err := view.continueRow(r.Context(), snapshot, r.URL.Query().Get("cursor"))
+		if err == nil {
+			err = view.revalidateSources(r.Context())
+		}
+		if err == nil {
+			err = verifyCatalogSnapshot(r.Context(), d, snapshot)
+		}
+		if err != nil {
+			return catalogError(w, err)
+		}
+		return renderJSON(w, r, row)
+	}
 	page, err := view.browse(r.Context(), snapshot, req, r.URL.Query().Get("cursor"))
 	if err == nil {
 		err = view.revalidateSources(r.Context())

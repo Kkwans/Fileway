@@ -108,6 +108,9 @@ func TestWatchProgressDoesNotReuseReplacedSource(t *testing.T) {
 	if update := f.f.call(t, actor, http.MethodPost, progressPath, event); update.Code != http.StatusOK {
 		t.Fatal(update.Code, update.Body)
 	}
+	if row := readContinueRow(t, f, actor); len(row.Continuing) != 1 || row.Continuing[0].DurationMs != nil {
+		t.Fatalf("expected a checkpoint with unknown duration: %+v", row)
+	}
 	video := filepath.Join(f.f.root, "films", f.variant.DisplayName)
 	info, err := os.Stat(video)
 	if err != nil {
@@ -123,6 +126,9 @@ func TestWatchProgressDoesNotReuseReplacedSource(t *testing.T) {
 	if err := os.Chtimes(video, time.Now(), info.ModTime()); err != nil {
 		t.Fatal(err)
 	}
+	if row := readContinueRow(t, f, actor); len(row.Continuing) != 0 {
+		t.Fatal("the replaced timeline appeared in continue watching")
+	}
 	if update := f.f.call(t, actor, http.MethodPost, progressPath, event); update.Code != http.StatusNotFound {
 		t.Fatal(update.Code, update.Body)
 	}
@@ -130,5 +136,97 @@ func TestWatchProgressDoesNotReuseReplacedSource(t *testing.T) {
 	var result struct{ WatchProgress *medialibrary.WatchProgress }
 	if second.Code != http.StatusOK || json.Unmarshal(second.Body.Bytes(), &result) != nil || result.WatchProgress == nil || result.WatchProgress.PositionMs != 0 {
 		t.Fatalf("replacement reused checkpoint: %d %s", second.Code, second.Body)
+	}
+}
+
+func readContinueRow(t *testing.T, f *mediaAccessFixture, actor uint) catalogHomeRow {
+	t.Helper()
+	response := f.f.call(t, actor, http.MethodGet, continueEndpoint, nil)
+	var row catalogHomeRow
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &row) != nil || row.State != "ready" {
+		t.Fatalf("continue row: %d %s", response.Code, response.Body)
+	}
+	return row
+}
+
+func TestWatchContinueReadResumeAndRemove(t *testing.T) {
+	f := newMediaAccessFixture(t)
+	actor := f.f.viewer.ID
+	body := map[string]any{"editionId": f.variant.EditionID, "variantId": f.variant.VariantID,
+		"bindingId": f.variant.BindingID, "watchProgress": true}
+	resolve := func(expected int) (testMediaResolution, medialibrary.WatchProgress) {
+		t.Helper()
+		response := f.f.call(t, actor, http.MethodPost, f.base+"/playback-resolutions", body)
+		var result struct {
+			testMediaResolution
+			WatchProgress medialibrary.WatchProgress
+		}
+		if response.Code != expected || json.Unmarshal(response.Body.Bytes(), &result) != nil {
+			t.Fatalf("admission: %d %s", response.Code, response.Body)
+		}
+		return result.testMediaResolution, result.WatchProgress
+	}
+	send := func(sessionID string, sequence, position int64, wanted int) {
+		t.Helper()
+		duration := int64(120_000)
+		response := f.f.call(t, actor, http.MethodPost, "/api/media-library/v1/playback-sessions/"+sessionID+"/progress",
+			medialibrary.WatchEvent{Sequence: sequence, PositionMs: position, DurationMs: &duration})
+		if response.Code != wanted {
+			t.Fatalf("progress: %d %s", response.Code, response.Body)
+		}
+	}
+	first, _ := resolve(http.StatusOK)
+	send(first.SessionID, 1, 27_000, http.StatusOK)
+	item := readContinueRow(t, f, actor).Continuing[0]
+	if item.PositionMs != 27_000 || item.DurationMs == nil || *item.DurationMs != 120_000 ||
+		item.Variant.VariantID != f.variant.VariantID || !item.Card.CanActions["resume"] {
+		t.Fatalf("invalid resume target: %+v", item)
+	}
+	if row := readContinueRow(t, f, f.f.owner.ID); len(row.Continuing) != 0 {
+		t.Fatal("viewer checkpoint was visible to the owner")
+	}
+	homeResponse := f.f.call(t, actor, http.MethodGet, "/api/media-library/v1/home", nil)
+	var home catalogHome
+	if homeResponse.Code != http.StatusOK || json.Unmarshal(homeResponse.Body.Bytes(), &home) != nil ||
+		len(home.Rows) < 1 || len(home.Rows[0].Continuing) != 1 || home.Rows[0].Continuing[0].Revision != item.Revision {
+		t.Fatalf("home lost the exact resume target: %d %s", homeResponse.Code, homeResponse.Body)
+	}
+	body["continueRevision"] = item.Revision
+	second, resumed := resolve(http.StatusOK)
+	if resumed.PositionMs != 27_000 {
+		t.Fatal(resumed)
+	}
+	resolve(http.StatusConflict)
+	send(second.SessionID, 1, 45_000, http.StatusOK)
+	remove := func(revision string, expected int) {
+		t.Helper()
+		response := f.f.call(t, actor, http.MethodPost, f.base+"/remove-continue", map[string]string{
+			"editionId": f.variant.EditionID, "variantId": f.variant.VariantID, "bindingId": f.variant.BindingID, "expectedRevision": revision,
+		})
+		if response.Code != expected {
+			t.Fatalf("remove: %d %s", response.Code, response.Body)
+		}
+	}
+	remove(item.Revision, http.StatusConflict)
+	revision := readContinueRow(t, f, actor).Continuing[0].Revision
+	remove(revision, http.StatusNoContent)
+	remove(revision, http.StatusNoContent)
+	send(second.SessionID, 2, 50_000, http.StatusConflict)
+	if row := readContinueRow(t, f, actor); len(row.Continuing) != 0 {
+		t.Fatal("dismissed checkpoint is still visible")
+	}
+	body["continueRevision"] = revision
+	resolve(http.StatusConflict)
+	delete(body, "continueRevision")
+	next, progress := resolve(http.StatusOK)
+	if progress.PositionMs != 0 {
+		t.Fatal("ordinary playback reused a removed checkpoint")
+	}
+	send(next.SessionID, 1, 11_000, http.StatusOK)
+	if _, err := f.f.store.RevokeMember(t.Context(), f.f.owner.ID, item.Card.Ref.LibraryID, f.libraryRevision, actor); err != nil {
+		t.Fatal(err)
+	}
+	if row := readContinueRow(t, f, actor); len(row.Continuing) != 0 {
+		t.Fatal("shared checkpoint survived the sharing restriction")
 	}
 }

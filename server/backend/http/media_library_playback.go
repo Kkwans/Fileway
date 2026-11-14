@@ -118,18 +118,24 @@ func mediaPlaybackResolutionHandler(leases *mediaPlaybackLeases) handleFunc {
 			return mediaAccessError(err)
 		}
 		var body struct {
-			EditionID     string `json:"editionId"`
-			VariantID     string `json:"variantId"`
-			BindingID     string `json:"bindingId"`
-			WatchProgress bool   `json:"watchProgress,omitempty"`
-			FromStart     bool   `json:"fromStart,omitempty"`
+			EditionID        string `json:"editionId"`
+			VariantID        string `json:"variantId"`
+			BindingID        string `json:"bindingId"`
+			WatchProgress    bool   `json:"watchProgress,omitempty"`
+			FromStart        bool   `json:"fromStart,omitempty"`
+			ContinueRevision string `json:"continueRevision,omitempty"`
 		}
-		if err := deviceBody(w, r, &body); err != nil || body.EditionID == "" || body.VariantID == "" || body.BindingID == "" {
+		if err := deviceBody(w, r, &body); err != nil || body.EditionID == "" || body.VariantID == "" || body.BindingID == "" ||
+			body.ContinueRevision != "" && (!body.WatchProgress || !validContinueRevision(body.ContinueRevision)) {
 			return http.StatusBadRequest, fmt.Errorf("播放请求无效")
 		}
 		evidence, err := d.store.MediaLibrary.ResolvePlayback(r.Context(), d.user.ID, library.ID, mux.Vars(r)["itemId"], body.EditionID, body.VariantID, body.BindingID)
 		if err != nil {
 			return mediaAccessError(err)
+		}
+		weak := evidence.IdentityKind != string(mediascan.IdentityNative)
+		if body.ContinueRevision != "" && weak {
+			return mediaAccessError(fs.ErrPermission)
 		}
 		access := mediaAccessContext{viewer: d.user.ID, session: d.deviceSession, playback: evidence}
 		file, err := access.openPlayback(r.Context(), d)
@@ -146,13 +152,15 @@ func mediaPlaybackResolutionHandler(leases *mediaPlaybackLeases) handleFunc {
 			_ = file.Close()
 			return http.StatusServiceUnavailable, fmt.Errorf("播放服务繁忙，请稍后重试")
 		}
-		weak := evidence.IdentityKind != string(mediascan.IdentityNative)
 		var progress *medialibrary.WatchProgress
 		if body.WatchProgress && !weak {
-			state, err := d.store.MediaLibrary.BeginWatchProgress(r.Context(), evidence, stamp, admission.SessionID, body.FromStart)
+			state, err := d.store.MediaLibrary.BeginWatchProgress(r.Context(), evidence, stamp, admission.SessionID, body.FromStart, body.ContinueRevision)
 			if err != nil {
 				if lease := leases.session(admission.SessionID, d.user.ID, d.deviceSession); lease != nil {
 					leases.revoke(lease)
+				}
+				if body.ContinueRevision != "" && errors.Is(err, medialibrary.ErrRevisionConflict) {
+					return writeCatalogError(w, http.StatusConflict, "watch_checkpoint_changed", "续播进度已更新，请刷新", true)
 				}
 				return mediaAccessError(err)
 			}

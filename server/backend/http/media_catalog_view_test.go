@@ -196,7 +196,7 @@ func TestCatalogHTTPRealOfflineJourneyAndSourceFiltering(t *testing.T) {
 	if homeResponse.Code != http.StatusOK || json.Unmarshal(homeResponse.Body.Bytes(), &home) != nil {
 		t.Fatalf("home: %d %s", homeResponse.Code, homeResponse.Body)
 	}
-	if home.State != "ready" || len(home.Libraries) != 1 || home.Hero == nil || len(home.Hero.Items) != 2 || home.Capabilities["watchState"] {
+	if home.State != "ready" || len(home.Libraries) != 1 || home.Hero == nil || len(home.Hero.Items) != 2 || !home.Capabilities["watchState"] {
 		t.Fatalf("unexpected home: %+v", home)
 	}
 	for _, card := range home.Hero.Items {
@@ -205,14 +205,14 @@ func TestCatalogHTTPRealOfflineJourneyAndSourceFiltering(t *testing.T) {
 			t.Fatal("movie card did not keep the authorized poster and landscape separate")
 		}
 	}
-	unsupported := false
+	emptyContinue := false
 	for _, row := range home.Rows {
-		if row.ID == "continue" && row.State == "unsupported" {
-			unsupported = true
+		if row.ID == "continue" && row.State == "ready" && len(row.Continuing) == 0 {
+			emptyContinue = true
 		}
 	}
-	if !unsupported {
-		t.Fatal("unsupported continue-watching state was omitted")
+	if !emptyContinue {
+		t.Fatal("empty continue-watching state was omitted")
 	}
 	var seriesID, movieID, unmatchedID string
 	for _, row := range home.Rows {

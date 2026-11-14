@@ -165,6 +165,7 @@ func NewHandler(
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/playback-resolutions", monkey(mediaPlaybackResolutionHandler(mediaLeases), "")).Methods("POST")
 	api.Handle("/media-library/v1/playback-sessions/{session}/renew", monkey(mediaPlaybackRenewHandler(mediaLeases), "")).Methods("POST")
 	api.Handle("/media-library/v1/playback-sessions/{session}/progress", monkey(mediaWatchProgressHandler(mediaLeases), "")).Methods("POST")
+	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/remove-continue", monkey(mediaRemoveContinueHandler, "")).Methods("POST")
 	api.Handle("/media-library/v1/playback-sessions/{session}", monkey(mediaPlaybackCloseHandler(mediaLeases), "")).Methods("DELETE")
 	api.Handle("/media-library/v1/streams/{lease}/original", monkey(mediaPlaybackStreamHandler(mediaLeases), "")).Methods("GET", "HEAD")
 	for _, kind := range []string{"credits", "ratings", "artwork", "external-ids", "issues"} {

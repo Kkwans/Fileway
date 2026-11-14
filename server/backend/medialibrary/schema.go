@@ -1,5 +1,11 @@
 package medialibrary
 
+const schemaV17 = `
+ALTER TABLE user_watch_progress ADD COLUMN continue_hidden INTEGER NOT NULL DEFAULT 0 CHECK(continue_hidden IN (0,1));
+CREATE INDEX watch_continue_recent ON user_watch_progress(user_id, updated_at DESC, variant_id DESC)
+    WHERE continue_hidden=0 AND completed=0 AND position_ms>0 AND updated_at>0;
+`
+
 const schemaV16 = `
 CREATE TABLE user_watch_progress (
     user_id INTEGER NOT NULL CHECK(user_id>0),

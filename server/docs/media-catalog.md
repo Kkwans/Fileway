@@ -59,6 +59,20 @@ rejected. Old clients can omit the opt-in and use the existing lease.
 Checkpoints are separate from legacy file progress. This endpoint does not
 infer equal timelines across different encodings.
 
+Home's `continue` row exposes an independently pageable `continuing` list.
+Each entry includes the authorized catalog card, one exact playback variant,
+position, nullable duration and an opaque checkpoint revision. Opening that
+entry sends `watchProgress: true` and `continueRevision` in the playback
+resolution, optionally with `fromStart`. A checkpoint that changed since
+the read returns 409 before the new session can replace it.
+
+`POST /libraries/{id}/items/{itemId}/remove-continue` takes `editionId`,
+`variantId`, `bindingId` and `expectedRevision`. It retains the last
+observation, suppresses the entry, and rejects further events from the
+old session. An exact retry is acknowledged while that checkpoint is still
+the current hidden observation. A fresh open starts from zero and can
+establish a new checkpoint.
+
 `GET /libraries/{id}/items/{itemId}/user-state` returns the current actor's
 `favorite`, nullable `manualWatched`, `revision`, and `watchResetRevision`.
 An untouched item is `false`, `null`, `0`, `0`: null means no manual decision,
@@ -87,16 +101,16 @@ outbox in this slice.
 
 Authorized cards and complete item details include `userState` and advertise
 `canActions.favorite` and `canActions.markWatched`. Home capability
-`manualUserState` describes this item-level feature. The favorites row,
-continue watching, automatic completion and playback-event synchronization
-remain unsupported and are not represented as empty successes.
+`manualUserState` describes this item-level feature. `watchState` describes
+watch sessions and the Continue Watching row. The favorites row remains
+unsupported.
 
 ## Home and browse
 
 - `GET /home` returns visible libraries, a hero descriptor and independent
-  `recently-added` and `recently-updated-series` rows. It advertises unsupported
-  personal state, search and collections in `capabilities`; it does not create
-  sample cards. `state` can be `no_libraries`, `empty_library`, `scanning`,
+  `continue`, `recently-added` and `recently-updated-series` rows. It advertises
+  search and collection availability in `capabilities`. `state` can be
+  `no_libraries`, `empty_library`, `scanning`,
   `ready`, `partial`, `source_offline` or `restricted`.
 - `GET /home/rows/{rowId}` continues `hero`, `recently-added`,
   `recently-updated-series` or `unmatched`. `continue` and `favorites` return
