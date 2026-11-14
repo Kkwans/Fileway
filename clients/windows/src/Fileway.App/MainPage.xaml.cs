@@ -665,7 +665,7 @@ public sealed partial class MainPage : Page, IDisposable
         _thumbnailController.Invalidate(dropPreviews: true);
         bool CurrentLoad() => !_disposed && generation == _generation && _session?.Id == session.Id && _session.Account == session.Account;
         _loadStateTitle = _loadStateDescription = null;
-        _directory = directory; PathBox.Text = directory.WirePath; UpdateBreadcrumbs(); CloseSidebarOverlay();
+        _directory = directory; PathBox.Text = directory.DisplayPath; UpdateBreadcrumbs(); CloseSidebarOverlay();
         _items.Clear(); _sortedItems = null; _rows.Clear(); SearchBox.Text = "";
         var preferenceRevision = ++_preferenceRevision;
         RestoreDirectoryTypeFilters(directory); _browserPreferences = new BrowserPreferences(); ApplyBrowserPresentation();

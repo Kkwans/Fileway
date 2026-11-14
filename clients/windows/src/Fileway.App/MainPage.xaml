@@ -210,8 +210,8 @@
             Tapped="PathLocationHost_Tapped" AutomationProperties.AutomationId="PathLocationHost">
      <Grid><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="32"/></Grid.ColumnDefinitions>
       <BreadcrumbBar x:Name="PathBreadcrumb" VerticalContentAlignment="Center" MinHeight="0" Padding="4,0" FontSize="14" ItemClicked="Breadcrumb_Click" VerticalAlignment="Center" AutomationProperties.Name="目录导航"><BreadcrumbBar.ItemTemplate><DataTemplate><BreadcrumbBarItem Content="{Binding Label}" MinHeight="32" VerticalAlignment="Center" VerticalContentAlignment="Center"/></DataTemplate></BreadcrumbBar.ItemTemplate></BreadcrumbBar>
-      <TextBox x:Name="PathBox" Grid.ColumnSpan="2" Visibility="Collapsed" Height="32" MinHeight="32" Padding="8,5" VerticalAlignment="Center" KeyDown="PathBox_KeyDown" LostFocus="PathBox_LostFocus" AutomationProperties.Name="原始路径，按 Enter 导航，Escape 取消" PlaceholderText="原始路径（保留百分号编码）" ToolTipService.ToolTip="原始路径；保留服务器返回的百分号编码。Enter 导航，Escape 取消。"/>
-      <Button x:Name="EditPathButton" Grid.Column="1" Style="{StaticResource BrowserNavigationButtonStyle}" Click="EditPath_Click" AutomationProperties.Name="编辑原始路径" ToolTipService.ToolTip="编辑原始路径 (Ctrl+L)"><ui:LucideIcon IconName="pencil-simple" Width="16" Height="16"/></Button>
+      <TextBox x:Name="PathBox" Grid.ColumnSpan="2" Visibility="Collapsed" Height="32" MinHeight="32" Padding="8,5" VerticalAlignment="Center" KeyDown="PathBox_KeyDown" LostFocus="PathBox_LostFocus" AutomationProperties.Name="目录路径，按 Enter 导航，Esc 取消" PlaceholderText="输入目录路径" ToolTipService.ToolTip="Enter 导航，Esc 取消"/>
+      <Button x:Name="EditPathButton" Grid.Column="1" Style="{StaticResource BrowserNavigationButtonStyle}" Click="EditPath_Click" AutomationProperties.Name="编辑路径" ToolTipService.ToolTip="编辑路径 (Ctrl+L)"><ui:LucideIcon IconName="pencil-simple" Width="16" Height="16"/></Button>
      </Grid>
     </Border>
     <TextBlock x:Name="WorkspaceTitle" Text="连接服务器" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" Visibility="Collapsed" TextTrimming="CharacterEllipsis"/>

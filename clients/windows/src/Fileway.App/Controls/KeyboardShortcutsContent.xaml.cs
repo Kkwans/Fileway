@@ -14,7 +14,7 @@ public sealed partial class KeyboardShortcutsContent : UserControl
         AddGroup("浏览与导航",
             ("Alt + Left", "返回上一位置"),
             ("Alt + Up", "打开上一级目录"),
-            ("Ctrl + L", "编辑原始路径"),
+            ("Ctrl + L", "编辑路径"),
             ("F5", "刷新当前视图"),
             ("Ctrl + F", "打开文件搜索浮层"),
             ("Ctrl + B", "展开或折叠导航侧栏"),

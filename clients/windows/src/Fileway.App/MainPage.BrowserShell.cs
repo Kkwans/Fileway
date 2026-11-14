@@ -187,7 +187,7 @@ public sealed partial class MainPage
     private void BeginPathEdit()
     {
         if (_directory is null || _disposed || _connecting || Workspace.Visibility != Visibility.Visible || ConnectionPanel.Visibility == Visibility.Visible) return;
-        PathBox.Text = _directory.WirePath;
+        PathBox.Text = _directory.DisplayPath;
         PathBreadcrumb.Visibility = Visibility.Collapsed; PathBox.Visibility = Visibility.Visible;
         EditPathButton.Visibility = Visibility.Collapsed;
         PathBox.Focus(FocusState.Keyboard); PathBox.SelectAll();
@@ -203,12 +203,36 @@ public sealed partial class MainPage
         if (args.Key == VirtualKey.Escape) { args.Handled = true; EndPathEdit(); ActiveFiles.Focus(FocusState.Keyboard); }
         if (args.Key != VirtualKey.Enter || _pathNavigating) return;
         args.Handled = true;
-        if (_session is not { } session) return;
-        var raw = PathBox.Text; // No Trim/Unescape/Windows.Path: this is the actual wire identity.
-        if (!IsValidRawPath(raw)) { SetNotice("原始路径无效", "请输入以 / 开始的原始路径；保留百分号编码，不使用 . 或 .. 段。", InfoBarSeverity.Warning); return; }
+        if (_directory is not { } directory) return;
+        if (!TryResolveEnteredPath(PathBox.Text, directory, out var target))
+        {
+            SetNotice("目录路径无效", "请使用以 / 开头的完整目录路径，目录名之间用 / 分隔。", InfoBarSeverity.Warning);
+            return;
+        }
         _pathNavigating = true;
-        try { if (await NavigateToResourceAsync(new RemoteResourceRef(session.Account, raw, raw, raw))) EndPathEdit(); }
+        try { if (await NavigateToResourceAsync(target)) EndPathEdit(); }
         finally { _pathNavigating = false; }
+    }
+
+    private static bool TryResolveEnteredPath(string displayPath, RemoteResourceRef current, out RemoteResourceRef target)
+    {
+        target = current;
+        // Keep the server identity when resubmitting an unchanged display alias.
+        if (string.Equals(displayPath, current.DisplayPath, StringComparison.Ordinal)) return true;
+        if (displayPath.Length == 0 || displayPath[0] != '/' || displayPath.Any(char.IsControl)) return false;
+        if (displayPath == "/")
+        {
+            target = new RemoteResourceRef(current.Account, "/", "根目录", "/");
+            return true;
+        }
+
+        var segments = displayPath[1..].Split('/');
+        if (segments.Any(segment => segment is "" or "." or "..")) return false;
+        // Input is literal display text. Escape each new segment once, including
+        // any percent sign that happens to be followed by hexadecimal digits.
+        var wirePath = "/" + string.Join('/', segments.Select(Uri.EscapeDataString));
+        target = new RemoteResourceRef(current.Account, wirePath, segments[^1], displayPath);
+        return true;
     }
     private async void Breadcrumb_Click(BreadcrumbBar sender, BreadcrumbBarItemClickedEventArgs args)
     {
@@ -222,7 +246,7 @@ public sealed partial class MainPage
         bool Current() => !_disposed && !_connecting && _generation == generation && _navigationRevision == navigation && _session?.Id == session.Id && _session.Account == session.Account;
         try
         {
-            if (!IsValidRawPath(requested.WirePath)) throw new FilewayException(new ErrorInfo(ErrorCode.InvalidRequest, "原始目录路径无效。"));
+            if (!IsValidRawPath(requested.WirePath)) throw new FilewayException(new ErrorInfo(ErrorCode.InvalidRequest, "目录路径无效。"));
             var trail = new List<RemoteResourceRef> { root };
             if (requested.WirePath != root.WirePath)
             {

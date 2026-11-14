@@ -381,7 +381,7 @@ components:
 - 打开方式对话框：分类标签与选择器同行并对齐，滚动区高度使用 `DialogOrdering.ContentMaxHeight`。Markdown 可选内置查看器、系统默认应用或指定本机应用。外部打开前显示下载位置，确认后提交下载，校验完成才将本地副本交给所选应用。
 - 外部打开跟随本次下载任务的状态。交接成功只显示一条简短浮层，同名、断线等阻断沿用下载反馈与详情入口。提示保留来源页的选中项和正文视口。
 - 窗口状态：主窗口正常状态的大小/位置与 `maximized` 标记写入数据根 `ui-preferences.json`（camelCase，大小写不敏感，兼容旧 `theme` 文件），启动时按保存点所在显示器 `WorkArea` 钳制，越界坐标必须回到可见区；最大化关闭只更新标记、不覆盖正常 bounds，启动恢复 bounds 后再最大化（0.8.100/0.8.101）。首次启动默认 1120×760 居中。导航侧栏的展开/图标栏状态保存为 `sidebarCollapsed`，重启保持，覆盖式窄窗口开合不写入（0.8.102）。
-- 主浏览顶部工具行：返回、上级、刷新和搜索入口使用 `BrowserToolbarButtonStyle`（40×40、10px 圆角），与 40px 路径栏同高。路径栏内部的编辑按钮保持 32px 内嵌尺寸。
+- 主浏览顶部工具行：返回、上级、刷新和搜索入口使用 `BrowserToolbarButtonStyle`（40×40、10px 圆角），与 40px 路径栏同高。路径栏内部的编辑按钮保持 32px 内嵌尺寸。编辑路径及复制／移动目标使用可读目录名，提交时逐段编码。原样确认当前目录继续使用该目录的服务端标识。
 - 自研双色焦点环覆盖主/次/图标/文字图标/分段选项/侧栏导航按钮/详情动作磁贴与 CheckBox；这些控件一律 `UseSystemFocusVisuals=False`，由模板 `FocusStates` 显示光晕 + 内环。动作磁贴必须 `HorizontalAlignment=Stretch` 填满所在栅格列，不能按内容宽度收缩；CheckBox 焦点环画在内容外侧，避免压住 20px 勾选框与文字。菜单项键盘焦点使用应用双色（`FocusVisualPrimaryBrush`=文字色、`FocusVisualSecondaryBrush`=画布色，内缩 2 DIP），但形状仍由 WinUI 内部模板绘制为矩形。任务详情与回收站的展开面板使用 `FwDisclosure`（`LayoutChoiceStyle` 开关头 + 旋转箭头 + 自研焦点环），不再使用 WinUI Expander；开关头必须把标题绑定到 `AutomationProperties.Name`。
 - 菜单快捷键：只对对应相同操作的快捷键设置 `KeyboardAcceleratorTextOverride`（复制 Ctrl+C、剪切 Ctrl+X、粘贴 Ctrl+V、重命名 F2、移入回收站 Delete、全选 Ctrl+A、刷新 F5）。浏览搜索入口和结果页「修改条件」在悬停提示中显示 Ctrl+F。
 - 已知尚未迁移：部分弹层仍使用旧样式，按本契约逐步替换。

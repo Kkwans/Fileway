@@ -334,7 +334,7 @@ public sealed partial class MainPage
         if (!ClipboardCurrent()) return;
         if (resources.Length == 0) return;
         var caption = (Style)Application.Current.Resources["FwCaptionTextStyle"];
-        var path = new TextBox { Header = "目标文件夹的原始路径", Text = directory.WirePath, MinWidth = 360, Style = (Style)Application.Current.Resources["FwTextBoxStyle"] };
+        var path = new TextBox { Header = "目标文件夹路径", Text = directory.DisplayPath, MinWidth = 360, Style = (Style)Application.Current.Resources["FwTextBoxStyle"] };
         if (clipboard is not null) path.Visibility = Visibility.Collapsed;
         var conflicts = new Fileway.App.Controls.ChoiceBox { Header = "同名项目", HorizontalAlignment = HorizontalAlignment.Stretch, SelectedIndex = 0 };
         foreach (var label in new[] { "保留两者（自动改名）", "遇到冲突停止", "跳过同名项目", "替换同名项目" }) conflicts.Items.Add(label);
@@ -349,7 +349,7 @@ public sealed partial class MainPage
         }
         var dialog = new ContentDialog { Title = action == FileTransferAction.Copy ? "复制到" : "移动到", Content = content, PrimaryButtonText = "提交任务", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
         if (await ShowBrowserDialogAsync(dialog) != ContentDialogResult.Primary || !SameBrowser(session, directory, generation) || !CanWrite(Allowed) || !ClipboardCurrent()) return;
-        if (!IsValidRawPath(path.Text)) { SetNotice("目标路径无效", "请输入绝对原始路径并保留百分号编码。", InfoBarSeverity.Warning); return; }
+        if (!TryResolveEnteredPath(path.Text, directory, out var destinationReference)) { SetNotice("目标路径无效", "请使用以 / 开头的完整目录路径。", InfoBarSeverity.Warning); return; }
         var conflict = conflicts.SelectedIndex switch { 1 => FileConflictPolicy.Fail, 2 => FileConflictPolicy.Skip, 3 => FileConflictPolicy.Replace, _ => FileConflictPolicy.KeepBoth };
         if (conflict == FileConflictPolicy.Replace)
         {
@@ -359,9 +359,9 @@ public sealed partial class MainPage
         _fileWriteBusy = true; UpdateBrowserCommands();
         try
         {
-            var destination = await _files.GetAsync(new RemoteResourceRef(session.Account, path.Text, path.Text, path.Text), _lifetime.Token);
+            var destination = await _files.GetAsync(destinationReference, _lifetime.Token);
             if (!SameBrowser(session, directory, generation) || _session is null || !Allowed(_session.Permissions) || HasUnresolvedWrite || !ClipboardCurrent()) return;
-            if (!destination.IsDirectory) { SetNotice("目标不是文件夹", "请选择服务器上的文件夹原始路径。", InfoBarSeverity.Warning); return; }
+            if (!destination.IsDirectory) { SetNotice("目标不是文件夹", "请选择服务器上的文件夹路径。", InfoBarSeverity.Warning); return; }
             var transferItems = resources.Select(resource => new FileTransferItem(resource, conflict)).ToArray();
             var skipped = 0;
             if (conflict == FileConflictPolicy.Skip)
