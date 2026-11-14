@@ -95,6 +95,9 @@ func handle(fn handleFunc, prefix string, store *storage.Storage, server *settin
 			if strings.HasPrefix(r.URL.Path, "/api/media-library/v1/streams/") {
 				loggedPath = "/api/media-library/v1/streams/{lease}"
 			}
+			if strings.HasPrefix(r.URL.Path, "/api/media-library/v1/playback-sessions/") {
+				loggedPath = "/api/media-library/v1/playback-sessions/{session}"
+			}
 			log.Printf("%s: %v %s %v", loggedPath, status, clientIP, err)
 		}
 

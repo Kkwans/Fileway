@@ -101,6 +101,8 @@ func renewableErr(err error, d *data) bool {
 // liveRequestAuthCheck revalidates the original request credential against the
 // current signing settings during bounded media reads. The credential remains
 // in the request only; it is never placed in a lease or persisted.
+var errMediaRequestExpired = errors.New("播放请求凭据已过期")
+
 func liveRequestAuthCheck(r *http.Request, d *data, viewer uint, session string) func() error {
 	return func() error {
 		configuration, err := d.store.Settings.Get()
@@ -122,6 +124,9 @@ func liveRequestAuthCheck(r *http.Request, d *data, viewer uint, session string)
 		var claims authToken
 		parser := jwt.NewParser(jwt.WithValidMethods([]string{jwt.SigningMethodHS256.Alg()}), jwt.WithExpirationRequired())
 		token, err := request.ParseFromRequest(r, &extractor{}, keyFunc, request.WithClaims(&claims), request.WithParser(parser))
+		if token != nil && claims.User.ID == viewer && claims.DeviceSession == session && errors.Is(err, jwt.ErrTokenExpired) && !renewableErr(err, &data{settings: configuration}) {
+			return errMediaRequestExpired
+		}
 		if token == nil || ((err != nil || !token.Valid) && (token.Header["kid"] != nil || !renewableErr(err, &data{settings: configuration}))) {
 			return fmt.Errorf("身份验证已失效")
 		}

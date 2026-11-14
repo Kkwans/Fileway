@@ -279,19 +279,25 @@ may therefore be empty with a next cursor; clients must follow that cursor.
 `sourceFileId`, `fileRevision`, `identityEpoch`, `weakIdentity`, `displayName`,
 `contentType`, `size`, nullable `durationSeconds` and `resolution`,
 `rangeSupported`, `canResumeAcrossOpen`, `resumeRequiresSameRevision`, `url`,
-and `expiresAt` (Unix milliseconds). The URL is a same-origin authenticated
+`endpoint`, `sessionId`, `leaseId`, `leaseGeneration`, `expiresAt`, `renewAfter`,
+`resumeMode`, and `timelineToken`. Times are Unix milliseconds. The URL is a same-origin authenticated
 `/streams/{lease}/original` resource supporting GET and HEAD, conditional
 requests and HTTP byte ranges. It never contains a source credential or an
 upstream media URL. A lease is bound to the requesting account and device
 session; knowledge of its opaque ID is not authorization.
 
-The current lease retains its initial verified file handle and expires after
-five minutes. Same-lease range seeks are supported. Both native and weak file
-identities currently return `canResumeAcrossOpen: false` and
-`resumeRequiresSameRevision: true`: native IDs and size/mtime markers alone do
-not prove an unchanged timeline across opens. Lease renewal, reliable cross-open
-resume and long-play integration remain required work before the player is
-release-ready; clients must not blindly reopen and reuse an offset on expiry.
+The session retains its initial verified file handle. The five-minute admission
+window applies to new GET/HEAD requests. An admitted stream continues while its
+request authorization and source checks succeed. `POST /playback-sessions/{sessionId}/renew`
+takes `operationId` and `expectedLeaseGeneration`, validates the current actor,
+device and source, and extends admission for the same resource. A retry of the
+most recent successful operation returns that receipt. A stale generation
+returns 409. `DELETE /playback-sessions/{sessionId}` closes the owner's session.
+The service reclaims sessions after ten minutes without readers or renewal.
+
+`resumeMode: same_session` and `timelineToken` describe continuity of the held
+resource. `canResumeAcrossOpen` remains false. Reopening after the session is
+gone requires independently verified timeline evidence.
 
 `GET|HEAD /libraries/{id}/items/{itemId}/artwork/{artworkId}` reads an authorized
 local NFO artwork declaration. This stage accepts only relative JPEG/PNG files

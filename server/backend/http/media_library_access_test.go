@@ -307,6 +307,9 @@ func newMediaAccessFixture(t *testing.T) *mediaAccessFixture {
 }
 
 type testMediaResolution struct {
+	SessionID           string `json:"sessionId"`
+	LeaseID             string `json:"leaseId"`
+	LeaseGeneration     int64  `json:"leaseGeneration"`
 	URL                 string `json:"url"`
 	WeakIdentity        bool   `json:"weakIdentity"`
 	CanResumeAcrossOpen bool   `json:"canResumeAcrossOpen"`
@@ -314,6 +317,52 @@ type testMediaResolution struct {
 	FileRevision        int64  `json:"fileRevision"`
 	IdentityEpoch       int64  `json:"identityEpoch"`
 	ExpiresAt           int64  `json:"expiresAt"`
+}
+
+func TestMediaPlaybackSessionRenewKeepsRangeAndRevocation(t *testing.T) {
+	f := newMediaAccessFixture(t)
+	resolution := f.resolve(t)
+	leases := f.f.router.(*archiveCacheHandler).mediaLeases
+	start := time.Now()
+	leases.now = func() time.Time { return start }
+	lease := leases.items[resolution.LeaseID]
+	if lease == nil || resolution.SessionID == "" || resolution.LeaseGeneration != 1 {
+		t.Fatal("missing playback session")
+	}
+	// Advance the admission clock after output starts, with the file held by
+	// the active request. A new request requires renewal.
+	stream := &callbackMediaResponse{ResponseRecorder: httptest.NewRecorder(), afterWrite: func() { start = start.Add(6 * time.Minute) }}
+	request := httptest.NewRequest(http.MethodGet, resolution.URL, nil)
+	request.Header.Set("X-Auth", signedTrashHTTPToken(t, f.f.viewer.ID))
+	f.f.router.ServeHTTP(stream, request)
+	if stream.Code != http.StatusOK || !bytes.Equal(stream.Body.Bytes(), f.video) {
+		t.Fatalf("active output after admission expired: %d bytes=%d", stream.Code, stream.Body.Len())
+	}
+	if r := f.request(t, f.f.viewer.ID, http.MethodHead, resolution.URL, nil); r.Code != http.StatusNotFound {
+		t.Fatalf("expired admission accepted: %d", r.Code)
+	}
+	path := "/api/media-library/v1/playback-sessions/" + resolution.SessionID
+	body := map[string]any{"operationId": "renew-playback", "expectedLeaseGeneration": 1}
+	if r := f.f.call(t, f.f.owner.ID, http.MethodPost, path+"/renew", body); r.Code != http.StatusNotFound {
+		t.Fatalf("another actor renewed: %d", r.Code)
+	}
+	r := f.f.call(t, f.f.viewer.ID, http.MethodPost, path+"/renew", body)
+	var receipt mediaAdmission
+	if r.Code != http.StatusOK || json.Unmarshal(r.Body.Bytes(), &receipt) != nil || receipt.LeaseGeneration != 2 || receipt.LeaseID != resolution.LeaseID {
+		t.Fatalf("renew: %d %s", r.Code, r.Body)
+	}
+	if retry := f.f.call(t, f.f.viewer.ID, http.MethodPost, path+"/renew", body); retry.Code != http.StatusOK || retry.Body.String() != r.Body.String() {
+		t.Fatalf("renew replay: %d %s", retry.Code, retry.Body)
+	}
+	if r := f.request(t, f.f.viewer.ID, http.MethodGet, resolution.URL, map[string]string{"Range": "bytes=10-30"}); r.Code != http.StatusPartialContent || !bytes.Equal(r.Body.Bytes(), f.video[10:31]) {
+		t.Fatalf("range after renewal: %d", r.Code)
+	}
+	if r := f.request(t, f.f.viewer.ID, http.MethodDelete, path, nil); r.Code != http.StatusNoContent {
+		t.Fatalf("close: %d", r.Code)
+	}
+	if r := f.f.call(t, f.f.viewer.ID, http.MethodPost, path+"/renew", body); r.Code != http.StatusNotFound {
+		t.Fatalf("closed session revived: %d", r.Code)
+	}
 }
 
 func (f *mediaAccessFixture) resolve(t *testing.T) testMediaResolution {

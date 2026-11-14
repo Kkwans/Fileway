@@ -32,8 +32,11 @@ func (access *mediaAccessContext) checkViewer(ctx context.Context, d *data) erro
 	if d.user == nil || d.user.ID != access.viewer || d.deviceSession != access.session || d.store.Users == nil {
 		return fs.ErrPermission
 	}
-	if d.authCheck == nil || d.authCheck() != nil {
+	if d.authCheck == nil {
 		return fs.ErrPermission
+	}
+	if err := d.authCheck(); err != nil {
+		return err
 	}
 	viewer, err := d.store.Users.Get(d.server.Root, access.viewer)
 	if err != nil || viewer == nil || viewer.ID != access.viewer {
@@ -113,9 +116,13 @@ func (access *mediaAccessContext) openPlayback(ctx context.Context, d *data) (*f
 	}
 	// Do not return a handle if a grant changed during the open.
 	current, err = resolve()
-	if err != nil || !medialibrary.SamePlaybackAccess(expected, current) || access.checkViewer(ctx, d) != nil {
+	if err != nil || !medialibrary.SamePlaybackAccess(expected, current) {
 		_ = file.Close()
 		return nil, fs.ErrPermission
+	}
+	if err := access.checkViewer(ctx, d); err != nil {
+		_ = file.Close()
+		return nil, err
 	}
 	if _, err = currentMediaLibrary(ctx, d, access.viewer, expected.LibraryID); err != nil {
 		_ = file.Close()
