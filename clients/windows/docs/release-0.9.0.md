@@ -1,6 +1,6 @@
 # 栖卷 Windows 0.9.0
 
-Windows x64 未签名正式包。构建源码为 `4b9bd6aa543d851b533382ee74cd7fc49f3a384b`，程序集文件版本为 `0.9.0.0`。
+Windows x64 未签名正式包，已替换为合并主线的构建。构建源码为 `82a5f9894ad9a1135b3ff838ab9ee289b5d7dff8`，程序集文件版本为 `0.9.0.0`。
 
 ## 改动
 
@@ -10,27 +10,30 @@ Windows x64 未签名正式包。构建源码为 `4b9bd6aa543d851b533382ee74cd7f
 - 短反馈固定在标题栏中央，保留操作入口和自动消失。放大系统文字时，传输中心保留记录状态与动作。弹窗和浮层提供实色、柔和模糊和高级毛玻璃。本版修复工具菜单透字，确认实际系统背景生效后才应用半透明色调，系统限制时使用主题实色。
 - 图片查看器使用自绘标题栏、动态取色、顶部工具和可调缩略图，支持滚轮缩放与键盘换图。Markdown 支持渲染态编辑及外部软件打开，代码预览支持语法着色与可选行号。ZIP 列表、表头及结果共用边界，解压结果紧接短列表。
 - 文件夹上传保留目录层级，传输记录保留同名保护、断线续传和实际任务详情。播放器复验暂停后下一段、音频跳过、末段动作及全屏往返。
+- 合并 Windows 分支与主线服务端、共享核心，保留主线账号会话状态和 Windows 的缓存、条件下载、搜索路径能力。兼容画质调用统一到合并后的 HLS 任务接口。
 
 ## 验证
 
 - 洁净源码 Release Publish 的 Windows 编译零警告、零错误。嵌入 Web 构建有既有 chunk 大小和 Browserslist 提示。
-- 本次正式构建实际复验浅深主页面、搜索和浅色传输中心。浅深菜单三档、设置下拉、偏好保存及重启在相同应用源码的专项构建通过，浅色正式构建已补菜单实拍。历史 19 项整合回归、ZIP 解压和播放器专项的证据保留相应候选提交。
-- 正式服务端在 8888 健康运行，返回 200。专项验证使用隔离 18080。两次 15／20 秒启动冒烟和 ZIP 解包后独立启动通过。
+- 合并版完成共享核心、Windows 宿主、条件下载、文件任务与媒体库相关的针对性检查。主线的服务端和 Web 工作流通过。历史 UI、ZIP 解压和播放器专项证据对应此前的构建。
+- 正式服务端在 8888 健康运行，返回 200。合并版的 15／20 秒启动冒烟通过。
 - 证据见工作区外 `Fileway-windows-artifacts/0.9.0/reviews/Release-0.9.0/code-review.md` 与 `reviews/UX-MenuBackdrop/code-review.md`。
 
 ## 交付
 
-[GitHub Release `windows-0.9.0`](https://github.com/Kkwans/Fileway/releases/tag/windows-0.9.0)。本地目录 `Fileway-windows-artifacts/0.9.0/release-0.9.0-1794634176056`。
+[GitHub Release `windows-0.9.0`](https://github.com/Kkwans/Fileway/releases/tag/windows-0.9.0)。本地目录 `Fileway-windows-artifacts/0.9.0/main-090-1794651943499`。
 
 | 产物 | 字节 | SHA-256 |
 | --- | ---: | --- |
-| `Fileway-0.9.0-win-x64-unsigned-setup.exe` | 279,193,931 | `7459bb37852eeb345052c7d9d9f25d73e38536f14b044178d6fc42d3e4464335` |
-| `Fileway-0.9.0-win-x64-unsigned.zip` | 282,728,170 | `39b923e90b12ae9d1df20ac6bccbc5fecc4b72fe47267cc61f05dad1c38c36ec` |
+| `Fileway-0.9.0-win-x64-unsigned-setup.exe` | 282,456,782 | `8df89020a6963799b18591764d043d92e1f1fb76378957d7f0b8e332e0b15257` |
+| `Fileway-0.9.0-win-x64-unsigned.zip` | 286,094,389 | `b614ff055a0a6ec0c790a7b99e39cdfbeb5e6545c03f9c0f12ee6c657e26fbe7` |
+| `Fileway-0.9.0-merged-source.zip` | 34,445,271 | `efcfb86c9372db53d86901e4516d4915ac618a9d4ed6d58f9e7832423097fe19` |
 | `Fileway-0.9.0-media-corresponding-source.zip` | 1,503,279,870 | `da44b266cfde42116b17cbf0e94cc67eb7fda235943d684fc14920ef373f4670` |
 
-`SHA256SUMS.txt` 随 Release 提供。本地有同目录打包回执。安装包和 ZIP 的 1,741 个载荷已逐项核对。包内附第三方通知及对应媒体源码索引。
+`SHA256SUMS.txt` 随 Release 提供。本地有同目录打包回执。ZIP 完整性和关键程序哈希已核对，包内附第三方通知及对应媒体源码索引。已有 `windows-0.9.0` 标签指向初次发布提交，本次对应源码见 `Fileway-0.9.0-merged-source.zip`。
 
 ## 已知问题与待验范围
 
+- 因版本号仍是 0.9.0，更新检查不会提示同版本替换。已安装旧 0.9.0 时需先正常卸载旧版本，再安装此构建。
 - 交互式安装升级、剩余桌面拖放和文件夹批传组合、跨屏 DPI、触控、Typora 实际窗口、中文输入法组字、真实 Tailnet 入网与跨设备局域网留待人工体验。
 - 关闭系统透明效果的本轮复拍未完成。高对比度为静态检查，PDF 压力复验暂停。Windows Actions 的 pnpm 环境和旧传输探针断言仍待修复。
