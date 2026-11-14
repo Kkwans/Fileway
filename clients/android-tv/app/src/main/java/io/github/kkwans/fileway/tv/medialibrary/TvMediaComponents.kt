@@ -96,9 +96,10 @@ internal fun MediaAction(
     enabled: Boolean = true,
 ) {
     val colors = LocalMediaColors.current
+    val emphasize = primary && enabled
     MediaSurface(onClick, modifier.heightIn(min = 48.dp), enabled = enabled,
-        selected = selected, container = if (primary) colors.text else colors.surface,
-        contentColor = if (primary) colors.canvas else colors.text) {
+        selected = selected, container = if (emphasize) colors.text else colors.surface,
+        contentColor = if (emphasize) colors.canvas else colors.text) {
         Row(Modifier.padding(horizontal = 18.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             if (icon != null) Icon(painterResource(icon), null, Modifier.size(22.dp))
@@ -120,7 +121,7 @@ internal fun MediaSurface(
     val colors = LocalMediaColors.current
     val interactive = LocalTvInteractive.current && enabled
     val interaction = remember { MutableInteractionSource() }
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RoundedCornerShape(12.dp)
     Surface(onClick = onClick, enabled = interactive, interactionSource = interaction,
         modifier = modifier.tvTouch(onClick, interactive, interaction)
             .focusProperties { canFocus = interactive }.semantics { this.selected = selected; role = Role.Button },

@@ -13,6 +13,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -63,35 +64,42 @@ fun TvMediaSourcePicker(
             closeFocus.requestFocus()
         }
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .5f))) {
-            val panelWidth = (maxWidth * .54f).coerceAtLeast(440.dp).coerceAtMost(maxWidth)
-            Column(Modifier.align(Alignment.CenterEnd).width(panelWidth).fillMaxHeight().background(colors.canvas)
-                .padding(horizontal = 28.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            val endInset = if (maxWidth >= 720.dp) 48.dp else 16.dp
+            val verticalInset = if (maxHeight >= 480.dp) 28.dp else 12.dp
+            val panelWidth = (maxWidth * .54f).coerceIn(456.dp, 520.dp).coerceAtMost(maxWidth - endInset * 2)
+            Column(Modifier.align(Alignment.CenterEnd).padding(end = endInset, top = verticalInset, bottom = verticalInset)
+                .width(panelWidth).fillMaxHeight().clip(RoundedCornerShape(12.dp)).background(colors.canvas)
+                .padding(horizontal = 24.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     MediaAction("返回", onDismiss, Modifier.focusRequester(closeFocus), icon = Art.drawable.fileway_ic_arrow_back)
-                    Text("版本与片源", style = tvTextStyle(26, 34, FontWeight.Medium), color = colors.text)
+                    Text("版本与片源", style = tvTextStyle(26, 34, FontWeight.Medium), color = colors.text,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(state.title, style = tvTextStyle(28, 36, FontWeight.Medium), color = colors.text,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text("当前服务器中的可用片源", style = tvTextStyle(16, 24), color = colors.secondary)
-                }
-                if (state.editions.isNotEmpty()) LazyRow(Modifier.fillMaxWidth().focusGroup(),
-                    contentPadding = PaddingValues(4.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(state.editions, key = { it.id }) { choice ->
-                        Column {
-                            MediaAction(choice.title, {
-                                editionId = choice.id
-                                selectedSourceId = state.currentSourceId?.takeIf { current -> choice.sources.any { it.id == current && it.available } }
-                            }, selected = edition?.id == choice.id, enabled = !state.applying)
-                            Box(Modifier.align(Alignment.CenterHorizontally).width(32.dp).height(3.dp)
-                                .background(if (edition?.id == choice.id) colors.accent else Color.Transparent))
-                        }
-                    }
-                }
-                if (edition != null) Text(listOfNotNull(edition.title, edition.runtimeLabel).joinToString(" · "),
-                    style = tvTextStyle(18, 26), color = colors.text)
                 LazyColumn(Modifier.weight(1f).fillMaxWidth().focusGroup(),
                     contentPadding = PaddingValues(4.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    item(key = "title") {
+                        Text(state.title, style = tvTextStyle(28, 36, FontWeight.Medium), color = colors.text,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                    if (state.editions.isNotEmpty()) item(key = "editions") {
+                        LazyRow(Modifier.fillMaxWidth().focusGroup(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            items(state.editions, key = { it.id }) { choice ->
+                                Column {
+                                    MediaAction(choice.title, {
+                                        editionId = choice.id
+                                        selectedSourceId = state.currentSourceId?.takeIf { current -> choice.sources.any { it.id == current && it.available } }
+                                    }, selected = edition?.id == choice.id, enabled = !state.applying)
+                                    Box(Modifier.align(Alignment.CenterHorizontally).width(32.dp).height(3.dp)
+                                        .background(if (edition?.id == choice.id) colors.accent else Color.Transparent))
+                                }
+                            }
+                        }
+                    }
+                    if (edition != null) item(key = "edition-summary") {
+                        Text(listOfNotNull(edition.title, edition.runtimeLabel).joinToString(" · "),
+                            style = tvTextStyle(18, 26), color = colors.secondary)
+                    }
                     if (state.loading) item(key = "loading") {
                         Text("正在读取片源…", style = tvTextStyle(18, 27), color = colors.secondary)
                     }
@@ -114,7 +122,6 @@ fun TvMediaSourcePicker(
                         Text("当前没有可访问的片源。", style = tvTextStyle(18, 27), color = colors.secondary)
                     }
                 }
-                Text("选择有权访问的片源", style = tvTextStyle(16, 23), color = colors.secondary)
                 MediaAction(if (state.applying) "正在准备片源…" else "使用所选片源", {
                     if (edition != null && selectedSource != null && !state.applying && !state.loading) onConfirm(edition.id, selectedSource.id)
                 }, Modifier.align(Alignment.End), primary = true,
@@ -136,7 +143,7 @@ private fun MediaSourceRow(
                 source.unavailableReason, if (current) "当前片源" else null).joinToString("，")
         }, enabled = source.available && !applying, selected = selected,
             container = if (selected) colors.raised else colors.surface) {
-            Row(Modifier.fillMaxWidth().padding(14.dp), verticalAlignment = Alignment.CenterVertically,
+            Row(Modifier.fillMaxWidth().heightIn(min = 104.dp).padding(14.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 Box(Modifier.size(46.dp).background(colors.raised, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
                     Icon(painterResource(when (source.kind) {
