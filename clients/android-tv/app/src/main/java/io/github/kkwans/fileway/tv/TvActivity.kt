@@ -3,11 +3,16 @@ package io.github.kkwans.fileway.tv
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.Window
@@ -23,6 +28,9 @@ import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.MaterialTheme
+import io.github.kkwans.fileway.tv.medialibrary.TvMediaRoute
+import io.github.kkwans.nasfilebrowser.data.MediaLibraryRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 class TvActivity : ComponentActivity() {
@@ -69,6 +77,18 @@ class TvActivity : ComponentActivity() {
         setContent {
             val state by model.state.collectAsStateWithLifecycle()
             val media by model.media.state.collectAsStateWithLifecycle()
+            val session = model.context
+            var catalogOpen by remember(session) { mutableStateOf(false) }
+            val catalog by produceState<Result<MediaLibraryRepository>?>(null, session, catalogOpen) {
+                value = null
+                if (session != null && catalogOpen) {
+                    value = try { Result.success(model.catalogRepository(session)) }
+                    catch (failure: Exception) {
+                        if (failure is CancellationException) throw failure
+                        Result.failure(failure)
+                    }
+                }
+            }
             TvTheme(state.dark) {
                 CompositionLocalProvider(LocalTvRemoteGateway provides model.remoteGateway, LocalTvSubtitlePicker provides subtitlePicker,
                     LocalTvConfirmKeyGuard provides confirmKeyGuard) {
@@ -78,7 +98,24 @@ class TvActivity : ComponentActivity() {
                         // Keep the library and its actual lazy-list/focus state
                         // attached below the player. Returning no longer builds
                         // a new library under a different global theme.
-                        TvBrowseScreen(model, ::finish, active = media.file == null)
+                        TvBrowseScreen(model, ::finish, active = media.file == null && !catalogOpen,
+                            onCatalog = { catalogOpen = true })
+                        if (catalogOpen && session != null) {
+                            val repository = catalog?.getOrNull()
+                            CompositionLocalProvider(LocalTvInteractive provides (media.file == null)) {
+                                Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background),
+                                    contentAlignment = androidx.compose.ui.Alignment.Center) {
+                                    if (repository != null) TvMediaRoute(session, repository, model.imageLoader,
+                                        onExit = { catalogOpen = false },
+                                        onPlayback = { model.media.openCatalog(repository, it) })
+                                    else {
+                                        BackHandler(media.file == null) { catalogOpen = false }
+                                        TvButton(if (catalog == null) "正在读取影视目录 · 返回" else "影视目录暂时无法打开 · 返回",
+                                            { catalogOpen = false })
+                                    }
+                                }
+                            }
+                        }
                         if (media.file != null) TvTheme(dark = true, media = true) { TvMediaScreen(model) }
                     }
                     TvPairingScreen(model)

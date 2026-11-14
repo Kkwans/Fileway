@@ -647,7 +647,7 @@ internal object FullRowVisibility : BringIntoViewSpec {
 @Composable internal fun TvPlayerRange(
     label: String, value: Float, range: ClosedFloatingPointRange<Float>, step: Float, format: (Float) -> String,
     modifier: Modifier = Modifier, expandTrack: Boolean = false, accelerate: Boolean = false,
-    displayLabel: String = label, onCommit: (Float) -> Unit,
+    onCommit: (Float) -> Unit,
 ) {
     var preview by remember { mutableStateOf<Float?>(null) }
     var focused by remember { mutableStateOf(false) }
@@ -774,11 +774,6 @@ internal object FullRowVisibility : BringIntoViewSpec {
     }
     if (expandTrack) {
         Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Text(displayLabel, style = tvTextStyle(18, 28, FontWeight.Medium), color = TvPlayerDesign.text)
-                Text(format(shown), style = tvTextStyle(18, 28, FontWeight.Medium).copy(fontFeatureSettings = "tnum"),
-                    color = TvPlayerDesign.accent)
-            }
             Track(Modifier.fillMaxWidth())
             Row(Modifier.fillMaxWidth().padding(horizontal = trackInset), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(format(range.start), style = tvTextStyle(16, 24), color = TvPlayerDesign.secondary)

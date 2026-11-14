@@ -41,6 +41,7 @@ data class TvMediaState(
     val sdrAvailable: Boolean = false,
     val imageReady:Boolean=false,
     val firstConfirmedPositionMs:Long?=null,
+    val catalogSource: Boolean = false,
 )
 
 internal data class TvLocalSubtitleFence(val account: String, val mediaEpoch: Long, val decoder: Long, val selection: Long)
@@ -86,6 +87,8 @@ class TvMediaController(
     private data class Binding(val owner: SessionContext, val file: ResourceRef, val identity: String, var durationMs: Long, val writer: PlaybackWriter, val epoch: Long,
         val subtitleAssets: SourceSubtitleAssets = SourceSubtitleAssets())
     private var binding: Binding? = null
+    private var catalogSelection: Pair<MediaLibraryRepository, MediaCatalogVariant>? = null
+    private var catalogLease: CatalogPlaybackLease? = null
     private data class Window(val lease: PreviewLease, val startMs: Long, val durationMs: Long,val id:String)
     private var window: Window? = null
     private sealed interface SubtitleIntent {
@@ -119,9 +122,62 @@ class TvMediaController(
     private var pendingNativeAudio: Int? = null
 
     fun open(file: ResourceRef, candidates: List<ResourceRef>) = openMedia(file,candidates,null)
+    internal fun openCatalog(repo: MediaLibraryRepository, item: MediaCatalogVariant) {
+        val owner = current() ?: return
+        if (repo.scope != item.ref.scope || repo.scope.account.userId != owner.account.userId) return
+        val expected = ++epoch
+        ++presentationRevision
+        operation?.cancel()
+        ++subtitleRevision
+        subtitleJob?.cancel()
+        watcher?.cancel()
+        prefetch?.cancel()
+        pendingLocal = null
+        pendingNativeAudio = null
+        switchInProgress = false
+        requestedPresentation = null
+        subtitleIntent = SubtitleIntent.Auto
+        subtitleFallbackIntent = SubtitleIntent.Auto
+        subtitleFallbackSource = -1
+        val file = ResourceRef("", "/@catalog/${item.ref.libraryId}/${item.variantId}",
+            item.displayName, false, "video", item.size)
+        mutable.value = TvMediaState(file = file, mode = mutable.value.mode, busy = true, catalogSource = true)
+        catalogSelection = repo to item
+        operation = scope.launch {
+            try {
+                lock.withLock {
+                    disposeBinding()
+                    if (!accepts(owner, expected)) return@withLock
+                    val resolved = (repo.resolvePlayback(item) as? MediaReadResult.Success)?.value
+                        ?: error("片源暂不可用")
+                    val lease = repo.openPlaybackLease(resolved)
+                    if (!accepts(owner, expected)) { lease.release(); return@withLock }
+                    catalogLease = lease
+                    player.open(lease.url, videoDecodePolicy = playbackPreferences.videoDecodePolicy.value)
+                    mutable.update { it.copy(busy = false) }
+                    watcher = scope.launch {
+                        player.state.collect { snapshot ->
+                            if (accepts(owner, expected) && snapshot.durationMs > 0 &&
+                                mutable.value.sourceDurationMs != snapshot.durationMs) {
+                                mutable.update { it.copy(sourceDurationMs = snapshot.durationMs) }
+                            }
+                        }
+                    }
+                }
+                catalogLease?.let { if (accepts(owner, expected)) it.maintain() }
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                if (accepts(owner, expected)) {
+                    if (mutable.value.busy) mutable.update { it.copy(busy = false, error = "无法打开片源，请重试") }
+                    else mutable.update { it.copy(notice = "片源连接未能续期，若无法继续播放请重试") }
+                }
+            }
+        }
+    }
     internal fun openHandoff(file:ResourceRef,start:TvMediaStart)=openMedia(file,listOf(file),start)
     private fun openMedia(file: ResourceRef, candidates: List<ResourceRef>, requested:TvMediaStart?) {
         val owner = current() ?: return
+        catalogSelection = null
         val queue = MediaQueue.snapshot(++sequence, owner.owner, file, candidates, MediaQueueSource.DIRECTORY)
         val mode = mutable.value.mode
         val expected = ++epoch
@@ -467,6 +523,7 @@ class TvMediaController(
     }
 
     fun switchMode(mode: TvHdrMode, forceSdr: Boolean = false, targetMs: Long? = null) {
+        if (catalogSelection != null) return
         val source = binding
         if (source == null) {
             val previous = mutable.value
@@ -565,7 +622,8 @@ class TvMediaController(
         val active = window
         return SourceTimeline(duration, active?.startMs ?: 0, active?.durationMs ?: duration).toSource(player.state.value.positionMs)
     }
-    val canSeek: Boolean get() = binding?.let { it.epoch == epoch && it.owner === current() } == true &&
+    val canSeek: Boolean get() = (catalogLease != null && catalogSelection != null ||
+        binding?.let { it.epoch == epoch && it.owner === current() } == true) &&
         mutable.value.sourceDurationMs > 0 && player.state.value.seekable && player.state.value.durationMs > 0
 
     fun seek(positionMs: Long) {
@@ -1293,7 +1351,11 @@ class TvMediaController(
     }
     fun imageReady(resourceKey:String,expected:Long) { if(epoch==expected&&mutable.value.file?.mediaKey==resourceKey)mutable.update{it.copy(imageReady=true)} }
     fun navigateQueue(delta: Int) { val queue = state.value.queue ?: return; queue.select(queue.index + delta)?.let { open(it.current, it.items) } }
-    fun retry() { val value = state.value; value.file?.let { open(it, value.queue?.items ?: listOf(it)) } }
+    fun retry() {
+        catalogSelection?.let { (repo, item) -> openCatalog(repo, item); return }
+        val value = state.value
+        value.file?.let { open(it, value.queue?.items ?: listOf(it)) }
+    }
     private fun saveProgress() {
         val source = binding ?: return
         val value = player.state.value
@@ -1330,6 +1392,7 @@ class TvMediaController(
     fun pause() { saveProgress(); player.pause() }
     suspend fun closeAndSave() {
         val expected = ++epoch
+        catalogSelection = null
         ++presentationRevision
         val oldOperation = operation; val oldSubtitle = subtitleJob; val oldWatcher = watcher; val oldPrefetch = prefetch
         oldOperation?.cancelAndJoin(); oldSubtitle?.cancelAndJoin(); oldWatcher?.cancelAndJoin(); oldPrefetch?.cancel()
@@ -1344,10 +1407,11 @@ class TvMediaController(
         // must not stay visible while its retired cache files are removed.
         if(closeUi)mutable.update{TvMediaState(mode=it.mode)}
         playbackLease?.release(); playbackLease = null
+        catalogLease?.release(); catalogLease = null
         cache.stop();window = null
         leases.forEach { it.release() }; leases.clear()
         externalRefs.clear()
         localRefs.clear()
     }
-    fun release() { ++epoch; operation?.cancel(); subtitleJob?.cancel(); watcher?.cancel(); prefetch?.cancel(); binding?.subtitleAssets?.close(); player.release();cache.release(); CoroutineScope(Dispatchers.IO).launch { playbackLease?.release(); leases.forEach { it.release() }; binding?.writer?.close() } }
+    fun release() { ++epoch; operation?.cancel(); subtitleJob?.cancel(); watcher?.cancel(); prefetch?.cancel(); binding?.subtitleAssets?.close(); player.release();cache.release(); CoroutineScope(Dispatchers.IO).launch { catalogLease?.release(); playbackLease?.release(); leases.forEach { it.release() }; binding?.writer?.close() } }
 }

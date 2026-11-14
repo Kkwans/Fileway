@@ -13,6 +13,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -33,6 +35,26 @@ import io.github.kkwans.fileway.tv.LocalTvInteractive
 import io.github.kkwans.fileway.tv.tvTextStyle
 import io.github.kkwans.fileway.tv.tvTouch
 import io.github.kkwans.fileway.design.R as Art
+
+internal data class TvMediaFocusBinding(
+    val targetId: String?, val targetOrigin: String?,
+    val onOpen: (String, String) -> Unit, val onRestored: () -> Unit,
+)
+internal val LocalTvMediaFocusBinding = staticCompositionLocalOf<TvMediaFocusBinding?> { null }
+
+@Composable internal fun Modifier.tvMediaReturnFocus(id: String, origin: String): Modifier {
+    val binding = LocalTvMediaFocusBinding.current
+    val interactive = LocalTvInteractive.current
+    val requester = remember(id, origin) { FocusRequester() }
+    val requested = binding?.let { it.targetId == id && it.targetOrigin == origin } == true
+    LaunchedEffect(requested, interactive) {
+        if (requested && interactive) {
+            withFrameNanos { }
+            if (runCatching { requester.requestFocus() }.getOrDefault(false)) binding?.onRestored?.invoke()
+        }
+    }
+    return if (requested) focusRequester(requester) else this
+}
 
 internal data class MediaColors(
     val canvas: Color, val surface: Color, val raised: Color, val text: Color,
@@ -162,8 +184,10 @@ internal fun MediaProgress(progress: Float?, modifier: Modifier = Modifier) {
 @Composable
 internal fun MediaPoster(item: TvMediaCard, imageLoader: ImageLoader, onClick: () -> Unit, modifier: Modifier = Modifier) {
     val colors = LocalMediaColors.current
+    val focus = LocalTvMediaFocusBinding.current
     Column(modifier.width(132.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
-        MediaSurface(onClick, Modifier.fillMaxWidth().aspectRatio(2f / 3f)
+        MediaSurface({ focus?.onOpen?.invoke(item.id, "poster"); onClick() }, Modifier.fillMaxWidth().aspectRatio(2f / 3f)
+            .tvMediaReturnFocus(item.id, "poster")
             .semantics { contentDescription = item.title }) {
             MediaArtwork(item.poster, imageLoader, Modifier.fillMaxSize())
             item.primaryRating?.let { rating ->
@@ -233,7 +257,8 @@ fun TvMediaTopBar(
             contentPadding = PaddingValues(4.dp)) {
             items(items, key = { it.id }) { item ->
                 Column {
-                    MediaAction(item.label, { onSelect(item.id) }, selected = item.id == selectedId)
+                    MediaAction(item.label, { onSelect(item.id) }, Modifier.tvMediaReturnFocus(item.id, "navigation"),
+                        selected = item.id == selectedId)
                     if (item.id == selectedId) Box(Modifier.align(Alignment.CenterHorizontally)
                         .width(28.dp).height(3.dp).background(colors.accent, RoundedCornerShape(2.dp)))
                     else Spacer(Modifier.height(3.dp))

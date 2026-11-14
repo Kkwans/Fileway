@@ -48,6 +48,7 @@ fun TvMediaDetail(
     scrollState: LazyListState = rememberLazyListState(),
 ) {
     val colors = LocalMediaColors.current
+    val focus = LocalTvMediaFocusBinding.current
     var expanded by rememberSaveable(state.scopeKey, state.item.id) { mutableStateOf(false) }
     LazyColumn(state = scrollState, modifier = modifier.fillMaxSize().background(colors.canvas),
         contentPadding = PaddingValues(bottom = 40.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
@@ -55,7 +56,8 @@ fun TvMediaDetail(
             Box(Modifier.fillMaxWidth()) {
                 MediaBackdrop(state.item.backdrop, imageLoader, Modifier.matchParentSize())
                 Column(Modifier.fillMaxWidth().padding(top = 12.dp, bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    MediaAction("影视", onBack, Modifier.padding(horizontal = 40.dp), icon = Art.drawable.fileway_ic_arrow_back)
+                    MediaAction("影视", onBack, Modifier.padding(horizontal = 40.dp)
+                        .tvMediaReturnFocus(state.item.id, "detail-back"), icon = Art.drawable.fileway_ic_arrow_back)
                     Column(Modifier.fillMaxWidth(.76f).padding(start = 40.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(state.item.title, style = tvTextStyle(36, 46, FontWeight.Medium), color = colors.text)
                         state.item.originalTitle?.takeIf(String::isNotBlank)?.let {
@@ -89,11 +91,13 @@ fun TvMediaDetail(
                     LazyRow(contentPadding = PaddingValues(horizontal = 40.dp, vertical = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.focusGroup()) {
                         if (onPlay != null && state.item.canPlay) item(key = "play") {
-                            MediaAction(state.playLabel, onPlay, primary = true, icon = Art.drawable.fileway_ic_play_arrow)
+                            MediaAction(state.playLabel, { focus?.onOpen?.invoke(state.item.id, "detail-play"); onPlay() },
+                                Modifier.tvMediaReturnFocus(state.item.id, "detail-play"), primary = true, icon = Art.drawable.fileway_ic_play_arrow)
                         }
                         if (onSources != null) item(key = "sources") {
                             MediaAction(if (state.sourceCount > 0) "片源 · ${state.sourceCount}" else "查看片源",
-                                onSources, icon = Art.drawable.fileway_ic_expand_more)
+                                { focus?.onOpen?.invoke(state.item.id, "detail-sources"); onSources() },
+                                Modifier.tvMediaReturnFocus(state.item.id, "detail-sources"), icon = Art.drawable.fileway_ic_expand_more)
                         }
                         if (onToggleFavorite != null) item(key = "favorite") {
                             MediaAction(if (state.favorite) "已收藏" else "收藏", onToggleFavorite,
@@ -173,9 +177,11 @@ private fun MediaPersonCard(person: TvMediaPerson, imageLoader: ImageLoader, onC
 @Composable
 private fun MediaEpisodeCard(episode: TvMediaEpisode, imageLoader: ImageLoader, onPlay: (() -> Unit)?, onOptions: (() -> Unit)?) {
     val colors = LocalMediaColors.current
+    val focus = LocalTvMediaFocusBinding.current
     Column(Modifier.width(220.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
         val imageModifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
-        MediaSurface(onPlay ?: {}, imageModifier.semantics { contentDescription = "${episode.numberLabel} ${episode.title}" },
+        MediaSurface({ focus?.onOpen?.invoke(episode.id, "episode"); onPlay?.invoke() },
+            imageModifier.tvMediaReturnFocus(episode.id, "episode").semantics { contentDescription = "${episode.numberLabel} ${episode.title}" },
             enabled = onPlay != null && episode.canPlay) {
             MediaArtwork(episode.still, imageLoader, Modifier.fillMaxSize())
             MediaProgress(episode.progress, Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(7.dp))

@@ -129,12 +129,14 @@ private data class TvPlaybackIssue(val message: String, val page: TvPlayerPage? 
     val paused = !audio && !state.busy && playbackError == null && !player.ended &&
         !player.playing && (player.firstFrameRendered || player.durationMs > 0) &&
         (!model.media.player.playWhenReady || resumePending)
+    LaunchedEffect(paused) { if (paused) controls = false }
     LaunchedEffect(player.playing, player.ended, playbackError, model.media.player.wantsPlay) {
         if (player.playing || player.ended || playbackError != null || !model.media.player.wantsPlay) resumePending = false
     }
     fun togglePlayback() {
         if (resumePending) return
         if (paused) resumePending = true
+        else if (!audio) controls = false
         exitPrompt = false
         model.media.player.toggle()
         pulse++
@@ -179,6 +181,10 @@ private data class TvPlaybackIssue(val message: String, val page: TvPlayerPage? 
     fun navigatePanel(page: TvPlayerPage) {
         browserBack = null
         stayOnTab = false
+        if (page == TvPlayerPage.SPEED) {
+            pages.clear()
+            lastMenu = page
+        }
         pages.add(page)
         if (BuildConfig.DEBUG) android.util.Log.d("FilewayTvPanelFocus", "action=navigate page=$page depth=${pages.size}")
         pulse++
@@ -213,8 +219,8 @@ private data class TvPlaybackIssue(val message: String, val page: TvPlayerPage? 
     fun closePanel() {
         browserBack = null
         pages.clear()
-        controls = returnToHud
-        restoring = returnToHud
+        controls = returnToHud && !paused
+        restoring = controls
         quickPanel = false
         pulse++
     }
@@ -252,7 +258,7 @@ private data class TvPlaybackIssue(val message: String, val page: TvPlayerPage? 
         model.media.player.textSubtitleAppearance(if(controls&&(panel==null||quickPanel))textAppearance.copy(bottomPadding=maxOf(textAppearance.bottomPadding,((controlsHeight+12f)/stageHeight).coerceIn(0f,.4f))) else textAppearance)
     }
     val playEnabled = !state.busy || player.durationMs > 0
-    val hudVisible = controls && (panel == null || quickPanel) && state.error == null && player.error == null
+    val hudVisible = controls && !paused && (panel == null || quickPanel) && state.error == null && player.error == null
     val busyFeedback = key(mediaEpoch) {
         delayedPlayerFeedback(state.busy || ((player.waitingForBuffer || player.seeking) && player.seekError == null),
             player.mediaGeneration, seekPulse)
@@ -363,7 +369,7 @@ private data class TvPlaybackIssue(val message: String, val page: TvPlayerPage? 
                 AndroidKey.KEYCODE_MEDIA_REWIND -> {requestSeek(-tvSeekDelta(event.nativeKeyEvent,interfaceState.seekStepSeconds));true}
                 AndroidKey.KEYCODE_DPAD_LEFT -> if(!controls){requestSeek(-tvSeekDelta(event.nativeKeyEvent,interfaceState.seekStepSeconds));true}else false
                 AndroidKey.KEYCODE_DPAD_RIGHT -> if(!controls){requestSeek(tvSeekDelta(event.nativeKeyEvent,interfaceState.seekStepSeconds));true}else false
-                AndroidKey.KEYCODE_DPAD_UP -> if(!controls){controls=true;true}else false
+                AndroidKey.KEYCODE_DPAD_UP -> if (paused) true else if(!controls){controls=true;true}else false
                 AndroidKey.KEYCODE_DPAD_DOWN -> if(!controls){showPanel(lastMenu);true}else false
                 AndroidKey.KEYCODE_DPAD_CENTER, AndroidKey.KEYCODE_ENTER, AndroidKey.KEYCODE_NUMPAD_ENTER, AndroidKey.KEYCODE_BUTTON_A -> {
                     if (controls) false else {
@@ -399,7 +405,7 @@ private data class TvPlaybackIssue(val message: String, val page: TvPlayerPage? 
             }
         }
         if (panel == null && recovery == null && playbackError == null) Box(Modifier.matchParentSize().pointerInput(mediaEpoch) {
-            detectTapGestures(onTap = { controls = !controls; exitPrompt = false; pulse++ }, onDoubleTap = { toggleLatest() })
+            detectTapGestures(onTap = { if (!paused) controls = !controls; exitPrompt = false; pulse++ }, onDoubleTap = { toggleLatest() })
         })
         if (hudVisible) {
             TvPlaybackControls(
@@ -419,7 +425,7 @@ private data class TvPlaybackIssue(val message: String, val page: TvPlayerPage? 
                 seekStepSeconds = interfaceState.seekStepSeconds, safePercent = interfaceState.safePercent,
             )
         }
-        TvPlaybackHeader(
+        if (!paused || panel != null) TvPlaybackHeader(
             title = file.name.takeIf { (hudVisible || panel != null) },
             showTime = interfaceState.clockAlways || controls || panel != null,
             showSpeed = !audio && (interfaceState.speedAlways || controls || panel != null),
@@ -431,7 +437,7 @@ private data class TvPlaybackIssue(val message: String, val page: TvPlayerPage? 
             Text(playbackError, color = MaterialTheme.colorScheme.error, style = tvTextStyle(18, 28))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TvButton("重试", model.media::retry, Modifier.focusRequester(retry))
-                TvButton("原生播放", { model.media.switchMode(TvHdrMode.NATIVE) })
+                if (!state.catalogSource) TvButton("原生播放", { model.media.switchMode(TvHdrMode.NATIVE) })
                 if (state.sdrAvailable) TvButton("SDR 兼容", { model.media.switchMode(TvHdrMode.SDR) })
                 TvButton("返回", model.media::close)
             }

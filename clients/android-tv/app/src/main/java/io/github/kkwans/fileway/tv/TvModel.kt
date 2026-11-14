@@ -10,6 +10,8 @@ import io.github.kkwans.nasfilebrowser.core.TransportException
 import io.github.kkwans.nasfilebrowser.data.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import io.github.kkwans.fileway.remote.*
 
@@ -47,6 +49,20 @@ class TvModel(application: Application) : AndroidViewModel(application) {
     val profiles = store.profiles.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
     var context: SessionContext? = null
         private set
+    private val catalogLock = Mutex()
+    private var catalogJournal: MediaWriteJournal? = null
+    private var catalogSession: Pair<SessionContext, MediaLibraryRepository>? = null
+
+    internal suspend fun catalogRepository(owner: SessionContext): MediaLibraryRepository =
+        catalogLock.withLock {
+            if (context !== owner) throw CancellationException("影视库会话已变化")
+            catalogSession?.takeIf { it.first === owner }?.let { return@withLock it.second }
+            val journal = catalogJournal ?: withContext(NonCancellable) {
+                MediaWriteJournal.open(getApplication<Application>()).also { catalogJournal = it }
+            }
+            if (context !== owner) throw CancellationException("影视库会话已变化")
+            MediaLibraryRepository(owner, { context === it }, journal).also { catalogSession = owner to it }
+        }
     private var generation = 0
     private var openRequest = 0L
     private var visibleSource: List<ResourceRef>? = null
@@ -683,7 +699,10 @@ class TvModel(application: Application) : AndroidViewModel(application) {
         remote.stop(); media.release(); imageLoader.shutdown()
         val bound = context
         if (bound != null) updates.unbind(erase = false, session = bound)
-        CoroutineScope(Dispatchers.IO).launch { bound?.api?.close() }
+        CoroutineScope(Dispatchers.IO).launch {
+            catalogLock.withLock { catalogJournal?.close(); catalogJournal = null; catalogSession = null }
+            bound?.api?.close()
+        }
     }
 
     companion object {

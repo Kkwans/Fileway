@@ -104,7 +104,7 @@ internal fun tvPlayerSettingsRows(
         add(destination(TvPlayerPage.VOLUME, "${player.volume}%"))
         if (!audio) {
             add(destination(TvPlayerPage.RATIO, listOf("适合屏幕", "拉伸", "裁切")[resize]))
-            add(destination(TvPlayerPage.HDR, state.mode.title))
+            if (!state.catalogSource) add(destination(TvPlayerPage.HDR, state.mode.title))
         }
         add(destination(TvPlayerPage.INFO))
         add(TvPlayerRow.Choice(key = "exit", title = "退出播放", icon = Art.drawable.fileway_ic_logout, selectable = false, destination = true, action = onExit))
@@ -346,7 +346,7 @@ internal fun tvPlayerSettingsRows(
                 if (rows.filterIsInstance<TvPlayerRow.Choice>().none { it.enabled }) TvPlayerMessage("暂时无法切换", focus)
                 if (page == TvPlayerPage.AUDIO || page == TvPlayerPage.SUBTITLE) {
                     TvPlayerTracks(rows.filterIsInstance<TvPlayerRow.Choice>(), focus, quick,
-                        Modifier.weight(1f, fill = !quick))
+                        Modifier.weight(1f, fill = !quick), audio = page == TvPlayerPage.AUDIO)
                 } else TvPlayerChoiceList(rows, focus, Modifier.weight(1f, fill = !quick))
             } else if (page == TvPlayerPage.AUDIO && state.busy) TvPlayerMessage("正在准备播放", focus)
         }
@@ -358,27 +358,48 @@ private fun TvSpeedEditor(
     presets: List<TvPlayerRow.Choice>, rate: Float, focus: TvPlayerPanelFocus, applyRate: (Float) -> Unit,
 ) {
     val slider = remember { FocusRequester() }
+    val presetFocus = remember(presets.map { it.key }) { presets.associate { it.key to FocusRequester() } }
     val preferred = focus.initialKey ?: presets.firstOrNull { it.selected }?.key ?: "custom-speed"
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val scaledWidth = maxWidth / LocalDensity.current.fontScale.coerceAtLeast(1f)
-        val columns = if (scaledWidth >= 560.dp) 6 else 3
-        val lines = presets.chunked(columns)
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            lines.forEachIndexed { index, line ->
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    line.forEach { preset ->
-                        TvSpeedPreset(preset, focus.target(preset.key, preferred == preset.key,
-                            Modifier.weight(1f).focusProperties {
-                                if (index == 0) up = focus.header
-                                if (index == lines.lastIndex) down = slider
-                            }))
+        val split = scaledWidth >= 560.dp
+        val lines = presets.chunked(if (scaledWidth >= 720.dp) 6 else 3)
+        val readout: @Composable () -> Unit = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("当前倍速", style = tvTextStyle(17, 24), color = TvPlayerDesign.secondary)
+                Text(tvPlaybackRate(rate),
+                    style = tvTextStyle(44, 54, FontWeight.Medium).copy(fontFeatureSettings = "tnum"),
+                    color = TvPlayerDesign.text, maxLines = 1)
+            }
+        }
+        val editor: @Composable () -> Unit = {
+            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                lines.forEachIndexed { index, line ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        line.forEach { preset ->
+                            TvSpeedPreset(preset, focus.target(preset.key, preferred == preset.key,
+                                Modifier.weight(1f).focusRequester(presetFocus.getValue(preset.key)).focusProperties {
+                                    if (index == 0) up = focus.header
+                                    if (index == lines.lastIndex) down = slider
+                                }))
+                        }
                     }
                 }
+                val nearestPreset = lines.lastOrNull()?.let { line -> line.firstOrNull { it.selected } ?: line.firstOrNull() }
+                TvPlayerRange("微调倍速", rate, .1f..5f, .01f, ::tvPlaybackRate,
+                    focus.target("custom-speed", preferred == "custom-speed", Modifier.focusRequester(slider)
+                        .focusProperties { up = nearestPreset?.key?.let(presetFocus::getValue) ?: focus.header }),
+                    expandTrack = true, accelerate = true, onCommit = applyRate)
             }
-            TvPlayerRange("微调倍速", rate, .1f..5f, .01f, ::tvPlaybackRate,
-                focus.target("custom-speed", preferred == "custom-speed", Modifier.focusRequester(slider)),
-                expandTrack = true, accelerate = true, displayLabel = "精调", onCommit = applyRate)
+        }
+        val content = Modifier.fillMaxSize().verticalScroll(rememberScrollState())
+        if (split) Row(content.heightIn(min = maxHeight), horizontalArrangement = Arrangement.spacedBy(24.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.width(148.dp), contentAlignment = Alignment.CenterStart) { readout() }
+            Box(Modifier.weight(1f)) { editor() }
+        } else Column(content, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            readout()
+            editor()
         }
     }
 }
@@ -388,7 +409,9 @@ private fun TvSpeedEditor(
     val focused by interaction.collectIsFocusedAsState()
     val hovered by interaction.collectIsHoveredAsState()
     Button(onClick = preset.action, interactionSource = interaction,
-        modifier = modifier.heightIn(min = 48.dp).border(2.dp, playerFocusColor(focused), TvShape)
+        modifier = modifier.heightIn(min = 48.dp).border(2.dp,
+            if (focused) TvPlayerDesign.focus else if (preset.selected) TvPlayerDesign.accent else Color.Transparent,
+            TvShape)
             .hoverable(interaction).tvTouch(preset.action, interaction = interaction).semantics { selected = preset.selected },
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
         shape = ButtonDefaults.shape(TvShape), scale = ButtonDefaults.scale(focusedScale = 1f),
@@ -397,12 +420,8 @@ private fun TvSpeedEditor(
             containerColor = if (preset.selected) TvPlayerDesign.selected else if (hovered) TvPlayerDesign.raised else Color.White.copy(alpha = .04f),
             contentColor = TvPlayerDesign.text, focusedContentColor = TvPlayerDesign.text,
             focusedContainerColor = if (preset.selected) TvPlayerDesign.selected else PanelFocus)) {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             Text(preset.title, style = tvTextStyle(18, 24, FontWeight.Medium).copy(fontFeatureSettings = "tnum"), maxLines = 1)
-            Spacer(Modifier.width(4.dp))
-            Box(Modifier.size(16.dp), contentAlignment = Alignment.Center) {
-                if (preset.selected) Icon(painterResource(Art.drawable.fileway_ic_check), null, Modifier.size(16.dp), tint = TvPlayerDesign.accent)
-            }
         }
     }
 }
@@ -531,11 +550,12 @@ private fun TvSpeedEditor(
 
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable private fun TvPlayerTracks(
-    tracks: List<TvPlayerRow.Choice>, focus: TvPlayerPanelFocus, quick: Boolean, modifier: Modifier,
+    tracks: List<TvPlayerRow.Choice>, focus: TvPlayerPanelFocus, quick: Boolean, modifier: Modifier, audio: Boolean,
 ) {
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val scaledWidth = maxWidth / LocalDensity.current.fontScale.coerceAtLeast(1f)
-        val columns = if (!quick && tracks.size >= 4 && scaledWidth >= 744.dp) 2 else 1
+        val columns = if (!quick && (audio && tracks.size >= 2 && scaledWidth >= 640.dp ||
+                    tracks.size >= 4 && scaledWidth >= 744.dp)) 2 else 1
         val width = if (columns == 2 || quick) maxWidth
             else minOf(maxWidth, (maxWidth * .60f).coerceIn(396.dp, 560.dp))
         val gap = 24.dp

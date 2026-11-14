@@ -152,9 +152,13 @@ private fun MediaFeaturedCarousel(
                 }
             }
             key(scopeKey, current.id) {
+                val focus = LocalTvMediaFocusBinding.current
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    MediaAction("查看影片", { onItem(current.id) }, primary = true)
-                    if (onPlay != null && current.canPlay) MediaAction("播放", { onPlay(current.id) }, icon = Art.drawable.fileway_ic_play_arrow)
+                    MediaAction("查看详情", { focus?.onOpen?.invoke(current.id, "hero"); onItem(current.id) },
+                        Modifier.tvMediaReturnFocus(current.id, "hero"), primary = true)
+                    if (onPlay != null && current.canPlay) MediaAction("播放", {
+                        focus?.onOpen?.invoke(current.id, "hero-play"); onPlay(current.id)
+                    }, Modifier.tvMediaReturnFocus(current.id, "hero-play"), icon = Art.drawable.fileway_ic_play_arrow)
                 }
             }
             if (entries.size > 1) Row(Modifier.align(Alignment.End),

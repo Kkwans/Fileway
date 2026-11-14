@@ -114,6 +114,7 @@ data class MediaCatalogCard(
     val episodes: MediaCatalogEpisodeCounts?, val availability: MediaCatalogAvailability,
     val metadataState: MediaCatalogMetadataState, val firstAddedAt: Long, val seriesUpdatedAt: Long?,
     val size: Long?, val extension: String?, val actions: MediaCatalogActions,
+    val backdrop: MediaCatalogArtwork? = null,
 ) { override fun toString(): String = "MediaCatalogCard(redacted)" }
 data class MediaCatalogPage<T>(
     val items: List<T>, val nextCursor: MediaCatalogCursor?, val hasMore: Boolean,
@@ -301,6 +302,8 @@ internal fun parseCatalogCard(row: JSONObject, scope: MediaSessionScope, deviceS
         "unmatched" -> MediaCatalogDisplayMode.UNMATCHED; else -> MediaCatalogDisplayMode.UNKNOWN
     }
     val artwork = if (!row.has("artwork") || row.isNull("artwork")) null else parseArtwork(row.getJSONObject("artwork"), ref)
+    val backdrop = if (!row.has("backdrop") || row.isNull("backdrop")) null else
+        parseArtwork(row.getJSONObject("backdrop"), ref).also { require(it.role == "backdrop") }
     val rating = if (!row.has("primaryRating") || row.isNull("primaryRating")) null else row.getJSONObject("primaryRating").let {
         val scale = it.decimalValue("scale"); require(scale > 0)
         MediaCatalogRating(it.textValue("provider"), ratingMetric(it.textValue("metric")), it.decimalValue("value"), scale,
@@ -319,7 +322,7 @@ internal fun parseCatalogCard(row: JSONObject, scope: MediaSessionScope, deviceS
     return MediaCatalogCard(ref, row.integerValue("revision", 1), kind, row.getJSONArray("contentCategories").catalogStrings(128), state,
         row.textValue("title"), row.optionalTextValue("originalTitle"), row.optionalIntegerValue("year"), mode, artwork, rating, duration,
         counts, availability, metadata, row.integerValue("firstAddedAt"), row.optionalIntegerValue("seriesUpdatedAt"),
-        row.optionalIntegerValue("size"), row.optionalTextValue("extension"), actions)
+        row.optionalIntegerValue("size"), row.optionalTextValue("extension"), actions, backdrop)
 }
 
 private fun rowQueryKey(id: MediaCatalogRowId): String = "/api/media-library/v1/home/rows/${id.wire}"

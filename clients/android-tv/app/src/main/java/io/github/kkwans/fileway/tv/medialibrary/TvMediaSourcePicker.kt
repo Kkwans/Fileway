@@ -27,6 +27,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
 import io.github.kkwans.fileway.tv.TvRemoteDialogKeys
+import io.github.kkwans.fileway.tv.LocalTvInteractive
 import io.github.kkwans.fileway.tv.tvTextStyle
 import io.github.kkwans.fileway.design.R as Art
 
@@ -39,6 +40,7 @@ fun TvMediaSourcePicker(
     onConfirm: (editionId: String, sourceId: String) -> Unit,
     onRecover: ((sourceId: String) -> Unit)? = null,
     onRetry: (() -> Unit)? = null,
+    onMore: (() -> Unit)? = null,
 ) {
     val colors = LocalMediaColors.current
     val initialEdition = state.editions.firstOrNull { edition -> edition.sources.any { it.id == state.currentSourceId } }
@@ -51,10 +53,12 @@ fun TvMediaSourcePicker(
     val edition = if (editionId == null) initialEdition else state.editions.firstOrNull { it.id == editionId }
     val selectedSource = edition?.sources?.firstOrNull { it.id == selectedSourceId && it.available }
     val closeFocus = remember { FocusRequester() }
-    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(
+    val interactive = LocalTvInteractive.current
+    Dialog(onDismissRequest = { if (interactive) onDismiss() }, properties = DialogProperties(
         usePlatformDefaultWidth = false, dismissOnClickOutside = false)) {
-        TvRemoteDialogKeys(onDismiss)
-        LaunchedEffect(state.scopeKey, state.itemId) {
+        if (interactive) TvRemoteDialogKeys(onDismiss)
+        LaunchedEffect(state.scopeKey, state.itemId, interactive) {
+            if (!interactive) return@LaunchedEffect
             withFrameNanos { }
             closeFocus.requestFocus()
         }
@@ -103,11 +107,14 @@ fun TvMediaSourcePicker(
                             onSelect = { selectedSourceId = source.id },
                             onRecover = onRecover?.let { { it(source.id) } })
                     }
+                    if (onMore != null) item(key = "more") {
+                        MediaAction("加载更多片源", onMore, enabled = !state.loading && !state.applying)
+                    }
                     if (!state.loading && state.error == null && edition?.sources.isNullOrEmpty()) item(key = "empty") {
                         Text("当前没有可访问的片源。", style = tvTextStyle(18, 27), color = colors.secondary)
                     }
                 }
-                Text("不同剪辑分别保留续播位置", style = tvTextStyle(16, 23), color = colors.secondary)
+                Text("选择有权访问的片源", style = tvTextStyle(16, 23), color = colors.secondary)
                 MediaAction(if (state.applying) "正在准备片源…" else "使用所选片源", {
                     if (edition != null && selectedSource != null && !state.applying && !state.loading) onConfirm(edition.id, selectedSource.id)
                 }, Modifier.align(Alignment.End), primary = true,

@@ -82,7 +82,7 @@ private val tileGap = 12.dp
 private val tileFocusInset = 5.dp
 
 @Composable
-fun TvBrowseScreen(model: TvModel, onExit: () -> Unit, active: Boolean = true) {
+fun TvBrowseScreen(model: TvModel, onExit: () -> Unit, active: Boolean = true, onCatalog: (() -> Unit)? = null) {
     val state by model.state.collectAsStateWithLifecycle()
     val favorites by model.favorites.state.collectAsStateWithLifecycle()
     val recent by model.recentAccess.state.collectAsStateWithLifecycle()
@@ -193,7 +193,7 @@ fun TvBrowseScreen(model: TvModel, onExit: () -> Unit, active: Boolean = true) {
             CompositionLocalProvider(LocalTvCompact provides compact) {
                 Column(Modifier.fillMaxSize().padding(horizontal = horizontal, vertical = vertical)) {
                     TvBrowseTopBar(
-                        state, bodyFocus, destinationFocus, searchFocus, selectRoute, onSearch = { searchOpen = true },
+                        state, bodyFocus, destinationFocus, searchFocus, selectRoute, onSearch = { searchOpen = true }, onCatalog = onCatalog,
                     )
                     Spacer(Modifier.height(if (compact) 8.dp else 14.dp))
                     val pageTools: @Composable RowScope.() -> Unit = {
@@ -381,6 +381,7 @@ private fun TvBrowseTopBar(
     searchFocus: FocusRequester,
     selectRoute: (TvRoute) -> Unit,
     onSearch: () -> Unit,
+    onCatalog: (() -> Unit)?,
 ) {
     val current = if (state.search) null else if (state.route in setOf(TvRoute.RECENT, TvRoute.RECENT_ACCESS)) TvRoute.HOME else state.route
     val down = if (state.busy && !state.search) FocusRequester.Default else bodyFocus
@@ -392,7 +393,7 @@ private fun TvBrowseTopBar(
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     TvBrowseBrand(showName = true)
                     Spacer(Modifier.weight(1f))
-                    TvBrowseUtilities(state, down, destinationFocus, searchFocus, onSearch) { selectRoute(TvRoute.SETTINGS) }
+                    TvBrowseUtilities(state, down, destinationFocus, searchFocus, onSearch, onCatalog) { selectRoute(TvRoute.SETTINGS) }
                 }
                 TvDestinationTabs(current, down, destinationFocus, selectRoute, Modifier.fillMaxWidth())
             }
@@ -400,7 +401,7 @@ private fun TvBrowseTopBar(
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 TvBrowseBrand(showName = showBrandName)
                 TvDestinationTabs(current, down, destinationFocus, selectRoute, Modifier.weight(1f))
-                TvBrowseUtilities(state, down, destinationFocus, searchFocus, onSearch) { selectRoute(TvRoute.SETTINGS) }
+                TvBrowseUtilities(state, down, destinationFocus, searchFocus, onSearch, onCatalog) { selectRoute(TvRoute.SETTINGS) }
             }
         }
     }
@@ -467,9 +468,11 @@ private fun TvBrowseUtilities(
     destinationFocus: FocusRequester,
     searchFocus: FocusRequester,
     onSearch: () -> Unit,
+    onCatalog: (() -> Unit)?,
     onSettings: () -> Unit,
 ) {
     Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
+        onCatalog?.let { TvTopDestination("影视", false, it, bodyFocus) }
         val settings = state.route == TvRoute.SETTINGS && !state.search
         val searchModifier = Modifier.focusRequester(searchFocus)
         TvTopDestination("搜索", state.search, onSearch, bodyFocus,
