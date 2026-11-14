@@ -125,6 +125,9 @@ internal sealed class LocalServerLayout
     internal string DatabasePath { get; }
     internal string RuntimeLogPath { get; }
     internal string DiagnosticsLogPath { get; }
+    internal string StopEventName => @"Local\Fileway.Server." +
+        Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(
+            DataRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar).ToUpperInvariant())))[..32].ToLowerInvariant();
 
     internal static string DefaultDataRoot() => Environment.GetEnvironmentVariable(DataRootOverrideVariable) is { Length: > 0 } root && Path.IsPathFullyQualified(root)
             ? root
@@ -228,6 +231,7 @@ internal sealed class LocalServerLayout
         "--log", RuntimeLogPath,
         "--disableExec=true",
         "--tokenExpirationTime", "168h",
+        "--windowsStopEvent", StopEventName,
     };
 
     internal bool TryReadReceipt(out ServerBuildReceipt receipt)

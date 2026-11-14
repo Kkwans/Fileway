@@ -13,7 +13,8 @@ namespace Fileway.Infrastructure.ServerManagement;
 /// </summary>
 internal static class ServerInstaller
 {
-    internal const int MinimumPasswordLength = 12;
+    internal const int MinimumPasswordLength = 6;
+    internal const string DefaultPassword = "123123";
 
     private static readonly char[] Alphabet = "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789".ToCharArray();
 
@@ -34,7 +35,7 @@ internal static class ServerInstaller
             request.AdminUsername.Contains(' ', StringComparison.Ordinal) || request.AdminUsername.Any(char.IsControl))
             throw Invalid("管理员用户名需要是 1-64 个字符，不能包含空格或控制字符。");
         if (request.AdminPassword.Length < MinimumPasswordLength || request.AdminPassword.Length > 128 ||
-            request.AdminPassword.Any(char.IsControl))
+            request.AdminPassword.Contains('\0', StringComparison.Ordinal))
             throw Invalid($"管理员密码需要至少 {MinimumPasswordLength} 位，且不超过 128 位。");
         if (!request.MountsWholeComputer &&
             (string.IsNullOrWhiteSpace(request.FilesRoot) || !Path.IsPathFullyQualified(request.FilesRoot)))
@@ -53,7 +54,8 @@ internal static class ServerInstaller
     {
         if (username is not null && (username.Length is 0 or > 64 || username.Contains(' ', StringComparison.Ordinal) || username.Any(char.IsControl)))
             throw Invalid("管理员用户名需要是 1-64 个字符，不能包含空格或控制字符。");
-        if (password is not null && (password.Length < MinimumPasswordLength || password.Length > 128 || password.Any(char.IsControl)))
+        if (password is not null && (password.Length < MinimumPasswordLength || password.Length > 128 ||
+            password.Contains('\0', StringComparison.Ordinal)))
             throw Invalid($"管理员密码需要至少 {MinimumPasswordLength} 位，且不超过 128 位。");
     }
 
@@ -131,7 +133,7 @@ internal static class ServerInstaller
     }
 
     /// <summary>Runs a short-lived CLI step with captured output. The password travels only in this argv.</summary>
-    private static async Task RunAsync(LocalServerLayout layout, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+    private static async Task RunAsync(LocalServerLayout layout, List<string> arguments, CancellationToken cancellationToken)
     {
         var start = new ProcessStartInfo
         {
@@ -176,7 +178,18 @@ internal static class ServerInstaller
         process.WaitForExit();
         cancellationToken.ThrowIfCancellationRequested();
         if (process.ExitCode != 0)
-            throw Failure("服务端初始化失败（退出码 " + process.ExitCode.ToString(CultureInfo.InvariantCulture) + "）。", Tail(error.Length > 0 ? error.ToString() : output.ToString()));
+        {
+            string detail = Tail(error.Length > 0 ? error.ToString() : output.ToString());
+            if (arguments.Count > 1 && arguments[0] == "users" && arguments[1] == "update")
+            {
+                if (detail.Contains("resource not found", StringComparison.OrdinalIgnoreCase))
+                    throw Failure("原管理员账号未找到，请在服务端核对当前账号后重试。", string.Empty);
+                if (detail.Contains("密码太短", StringComparison.Ordinal))
+                    throw Failure("当前服务端设置的最短密码长度较长，请先调整服务器设置。", string.Empty);
+                throw Failure("管理员账号修改失败，请核对账号和服务端设置。", string.Empty);
+            }
+            throw Failure("服务端初始化失败（退出码 " + process.ExitCode.ToString(CultureInfo.InvariantCulture) + "），请检查数据目录和服务端日志。", string.Empty);
+        }
     }
 
     private static void SafeKill(Process process)

@@ -13,6 +13,7 @@ public sealed partial class MainPage
         if (_disposed) return;
         LocalServerPane.SetContext(service, _storageOwnerHwnd);
         LocalServerPane.ConnectRequested += LocalServer_ConnectRequested;
+        LocalServerPane.NoticeRequested += (message, severity) => SetNotice("本地服务端", message, severity);
         LocalServerPane.CloseRequested += (_, _) => ReturnFromLocalServer();
     }
 

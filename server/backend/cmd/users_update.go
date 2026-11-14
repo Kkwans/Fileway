@@ -75,19 +75,25 @@ options you want to change.`,
 		user.Perm = defaults.Perm
 		user.Commands = defaults.Commands
 		user.Sorting = defaults.Sorting
-		user.LockPassword, err = flags.GetBool("lockPassword")
-		if err != nil {
-			return err
+		if flags.Changed("lockPassword") {
+			user.LockPassword, err = flags.GetBool("lockPassword")
+			if err != nil {
+				return err
+			}
 		}
 
-		user.DateFormat, err = flags.GetBool("dateFormat")
-		if err != nil {
-			return err
+		if flags.Changed("dateFormat") {
+			user.DateFormat, err = flags.GetBool("dateFormat")
+			if err != nil {
+				return err
+			}
 		}
 
-		user.HideDotfiles, err = flags.GetBool("hideDotfiles")
-		if err != nil {
-			return err
+		if flags.Changed("hideDotfiles") {
+			user.HideDotfiles, err = flags.GetBool("hideDotfiles")
+			if err != nil {
+				return err
+			}
 		}
 
 		if newUsername != "" {

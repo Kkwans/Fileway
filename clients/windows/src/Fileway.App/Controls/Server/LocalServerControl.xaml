@@ -256,7 +256,6 @@
    </Grid>
   </Border>
 
-  <InfoBar x:Name="Notice" Grid.RowSpan="5" IsOpen="False" IsClosable="True" Severity="Warning" HorizontalAlignment="Right" VerticalAlignment="Top" Width="380" Margin="0,52,0,0" Canvas.ZIndex="5"/>
  </Grid>
  </ScrollViewer>
 </UserControl>

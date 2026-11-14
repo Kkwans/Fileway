@@ -76,6 +76,9 @@ internal static partial class ServerDiscovery
         return false;
     }
 
+    internal static bool OwnsListeningPort(int processId, int port) =>
+        ListeningEndpoints().Any(endpoint => endpoint.ProcessId == processId && endpoint.Port == port);
+
     private static IEnumerable<(int Port, int ProcessId)> ListeningEndpoints()
     {
         uint length = 0;

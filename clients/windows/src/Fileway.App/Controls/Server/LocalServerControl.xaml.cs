@@ -35,19 +35,28 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
     private bool _newestArrived;
     private bool _hasLocalLogs;
     private bool _editDirty;
+    private bool _renderingDeployment;
+    private LocalServerDefaults? _deploymentDefaults;
 
     public event EventHandler? CloseRequested;
     public event EventHandler<LocalServerConnectRequest>? ConnectRequested;
+    public event Action<string, InfoBarSeverity>? NoticeRequested;
 
     public LocalServerControl()
     {
         InitializeComponent();
-        PortBox.TextChanged += (_, _) => _editDirty = true;
-        AccountBox.TextChanged += (_, _) => _editDirty = true;
-        SecretBox.PasswordChanged += (_, _) => _editDirty = true;
-        RootBox.TextChanged += (_, _) => _editDirty = true;
-        LanCheck.Checked += (_, _) => _editDirty = true;
-        LanCheck.Unchecked += (_, _) => _editDirty = true;
+        PortBox.TextChanged += (_, _) =>
+        {
+            if (_renderingDeployment) return;
+            MarkDeploymentEdited();
+            if (_status is { } current)
+                RenderDeployment(current, current.Deployment is not null, IsBlockedByOtherServer(current, LocalServerPort()));
+        };
+        AccountBox.TextChanged += (_, _) => MarkDeploymentEdited();
+        SecretBox.PasswordChanged += (_, _) => MarkDeploymentEdited();
+        RootBox.TextChanged += (_, _) => MarkDeploymentEdited();
+        LanCheck.Checked += (_, _) => MarkDeploymentEdited();
+        LanCheck.Unchecked += (_, _) => MarkDeploymentEdited();
         _followTimer.Tick += async (_, _) =>
         {
             // Status ticks are de-duplicated in the service, so the uptime line is refreshed here instead.
@@ -124,21 +133,52 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
 
     private void PrefillDeployment(LocalServerDefaults defaults)
     {
-        PortBox.Text = defaults.Port.ToString(CultureInfo.InvariantCulture);
-        RestrictRootCheck.IsChecked = !defaults.MountsWholeComputer;
-        RestrictRootRow.Visibility = defaults.MountsWholeComputer ? Visibility.Collapsed : Visibility.Visible;
-        RootBox.Text = defaults.FilesRoot;
-        AccountBox.Text = defaults.Username;
-        SecretBox.Password = defaults.Password;
+        _deploymentDefaults = defaults;
+        _renderingDeployment = true;
+        try
+        {
+            PortBox.Text = defaults.Port.ToString(CultureInfo.InvariantCulture);
+            RestrictRootCheck.IsChecked = !defaults.MountsWholeComputer;
+            RestrictRootRow.Visibility = defaults.MountsWholeComputer ? Visibility.Collapsed : Visibility.Visible;
+            RootBox.Text = defaults.FilesRoot;
+            AccountBox.Text = defaults.Username;
+            SecretBox.Password = defaults.Password;
+        }
+        finally { _renderingDeployment = false; }
+        _editDirty = false;
+    }
+
+    private void MarkDeploymentEdited()
+    {
+        if (_renderingDeployment) return;
+        bool restricted = RestrictRootCheck.IsChecked == true;
+        bool lan = LanCheck.IsChecked == true;
+        if (_status?.Deployment is { } deployed)
+        {
+            _editDirty = LocalServerPort() != deployed.Port ||
+                !string.Equals(AccountBox.Text.Trim(), deployed.AdminUsername, StringComparison.Ordinal) ||
+                SecretBox.Password.Length != 0 || lan != (deployed.Address == "0.0.0.0") ||
+                restricted == deployed.MountsWholeComputer ||
+                (restricted && !string.Equals(RootBox.Text.Trim(), deployed.FilesRoot, StringComparison.OrdinalIgnoreCase));
+            return;
+        }
+        if (_deploymentDefaults is { } defaults)
+        {
+            _editDirty = LocalServerPort() != defaults.Port ||
+                !string.Equals(AccountBox.Text.Trim(), defaults.Username, StringComparison.Ordinal) ||
+                !string.Equals(SecretBox.Password, defaults.Password, StringComparison.Ordinal) ||
+                lan || restricted == defaults.MountsWholeComputer ||
+                (restricted && !string.Equals(RootBox.Text.Trim(), defaults.FilesRoot, StringComparison.OrdinalIgnoreCase));
+        }
     }
 
     /// <summary>The path row only asks for input once the default “whole computer” mount is turned off.</summary>
     private void RestrictRoot_Changed(object sender, RoutedEventArgs e)
     {
-        _editDirty = true;
+        MarkDeploymentEdited();
         bool restrict = RestrictRootCheck.IsChecked == true;
         RestrictRootRow.Visibility = restrict ? Visibility.Visible : Visibility.Collapsed;
-        if (restrict) _ = RootBox.Focus(FocusState.Programmatic);
+        if (restrict && !_renderingDeployment) _ = RootBox.Focus(FocusState.Programmatic);
     }
 
     private async Task RefreshAsync()
@@ -162,22 +202,29 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         bool deployed = status.State != LocalServerState.NotDeployed;
         bool busy = status.State is LocalServerState.Starting or LocalServerState.Stopping || _loading;
         bool running = status.State == LocalServerState.Running;
-        bool blocked = IsBlockedByOtherServer(status);
+        bool blocked = status.State != LocalServerState.Running &&
+            (status.State == LocalServerState.OccupiedByOther ||
+             IsBlockedByOtherServer(status, status.Deployment?.Port ?? LocalServerPort()));
 
         RenderDetection(status);
         StatusCard.Visibility = deployed ? Visibility.Visible : Visibility.Collapsed;
         DetailGrid.Visibility = deployed ? Visibility.Visible : Visibility.Collapsed;
-        RenderDeployment(status, deployed, blocked);
         if (deployed && !_editDirty && status.Deployment is { } edit)
         {
-            PortBox.Text = edit.Port.ToString(CultureInfo.InvariantCulture);
-            AccountBox.Text = edit.AdminUsername;
-            SecretBox.Password = string.Empty;
-            LanCheck.IsChecked = edit.Address == "0.0.0.0";
-            RestrictRootCheck.IsChecked = !edit.MountsWholeComputer;
-            RestrictRootRow.Visibility = edit.MountsWholeComputer ? Visibility.Collapsed : Visibility.Visible;
-            RootBox.Text = edit.MountsWholeComputer ? _service?.GetDefaults().FilesRoot ?? string.Empty : edit.FilesRoot;
+            _renderingDeployment = true;
+            try
+            {
+                PortBox.Text = edit.Port.ToString(CultureInfo.InvariantCulture);
+                AccountBox.Text = edit.AdminUsername;
+                SecretBox.Password = string.Empty;
+                LanCheck.IsChecked = edit.Address == "0.0.0.0";
+                RestrictRootCheck.IsChecked = !edit.MountsWholeComputer;
+                RestrictRootRow.Visibility = edit.MountsWholeComputer ? Visibility.Collapsed : Visibility.Visible;
+                RootBox.Text = edit.MountsWholeComputer ? _service?.GetDefaults().FilesRoot ?? string.Empty : edit.FilesRoot;
+            }
+            finally { _renderingDeployment = false; }
         }
+        RenderDeployment(status, deployed, IsBlockedByOtherServer(status, LocalServerPort()));
         ArrangeDetails(ActualWidth);
 
         StatusIcon.IconName = status.State switch
@@ -191,11 +238,11 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         StatusDetail.Text = DetailFor(status);
 
         PrimaryButton.IsEnabled = deployed && !busy && !blocked;
-        PrimaryButton.Content = blocked ? "已有其他服务端" : PrimaryLabelFor(status.State);
+        PrimaryButton.Content = blocked ? "端口已被占用" : PrimaryLabelFor(status.State);
         AutomationProperties.SetName(PrimaryButton, blocked
-            ? "本机已有其他服务端在运行，无法启动第二个"
+            ? "本地服务端端口已被其他程序占用"
             : AutomationFor(status.State));
-        StopButton.IsEnabled = running && !busy;
+        StopButton.IsEnabled = !_loading && status.State is (LocalServerState.Running or LocalServerState.Starting);
         StopButton.Content = status.State == LocalServerState.Stopping ? "正在停止…" : "停止服务";
         OpenWebButton.IsEnabled = running && !busy;
 
@@ -225,11 +272,9 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
             ? "修改由此客户端管理的服务端，保存后将重启服务。"
             : "新部署使用独立数据库和管理员账号，默认共享整台电脑、仅本机访问。";
         DeploymentDescription.Visibility = blocked ? Visibility.Collapsed : Visibility.Visible;
-        DeploymentBlockReason.Text = deployed
-            ? "本机只允许运行一个服务端。停止现有服务后刷新，即可保存并重启。"
-            : "本机只允许运行一个服务端。停止现有服务后刷新，即可部署。";
+        DeploymentBlockReason.Text = "所选端口已被其他服务端占用，请更换端口或停止占用它的服务。";
         DeploymentBlockReason.Visibility = blocked ? Visibility.Visible : Visibility.Collapsed;
-        DeploymentForm.Visibility = blocked && !deployed ? Visibility.Collapsed : Visibility.Visible;
+        DeploymentForm.Visibility = Visibility.Visible;
         Grid.SetColumnSpan(DeploymentHeader, blocked ? 1 : 2);
         Grid.SetRow(DeployButton, blocked ? 0 : 2);
         DeployButton.Margin = blocked ? new Thickness(0) : new Thickness(0, 14, 0, 0);
@@ -238,14 +283,17 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         DeployCard.Visibility = Visibility.Visible;
     }
 
-    // Another server blocks a second launch even if it uses a different port.
-    private static bool IsBlockedByOtherServer(LocalServerStatus status) =>
-        status.State != LocalServerState.Running && status.Detected.Any(instance => !instance.ManagedByThisClient);
+    private int LocalServerPort() =>
+        int.TryParse(PortBox.Text.Trim(), NumberStyles.None, CultureInfo.InvariantCulture, out int port) ? port : 0;
+
+    private static bool IsBlockedByOtherServer(LocalServerStatus status, int port) =>
+        status.Detected.Any(instance => instance.Port == port && !instance.ManagedByThisClient &&
+            instance.ProcessId != status.ProcessId);
 
     private bool CanDeploy(LocalServerStatus? status) =>
         status is not null && !_loading &&
         status.State is not (LocalServerState.Starting or LocalServerState.Stopping) &&
-        !IsBlockedByOtherServer(status);
+        !IsBlockedByOtherServer(status, LocalServerPort());
 
     private void RenderDetection(LocalServerStatus status)
     {
@@ -413,9 +461,10 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         return (int)value.TotalHours + " 小时 " + value.Minutes + " 分";
     }
 
-    private async Task RunAsync(Func<CancellationToken, Task<LocalServerStatus>> action, string failureFallback)
+    private async Task<bool> RunAsync(Func<CancellationToken, Task<LocalServerStatus>> action, string failureFallback,
+        bool clearEditsOnSuccess = false)
     {
-        if (_service is null || _loading) return;
+        if (_service is null || _loading) return false;
         _loading = true;
         SetBusy(true);
         LocalServerStatus? result = null;
@@ -434,13 +483,14 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
 
         if (result is not null)
         {
+            if (clearEditsOnSuccess) _editDirty = false;
             await RenderAsync(result);
-            Notice.IsOpen = false;
-            return;
+            return true;
         }
         ShowNotice(failure ?? failureFallback, InfoBarSeverity.Warning);
         try { await RenderAsync(await _service.ReadStatusAsync(_lifetime.Token)); }
         catch (Exception inner) when (inner is FilewayException or OperationCanceledException) { _ = inner; }
+        return false;
     }
 
     private async void Primary_Click(object sender, RoutedEventArgs e)
@@ -496,24 +546,21 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
         DeployButton.IsEnabled = false;
         try
         {
-            if (_status is { Deployment: not null })
+            if (_status is { Deployment: { } deployment })
             {
+                string account = AccountBox.Text.Trim();
                 var reconfigure = new LocalServerReconfigureRequest(port, address, !restrict, restrict ? files : string.Empty,
-                    AccountBox.Text.Trim(), SecretBox.Password.Length > 0 ? SecretBox.Password : null);
-                await RunAsync(token => service.ReconfigureAsync(reconfigure, token), "保存部署设置失败。");
+                    string.Equals(account, deployment.AdminUsername, StringComparison.Ordinal) ? null : account,
+                    SecretBox.Password.Length > 0 ? SecretBox.Password : null);
+                await RunAsync(token => service.ReconfigureAsync(reconfigure, token), "保存部署设置失败。", clearEditsOnSuccess: true);
             }
             else
             {
                 var request = new LocalServerDeploymentRequest(port, !restrict, restrict ? files : string.Empty, AccountBox.Text.Trim(), SecretBox.Password, address);
-                await RunAsync(token => service.DeployAndStartAsync(request, token), "部署本地服务端失败。");
+                await RunAsync(token => service.DeployAndStartAsync(request, token), "部署本地服务端失败。", clearEditsOnSuccess: true);
             }
         }
-        finally { DeployButton.IsEnabled = CanDeploy(_status); _editDirty = false; }
-        if (_status is not null && _status.State != LocalServerState.NotDeployed)
-        {
-            // Generated credentials stay on the page only until the deployment exists.
-            PortBox.Text = _status.Deployment?.Port.ToString(CultureInfo.InvariantCulture) ?? PortBox.Text;
-        }
+        finally { DeployButton.IsEnabled = CanDeploy(_status); }
     }
 
     private async void BrowseRoot_Click(object sender, RoutedEventArgs e)
@@ -546,9 +593,7 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
     private void Regenerate_Click(object sender, RoutedEventArgs e)
     {
         if (_service is null) return;
-        LocalServerDefaults defaults = _service.GetDefaults();
-        SecretBox.Password = defaults.Password;
-        AccountBox.Text = defaults.Username;
+        SecretBox.Password = _service.GeneratePassword();
     }
 
     private void RevealStored_Click(object sender, RoutedEventArgs e)
@@ -711,9 +756,7 @@ public sealed partial class LocalServerControl : UserControl, IDisposable
 
     private void ShowNotice(string message, InfoBarSeverity severity)
     {
-        Notice.Message = message;
-        Notice.Severity = severity;
-        Notice.IsOpen = true;
+        NoticeRequested?.Invoke(message, severity);
     }
 
     /// <summary>One rendered log line; markers come from theme resources, not captured brushes.</summary>

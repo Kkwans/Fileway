@@ -181,6 +181,9 @@ public interface ILocalServerManagementService
     /// <summary>Starting values for the deployment form.</summary>
     LocalServerDefaults GetDefaults();
 
+    /// <summary>Generates an optional random password for the deployment form.</summary>
+    string GeneratePassword();
+
     /// <summary>Endpoint plus stored credentials for a one-click sign-in, or null when nothing is deployable.</summary>
     Task<LocalServerSignIn?> GetSignInAsync(CancellationToken cancellationToken);
 

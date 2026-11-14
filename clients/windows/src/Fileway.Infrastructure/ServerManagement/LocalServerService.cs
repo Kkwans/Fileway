@@ -4,6 +4,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Net.NetworkInformation;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using Fileway.Core.Contracts;
@@ -85,7 +86,9 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
 
     /// <summary>The port default is fixed; a busy machine is reported as such instead of quietly relocating.</summary>
     public LocalServerDefaults GetDefaults() => new(LocalServerLayout.DefaultPort, true, _layout.FilesRoot,
-        ServerInstaller.GenerateUsername(), ServerInstaller.GeneratePassword());
+        ServerInstaller.GenerateUsername(), ServerInstaller.DefaultPassword);
+
+    public string GeneratePassword() => ServerInstaller.GeneratePassword();
 
     public async Task<LocalServerStatus> ReadStatusAsync(CancellationToken cancellationToken)
     {
@@ -111,21 +114,69 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
         return _detected;
     }
 
-    /// <summary>
-    /// The machine is allowed exactly one Fileway server. A second one is refused by name rather than
-    /// quietly relocated to another port, because two servers on one box is always an accident.
-    /// </summary>
-    private async Task EnsureSingleServerAsync(LocalServerDocument? document, CancellationToken cancellationToken)
+    private static void EnsurePortAvailable(int port)
     {
-        IReadOnlyList<LocalServerInstance> running = await RefreshDetectionAsync(document, cancellationToken).ConfigureAwait(false);
-        LocalServerInstance? blocker = running.FirstOrDefault(instance =>
-            document is null || instance.Port != document.Port || instance.ProcessId != document.ProcessId);
-        if (blocker is null) return;
-        string owner = blocker.ManagedByThisClient ? "本客户端之前启动的服务端" : "另一个服务端";
-        throw Conflict($"本机只允许运行一个服务端：{blocker.Endpoint} 上已经有{owner}在应答" +
-            $"（{blocker.ProcessName}，PID {blocker.ProcessId.ToString(CultureInfo.InvariantCulture)}）。" +
-            "请先停止它再部署或启动；也可以直接用上方“连接”使用这个已在运行的服务端。");
+        try
+        {
+            if (IPGlobalProperties.GetIPGlobalProperties().GetActiveTcpListeners().Any(endpoint => endpoint.Port == port))
+                throw Conflict($"端口 {port.ToString(CultureInfo.InvariantCulture)} 已被占用，请先停止占用它的程序或修改端口。");
+        }
+        catch (NetworkInformationException) { /* The server will report a bind failure if inspection is unavailable. */ }
     }
+
+    private void EnsureDatabaseAvailable()
+    {
+        if (!File.Exists(_layout.DatabasePath))
+            throw Conflict("本地服务端数据库未找到，请恢复原数据文件后重试。");
+        try
+        {
+            using var file = new FileStream(_layout.DatabasePath, FileMode.Open, FileAccess.ReadWrite,
+                FileShare.ReadWrite | FileShare.Delete);
+            var position = new DatabaseLockPosition { Offset = uint.MaxValue, OffsetHigh = uint.MaxValue };
+            if (!LockFileEx(file.SafeFileHandle, 3, 0, 1, 0, ref position))
+            {
+                int code = Marshal.GetLastWin32Error();
+                if (code == 33) throw new IOException("Database lock is held.");
+                throw new Win32Exception(code);
+            }
+            if (!UnlockFileEx(file.SafeFileHandle, 0, 1, 0, ref position))
+                throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+        catch (IOException)
+        {
+            throw Conflict("本地服务端数据正在被其他进程使用，请先停止使用同一数据的服务端。");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            throw new FilewayException(new ErrorInfo(ErrorCode.LocalStorageUnavailable,
+                "无法访问本地服务端数据，请检查数据目录权限。", Retryable: true));
+        }
+        catch (Win32Exception)
+        {
+            throw new FilewayException(new ErrorInfo(ErrorCode.LocalStorageUnavailable,
+                "无法检查本地服务端数据状态，请检查数据目录权限。", Retryable: true));
+        }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct DatabaseLockPosition
+    {
+        internal nint Internal;
+        internal nint InternalHigh;
+        internal uint Offset;
+        internal uint OffsetHigh;
+        internal nint Event;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool LockFileEx(SafeFileHandle file, uint flags, uint reserved,
+        uint bytesLow, uint bytesHigh, ref DatabaseLockPosition position);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool UnlockFileEx(SafeFileHandle file, uint reserved,
+        uint bytesLow, uint bytesHigh, ref DatabaseLockPosition position);
 
     private async Task<LocalServerStatus> ReadCoreAsync(LocalServerDocument? document, CancellationToken cancellationToken)
     {
@@ -142,14 +193,19 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
         {
             bool ours;
             opened = TryHandle(document, out ours);
-            if (!ours && TryAdopt(document))
+            bool ownsPort = ours && opened is not null &&
+                ServerDiscovery.OwnsListeningPort(ServerProcess.ProcessIdOf(opened), document.Port);
+            if (!ownsPort && serving && TryAdopt(document))
             {
                 opened?.Dispose();
                 opened = TryHandle(document, out ours);
+                ownsPort = ours && opened is not null &&
+                    ServerDiscovery.OwnsListeningPort(ServerProcess.ProcessIdOf(opened), document.Port);
             }
 
             if (serving)
-                return Status(document, ours ? LocalServerState.Running : LocalServerState.OccupiedByOther, receipt, ours ? opened : null);
+                return Status(document, ownsPort ? LocalServerState.Running : LocalServerState.OccupiedByOther,
+                    receipt, ownsPort ? opened : null);
             if (ours && opened is not null && !ServerProcess.HasExited(opened))
             {
                 // An alive-but-silent process is starting only when no stop was requested for it.
@@ -178,7 +234,7 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
                 throw Conflict("本地服务端已经部署过。要更换端口或共享范围，请先停止服务再重新部署。");
             if (!_layout.TryReadReceipt(out ServerBuildReceipt? receipt)) throw ComponentMissing();
             // Checking before anything is written keeps a blocked deployment from leaving a half-created database.
-            await EnsureSingleServerAsync(existing, cancellationToken).ConfigureAwait(false);
+            EnsurePortAvailable(request.Port);
 
             var document = LocalServerLayout.NewDocument(_layout.ExecutablePath, receipt.Sha256);
             document.Port = request.Port;
@@ -264,11 +320,23 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
             throw new FilewayException(new ErrorInfo(ErrorCode.InvalidRequest, "限定共享范围时需要一个完整的文件夹路径。"));
         var document = RequireDeployed();
         if (!_layout.TryReadReceipt(out ServerBuildReceipt? receipt)) throw ComponentMissing();
+        if (request.Port != document.Port) EnsurePortAvailable(request.Port);
         var current = await ReadCoreAsync(document, token).ConfigureAwait(false);
         if (current.State is LocalServerState.Starting or LocalServerState.Stopping)
             throw Conflict("服务端正在启动或停止，请等状态稳定后再修改部署设置。");
         bool wasRunning = current.State == LocalServerState.Running;
-        if (wasRunning) await StopInnerAsync(token).ConfigureAwait(false);
+        if (wasRunning)
+        {
+            var stopped = await StopInnerAsync(token).ConfigureAwait(false);
+            if (stopped.State == LocalServerState.Stopping)
+            {
+                var pending = RequireDeployed();
+                using var process = TryHandle(pending, out bool ours);
+                if (ours && process is not null &&
+                    !await ServerProcess.WaitForExitAsync(process, TimeSpan.FromSeconds(10), token).ConfigureAwait(false))
+                    throw Conflict("服务端正在停止，请稍后重试保存。");
+            }
+        }
         document = RequireDeployed();
         try
         {
@@ -394,12 +462,25 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
         if (!IsIntegrityVerified(document, receipt)) throw ComponentMissing();
         if (await ProbeAsync(document, cancellationToken).ConfigureAwait(false))
         {
-            if (TryAdopt(document) || (TryHandle(document, out bool ours) is not null && ours))
+            using var running = TryHandle(document, out bool ours);
+            bool ownsPort = ours && running is not null &&
+                ServerDiscovery.OwnsListeningPort(ServerProcess.ProcessIdOf(running), document.Port);
+            if (ownsPort || TryAdopt(document))
                 return await ReadStatusAsync(cancellationToken).ConfigureAwait(false);
             throw Conflict("这个端口上已经有另一个服务端在响应，但它不是本客户端部署的那个进程。为避免误停别人的服务，请先停止它或更换端口。");
         }
 
-        await EnsureSingleServerAsync(document, cancellationToken).ConfigureAwait(false);
+        using (var existing = TryHandle(document, out bool ours))
+        {
+            if (ours && existing is not null && !ServerProcess.HasExited(existing))
+            {
+                if (!document.StoppedByUser) return await ReadStatusAsync(cancellationToken).ConfigureAwait(false);
+                if (!await ServerProcess.WaitForExitAsync(existing, TimeSpan.FromSeconds(10), cancellationToken).ConfigureAwait(false))
+                    throw Conflict("服务端正在停止，请稍后重试。");
+            }
+        }
+        EnsurePortAvailable(document.Port);
+        EnsureDatabaseAvailable();
 
         _userStopping = false;
         SafeProcessHandle handle;
@@ -446,6 +527,13 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
         }
 
         int? exitCode = ServerProcess.ExitCode(handle);
+        if (exitCode is null)
+        {
+            document.LastError = "服务端启动时间较长，可继续等待或停止后查看日志。";
+            _layout.WriteDocument(document);
+            Publish(document, LocalServerState.Starting, receipt, handle);
+            return await ReadStatusAsync(cancellationToken).ConfigureAwait(false);
+        }
         document.LastExitCode = exitCode;
         document.LastError = LaunchFailureMessage(document, detail: ServerLogReader.DescribeFailure(_layout.DiagnosticsLogPath));
         _expectRunning = false;
@@ -476,7 +564,8 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
             try
             {
                 (outcome, signal) = await ServerProcess.StopAsync(opened,
-                    () => ProbeAsync(document, cancellationToken), GracefulStopWindow, cancellationToken).ConfigureAwait(false);
+                    () => ProbeAsync(document, cancellationToken), GracefulStopWindow,
+                    _layout.StopEventName, cancellationToken).ConfigureAwait(false);
             }
             finally { _stopInFlight = false; }
 
@@ -484,7 +573,7 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
             document.StoppedByUser = true;
             document.LastExitCode = ServerProcess.ExitCode(opened);
             // A draining process keeps its recorded pid so the supervision loop can clear it later.
-            if (outcome != ServerStopOutcome.Draining)
+            if (outcome is ServerStopOutcome.Graceful or ServerStopOutcome.Forced or ServerStopOutcome.AlreadyExited)
             {
                 document.ProcessId = null;
                 document.ProcessStartedAt = null;
@@ -492,7 +581,7 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
                 _owned = null;
             }
             document.LastError = outcome == ServerStopOutcome.Forced
-                ? "服务端没有响应停止请求，已在 " + GracefulStopWindow.TotalSeconds.ToString(CultureInfo.InvariantCulture) + " 秒后结束进程；正在传输的任务会中断。"
+                ? "服务端未能正常停止，已结束服务进程。"
                 : null;
             _layout.WriteDocument(document);
             if (outcome == ServerStopOutcome.Unknown)
@@ -564,11 +653,16 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
     private SafeProcessHandle? TryHandle(LocalServerDocument document, out bool ours)
     {
         ours = false;
-        if (document.ProcessId is not int recorded || recorded <= 0) return _owned;
-        if (_owned is not null && ServerProcess.ProcessIdOf(_owned) == recorded)
+        if (document.ProcessId is not int recorded || recorded <= 0) return null;
+        if (_owned is { } owned)
         {
-            ours = Matches(_owned, document);
-            return _owned;
+            var copy = ServerProcess.TryDuplicate(owned);
+            if (copy is not null)
+            {
+                ours = Matches(copy, document);
+                if (ours) return copy;
+                copy.Dispose();
+            }
         }
         SafeProcessHandle? opened = ServerProcess.TryOpen(recorded);
         if (opened is null) return null;
@@ -592,6 +686,7 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
                 {
                     if (!IsOurImage(candidate.MainModule?.FileName, document)) continue;
                     if (candidate.StartTime < document.DeployedAt?.LocalDateTime) continue;
+                    if (!ServerDiscovery.OwnsListeningPort(candidate.Id, document.Port)) continue;
                     candidates.Add((candidate.Id, candidate.StartTime));
                 }
                 catch (Exception error) when (error is InvalidOperationException or Win32Exception or NotSupportedException)
@@ -797,7 +892,7 @@ public sealed class LocalServerService : ILocalServerManagementService, IAsyncDi
             : detail.Contains("timeout", StringComparison.OrdinalIgnoreCase)
                 ? "这个数据目录已经被另一个服务端实例锁定"
                 : "服务端启动失败";
-        return string.IsNullOrEmpty(detail) ? reason + "。" : reason + "。详情：" + detail;
+        return reason + "，请查看本地服务端日志。";
     }
 
     private LocalServerDocument RequireDeployed() =>

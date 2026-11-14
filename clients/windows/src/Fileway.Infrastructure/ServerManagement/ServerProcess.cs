@@ -37,6 +37,7 @@ internal static partial class ServerProcess
     private const uint WaitTimeout = 0x00000102;
     private const uint ProcessTerminateRights = 0x0001;
     private const uint ProcessQueryRights = 0x1000;
+    private const uint DuplicateSameAccess = 0x00000002;
 
     private static readonly object ConsoleGate = new();
 
@@ -101,18 +102,35 @@ internal static partial class ServerProcess
         return handle == nint.Zero || handle == -1 ? null : new SafeProcessHandle(handle, true);
     }
 
+    internal static SafeProcessHandle? TryDuplicate(SafeProcessHandle handle)
+    {
+        bool acquired = false;
+        try
+        {
+            handle.DangerousAddRef(ref acquired);
+            nint process = GetCurrentProcess();
+            return DuplicateHandle(process, handle.DangerousGetHandle(), process, out nint copy,
+                0, false, DuplicateSameAccess)
+                ? new SafeProcessHandle(copy, true)
+                : null;
+        }
+        catch (ObjectDisposedException) { return null; }
+        finally { if (acquired) handle.DangerousRelease(); }
+    }
+
     /// <summary>
     /// Asks the child's console to shut down. A server that stopped accepting connections has
     /// already served the user's intent, so the process is never killed for taking longer to unwind.
     /// </summary>
     internal static async Task<(ServerStopOutcome Outcome, string Signal)> StopAsync(
-        SafeProcessHandle handle, Func<Task<bool>> isServing, TimeSpan gracefulWindow, CancellationToken cancellationToken)
+        SafeProcessHandle handle, Func<Task<bool>> isServing, TimeSpan gracefulWindow, string stopEventName,
+        CancellationToken cancellationToken)
     {
         int processId = ProcessIdOf(handle);
         if (HasExited(handle)) return (ServerStopOutcome.AlreadyExited, "already exited");
         // The Go server traps SIGINT, and CTRL_BREAK is the only event addressable to one process id.
         System.Diagnostics.Stopwatch watch = System.Diagnostics.Stopwatch.StartNew();
-        string signal = Signal(processId);
+        string signal = TrySignalStopEvent(stopEventName) ? string.Empty : Signal(processId);
         string delivered = signal.Length == 0
             ? "停止事件在 " + watch.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture) + "ms 内投递"
             : signal;
@@ -168,6 +186,19 @@ internal static partial class ServerProcess
             if (wait == WaitObjectSignaled) return true;
             if (wait != WaitTimeout) return HasExited(handle);
             await Task.Delay(100, cancellationToken).ConfigureAwait(false);
+        }
+    }
+
+    private static bool TrySignalStopEvent(string name)
+    {
+        try
+        {
+            using var stopEvent = EventWaitHandle.OpenExisting(name);
+            return stopEvent.Set();
+        }
+        catch (Exception error) when (error is WaitHandleCannotBeOpenedException or UnauthorizedAccessException or IOException)
+        {
+            return false;
         }
     }
 
@@ -268,6 +299,14 @@ internal static partial class ServerProcess
 
     [LibraryImport("kernel32.dll", SetLastError = true)]
     private static partial nint OpenProcess(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint processId);
+
+    [LibraryImport("kernel32.dll")]
+    private static partial nint GetCurrentProcess();
+
+    [LibraryImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static partial bool DuplicateHandle(nint sourceProcess, nint sourceHandle, nint targetProcess,
+        out nint targetHandle, uint desiredAccess, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint options);
 
     [LibraryImport("kernel32.dll", EntryPoint = "GetProcessId")]
     private static partial int NativeGetProcessId(nint process);

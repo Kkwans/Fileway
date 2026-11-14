@@ -94,6 +94,7 @@ func init() {
 	flags.String("password", "", "hashed password for the first user when using quick setup")
 	flags.Uint32("socketPerm", 0666, "unix socket file permissions")
 	flags.String("cacheDir", "", "file cache directory (disabled if empty)")
+	flags.String("windowsStopEvent", "", "local Windows service stop event")
 	flags.String("mediaLibraryDatabase", "", "absolute local catalog path inside a dedicated .fileway-media directory (disabled if empty)")
 	flags.String("mediaProviderKeyFile", "", "absolute path to a private 32-byte media provider vault key")
 	flags.String("mediaTMDBHostsFile", "", "optional TMDB-only hosts-format routing file")
@@ -330,14 +331,6 @@ user created with the credentials from options "username" and "password".`,
 			ReadHeaderTimeout: 60 * time.Second,
 		}
 
-		go func() {
-			if err := srv.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
-				log.Fatalf("HTTP server error: %v", err)
-			}
-
-			log.Println("Stopped serving new connections.")
-		}()
-
 		sigc := make(chan os.Signal, 1)
 		signal.Notify(sigc,
 			os.Interrupt,
@@ -346,6 +339,21 @@ user created with the credentials from options "username" and "password".`,
 			syscall.SIGTERM,
 			syscall.SIGQUIT,
 		)
+		defer signal.Stop(sigc)
+		stopEvent, err := watchLocalStopEvent(v.GetString("windowsStopEvent"), sigc)
+		if err != nil {
+			return err
+		}
+		defer stopEvent()
+
+		go func() {
+			if err := srv.Serve(listener); !errors.Is(err, http.ErrServerClosed) {
+				log.Fatalf("HTTP server error: %v", err)
+			}
+
+			log.Println("Stopped serving new connections.")
+		}()
+
 		sig := <-sigc
 		log.Println("Got signal:", sig)
 
