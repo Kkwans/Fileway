@@ -74,8 +74,9 @@ values. `local_only` hides the saved online projection. The detail reports
 backdrops separately using existing authenticated `/artwork/{artworkId}` URLs.
 Local-first uses local declarations when present; TMDB-first can use the local
 image if the CDN request fails. Image fetches run on demand through the same
-TMDB network routing, with no credentials attached to CDN requests. Online
-credit presentation is a separate step.
+TMDB network routing, with no credentials attached to CDN requests. Detail
+and `/credits` use the preferred complete credit list when available, with the
+other source as a fallback. TMDB continuations are bound to the policy revision.
 
 Mutations use `operationId` and optimistic revisions. An exact retry returns the
 original sanitized receipt; a different request with the same operation or a

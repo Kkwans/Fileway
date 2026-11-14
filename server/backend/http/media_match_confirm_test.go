@@ -7,8 +7,10 @@ import (
 	"image/png"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -87,7 +89,7 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 			t.Errorf("unexpected provider route: %s", r.URL.Path)
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
-			`{"id":55,"title":"TMDB film","original_title":"Online original","overview":"Online synopsis","poster_path":"/example.jpg","backdrop_path":"/backdrop.png","vote_average":7.2,"vote_count":15}`))}, nil
+			`{"id":55,"title":"TMDB film","original_title":"Online original","overview":"Online synopsis","poster_path":"/example.jpg","backdrop_path":"/backdrop.png","vote_average":7.2,"vote_count":15,"credits":{"cast":[{"id":8,"name":"Online actor","character":"Hero"}],"crew":[{"id":9,"name":"Online director","job":"Director"}]}}`))}, nil
 	})}
 	identityResponse := f.call(t, owner, http.MethodGet, base+"/identification", nil)
 	var identity mediaIdentificationResponse
@@ -123,6 +125,20 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 	online := fixtureDetail(t, f, owner, library.ID, itemID)
 	if online.Item.Title != "TMDB film" || calls != 1 || online.Card.Artwork == nil || !strings.HasPrefix(online.Card.Artwork.AssetID, "tmdb_poster_") {
 		t.Fatalf("online-first projection: %+v", online)
+	}
+	if len(online.Credits) != 2 || online.Credits[0].Role != "Hero" || online.Credits[1].Kind != "director" {
+		t.Fatalf("online credits: %+v", online.Credits)
+	}
+	firstCredit := f.call(t, owner, http.MethodGet, base+"/credits?limit=1", nil)
+	var creditPage visibleMetadataPage[medialibrary.MetadataCredit]
+	if firstCredit.Code != http.StatusOK || json.Unmarshal(firstCredit.Body.Bytes(), &creditPage) != nil || creditPage.NextCursor == "" || len(creditPage.Items) != 1 || creditPage.Items[0].ID != online.Credits[0].ID {
+		t.Fatalf("first credit page: %d %s", firstCredit.Code, firstCredit.Body)
+	}
+	nextCreditPath := base + "/credits?limit=1&revision=" + strconv.FormatInt(creditPage.Revision, 10) + "&cursor=" + url.QueryEscape(creditPage.NextCursor)
+	nextCredit := f.call(t, owner, http.MethodGet, nextCreditPath, nil)
+	creditPage = visibleMetadataPage[medialibrary.MetadataCredit]{}
+	if nextCredit.Code != http.StatusOK || json.Unmarshal(nextCredit.Body.Bytes(), &creditPage) != nil || creditPage.NextCursor != "" || len(creditPage.Items) != 1 || creditPage.Items[0].ID != online.Credits[1].ID {
+		t.Fatalf("next credit page: %d %s", nextCredit.Code, nextCredit.Body)
 	}
 	if response := f.call(t, owner, http.MethodGet, online.Card.Artwork.Endpoint, nil); response.Code != http.StatusOK || response.Header().Get("Content-Type") != "image/png" || imageCalls != 1 {
 		t.Fatalf("failed online poster did not use NFO fallback: %d", response.Code)
@@ -164,7 +180,7 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 		t.Fatal(err)
 	}
 	offline := fixtureDetail(t, f, owner, library.ID, itemID)
-	if offline.Item.Title != "Manual title" || offline.OnlineMatch != nil || len(offline.Ratings) != 0 || calls != 1 {
+	if offline.Item.Title != "Manual title" || offline.OnlineMatch != nil || len(offline.Ratings) != 0 || len(offline.Credits) != 0 || calls != 1 {
 		t.Fatalf("local-only projection: %+v", offline)
 	}
 	if response := f.call(t, owner, http.MethodGet, backdrop, nil); response.Code != http.StatusNotFound || imageCalls != 2 {

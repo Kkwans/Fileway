@@ -30,12 +30,13 @@ type ProviderMatchResult struct {
 }
 
 type ProviderMatch struct {
-	Kind        string
-	ExternalID  int64
-	FetchedAt   int64
-	Revision    int64
-	OnlineFirst bool
-	Document    ProviderMatchDocument
+	Kind           string
+	ExternalID     int64
+	FetchedAt      int64
+	Revision       int64
+	OnlineFirst    bool
+	PolicyRevision int64
+	Document       ProviderMatchDocument
 }
 
 const providerMatchOperation = "metadata.tmdb.confirm"
@@ -128,14 +129,14 @@ func (store *Store) VisibleProviderMatch(ctx context.Context, viewer uint, libra
 	}
 	var value ProviderMatch
 	var encoded, mode string
-	err := store.db.QueryRowContext(ctx, `SELECT pm.entity_kind,pm.external_id,pm.document_json,pm.fetched_at,pm.revision,p.mode
+	err := store.db.QueryRowContext(ctx, `SELECT pm.entity_kind,pm.external_id,pm.document_json,pm.fetched_at,pm.revision,p.mode,p.revision
 FROM item_provider_match pm JOIN library l ON l.id=pm.library_id AND l.archived_at IS NULL
 JOIN library_item i ON i.library_id=pm.library_id AND i.id=pm.item_id
 JOIN item_structure st ON st.library_id=i.library_id AND st.item_id=i.id AND st.superseded_by IS NULL
 JOIN library_metadata_policy p ON p.library_id=l.id AND p.mode IN ('local_first_online','online_first')
 LEFT JOIN library_member m ON m.library_id=l.id AND m.user_id=? AND m.revoked_at IS NULL
 WHERE pm.library_id=? AND pm.item_id=? AND i.revision=? AND (pm.entity_kind=i.kind OR (i.kind='video' AND pm.entity_kind='movie')) AND `+libraryVisibility,
-		viewer, libraryID, itemID, itemRevision, viewer).Scan(&value.Kind, &value.ExternalID, &encoded, &value.FetchedAt, &value.Revision, &mode)
+		viewer, libraryID, itemID, itemRevision, viewer).Scan(&value.Kind, &value.ExternalID, &encoded, &value.FetchedAt, &value.Revision, &mode, &value.PolicyRevision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/gorilla/mux"
@@ -59,16 +60,69 @@ func visibleMetadataPageFor[T any](ctx context.Context, revision int64, limit in
 	}
 }
 
-func visibleCredits(ctx context.Context, d *data, library *medialibrary.Library, itemID string, revision int64, access *mediaItemAccess, after string, limit int) (visibleMetadataPage[medialibrary.MetadataCredit], error) {
-	return visibleMetadataPageFor(ctx, revision, limit, after, func(ctx context.Context, after string, n int) ([]medialibrary.MetadataCredit, string, int64, error) {
-		page, err := d.store.MediaLibrary.ListItemCredits(ctx, d.user.ID, library.ID, itemID, after, n)
-		if err != nil {
-			return nil, "", 0, err
+func visibleCredits(ctx context.Context, d *data, library *medialibrary.Library, itemID string, revision int64, access *mediaItemAccess, match *medialibrary.ProviderMatch, after string, limit int) (visibleMetadataPage[medialibrary.MetadataCredit], error) {
+	local := func(after string, limit int) (visibleMetadataPage[medialibrary.MetadataCredit], error) {
+		return visibleMetadataPageFor(ctx, revision, limit, after, func(ctx context.Context, after string, n int) ([]medialibrary.MetadataCredit, string, int64, error) {
+			page, err := d.store.MediaLibrary.ListItemCredits(ctx, d.user.ID, library.ID, itemID, after, n)
+			if err != nil {
+				return nil, "", 0, err
+			}
+			return page.Items, page.NextCursor, page.ItemRevision, nil
+		}, func(item medialibrary.MetadataCredit) (bool, error) {
+			return metadataInputAllowed(ctx, d, library, itemID, access, item.InputID)
+		}, func(item medialibrary.MetadataCredit) string { return item.Cursor })
+	}
+	const prefix = "tmdb-credits:"
+	continuation := strings.HasPrefix(after, prefix)
+	page := visibleMetadataPage[medialibrary.MetadataCredit]{Items: []medialibrary.MetadataCredit{}, Revision: revision}
+	if !continuation && (match == nil || !match.OnlineFirst || len(match.Document.Item.Credits) == 0) {
+		var err error
+		page, err = local(after, limit)
+		if err != nil || len(page.Items) != 0 || after != "" || match == nil || len(match.Document.Item.Credits) == 0 {
+			return page, err
 		}
-		return page.Items, page.NextCursor, page.ItemRevision, nil
-	}, func(item medialibrary.MetadataCredit) (bool, error) {
-		return metadataInputAllowed(ctx, d, library, itemID, access, item.InputID)
-	}, func(item medialibrary.MetadataCredit) string { return item.Cursor })
+	}
+	if match == nil || len(match.Document.Item.Credits) == 0 {
+		return page, medialibrary.ErrRevisionConflict
+	}
+	tokenBase := prefix + strconv.FormatInt(match.PolicyRevision, 10) + ":"
+	start := 0
+	if after != "" {
+		if !strings.HasPrefix(after, tokenBase) {
+			return page, medialibrary.ErrRevisionConflict
+		}
+		var err error
+		start, err = strconv.Atoi(strings.TrimPrefix(after, tokenBase))
+		if err != nil || start < 1 || start >= len(match.Document.Item.Credits) {
+			return page, medialibrary.ErrInvalid
+		}
+	}
+	for position, credit := range match.Document.Item.Credits[start:] {
+		name := credit.Fields["name"]
+		if len(name) != 1 || name[0] == "" {
+			continue
+		}
+		position += start
+		if len(page.Items) == limit {
+			page.NextCursor = tokenBase + strconv.Itoa(position)
+			break
+		}
+		roles := credit.Fields["role"]
+		roles = append([]string{}, roles[:min(128, len(roles))]...)
+		mainRole := ""
+		if len(roles) > 0 {
+			mainRole = roles[0]
+		}
+		id := "tmdb_credit_" + strconv.FormatInt(match.Revision, 10) + "_" + strconv.Itoa(position)
+		personID := itemID + "_" + id
+		if len(credit.ExternalIDs) > 0 && credit.ExternalIDs[0].Provider == "tmdb" {
+			personID = "tmdb_person_" + credit.ExternalIDs[0].Value
+		}
+		page.Items = append(page.Items, medialibrary.MetadataCredit{
+			ID: id, PersonID: personID, Name: name[0], Kind: credit.Kind, Role: mainRole, Roles: roles, Position: position,
+		})
+	}
+	return page, nil
 }
 
 func visibleRatings(ctx context.Context, d *data, library *medialibrary.Library, itemID string, revision int64, access *mediaItemAccess, after string, limit int) (visibleMetadataPage[medialibrary.MetadataRating], error) {
@@ -128,12 +182,12 @@ func loadVisibleItemDetail(ctx context.Context, d *data, library *medialibrary.L
 		return result, err
 	}
 	id, revision := detail.Item.ID, detail.Item.Revision
-	credits, err := visibleCredits(ctx, d, library, id, revision, access, "", 20)
+	match := result.providerMatch
+	credits, err := visibleCredits(ctx, d, library, id, revision, access, match, "", 20)
 	if err != nil {
 		return result, err
 	}
 	ratingLimit := 20
-	match := result.providerMatch
 	if match != nil && len(match.Document.Item.Ratings) != 0 {
 		ratingLimit--
 	}
@@ -196,6 +250,10 @@ func mediaItemCollectionHandler(kind string) handleFunc {
 			return mediaScanError(err)
 		}
 		itemID := mux.Vars(r)["itemId"]
+		snapshot, err := beginCatalogSnapshot(r.Context(), d, library.ID)
+		if err != nil {
+			return catalogError(w, err)
+		}
 		detail, access, err := visibleItemDetail(r, d, library, itemID)
 		if err != nil {
 			return mediaScanError(err)
@@ -226,7 +284,11 @@ func mediaItemCollectionHandler(kind string) handleFunc {
 		var response any
 		switch kind {
 		case "credits":
-			response, err = visibleCredits(r.Context(), d, library, itemID, detail.Item.Revision, &access, after, limit)
+			var match *medialibrary.ProviderMatch
+			match, err = d.store.MediaLibrary.VisibleProviderMatch(r.Context(), d.user.ID, library.ID, itemID, detail.Item.Revision)
+			if err == nil {
+				response, err = visibleCredits(r.Context(), d, library, itemID, detail.Item.Revision, &access, match, after, limit)
+			}
 		case "ratings":
 			response, err = visibleRatings(r.Context(), d, library, itemID, detail.Item.Revision, &access, after, limit)
 		case "artwork":
@@ -251,6 +313,9 @@ func mediaItemCollectionHandler(kind string) handleFunc {
 		}
 		if err := verifyItemRevision(r.Context(), d, library, itemID, detail.Item.Revision); err != nil {
 			return mediaScanError(err)
+		}
+		if err := verifyCatalogSnapshot(r.Context(), d, snapshot); err != nil {
+			return catalogError(w, err)
 		}
 		return renderJSON(w, r, response)
 	})
