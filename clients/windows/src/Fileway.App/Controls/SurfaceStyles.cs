@@ -145,13 +145,13 @@ public static class SurfaceStyles
                 _themeOwner.ActualThemeChanged += ThemeChanged;
             }
             Refresh();
-            if (_element is FlyoutPresenter or ToolTip && _hostPopup is null)
+            if (_element is MenuFlyoutPresenter or FlyoutPresenter or ToolTip && _hostPopup is null)
                 _element.DispatcherQueue.TryEnqueue(() => { if (_active) Refresh(); });
         }
 
         private void ThemeChanged(FrameworkElement sender, object args) => Refresh();
 
-        private void NativeConnectionFailed() =>
+        private void NativeStateChanged() =>
             _element.DispatcherQueue.TryEnqueue(() => { if (_active) Refresh(); });
 
         private void Refresh()
@@ -159,9 +159,10 @@ public static class SurfaceStyles
             var theme = _element is ToolTip && _element.XamlRoot?.Content is FrameworkElement root
                 ? root.ActualTheme : _themeOwner.ActualTheme;
             var menu = _element as MenuFlyoutPresenter;
-            var popup = _selector ?? (_element is FlyoutPresenter or ToolTip ? FindOwningPopup(_element) : null);
+            var popup = _selector ?? (_element is MenuFlyoutPresenter or FlyoutPresenter or ToolTip
+                ? FindOwningPopup(_element) : null);
             Brush brush;
-            if (menu is not null || popup is { ShouldConstrainToRootBounds: false })
+            if (popup is { IsConstrainedToRootBounds: false })
             {
                 if (_applied != PopupMaterials.Effective || !ReferenceEquals(popup, _hostPopup))
                 {
@@ -169,11 +170,13 @@ public static class SurfaceStyles
                     _applied = PopupMaterials.Effective;
                     _hostPopup = popup;
                     _backdrop = PopupMaterials.NativeSurfaceBackdrop();
-                    if (_backdrop is not null) _backdrop.ConnectionFailed += NativeConnectionFailed;
+                    if (_backdrop is not null) _backdrop.StateChanged += NativeStateChanged;
+                    // FlyoutBase forwards the presenter's backdrop during opening. Apply
+                    // it to the actual Popup too, including after that opening step.
                     if (menu is not null) menu.SystemBackdrop = _backdrop;
-                    else if (popup is not null) popup.SystemBackdrop = _backdrop;
+                    popup.SystemBackdrop = _backdrop;
                 }
-                var brushKey = _backdrop is null or { Failed: true } ? "FwSurfaceRaisedBrush"
+                var brushKey = _backdrop is not { IsActive: true } ? "FwSurfaceRaisedBrush"
                     : _applied == PopupMaterial.Acrylic ? "FwAcrylicPopupPresenterBrush" : "FwPopupPresenterBrush";
                 brush = ThemePalette.Brush(brushKey, theme);
             }
@@ -182,7 +185,9 @@ public static class SurfaceStyles
                 if (_applied is not null) DisconnectBackdrop();
                 // Root-constrained popups share the app's composition tree. Sample that
                 // content directly so an unavailable native backdrop cannot expose sharp text.
-                brush = PopupMaterials.InWindowBrush(theme);
+                brush = menu is not null && popup is null
+                    ? ThemePalette.Brush("FwSurfaceRaisedBrush", theme)
+                    : PopupMaterials.InWindowBrush(theme);
             }
 
             var stroke = ThemePalette.Brush("FwStrokeStrongBrush", theme);
@@ -211,9 +216,9 @@ public static class SurfaceStyles
 
         private void DisconnectBackdrop()
         {
-            if (_backdrop is not null) _backdrop.ConnectionFailed -= NativeConnectionFailed;
+            if (_backdrop is not null) _backdrop.StateChanged -= NativeStateChanged;
             if (_hostPopup is not null && ReferenceEquals(_hostPopup.SystemBackdrop, _backdrop)) _hostPopup.SystemBackdrop = null;
-            if (_element is MenuFlyoutPresenter menu) menu.SystemBackdrop = null;
+            if (_element is MenuFlyoutPresenter menu && ReferenceEquals(menu.SystemBackdrop, _backdrop)) menu.SystemBackdrop = null;
             _hostPopup = null;
             _backdrop = null;
             _applied = null;

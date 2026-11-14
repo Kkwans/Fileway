@@ -85,7 +85,9 @@ internal static class PopupMaterials
     {
         private DesktopAcrylicController? _controller;
         internal bool Failed { get; private set; }
+        internal bool IsActive => _controller?.State == SystemBackdropState.Active;
         internal event Action? ConnectionFailed;
+        internal event Action? StateChanged;
 
         protected override void OnTargetConnected(ICompositionSupportsSystemBackdrop target, XamlRoot root)
         {
@@ -98,7 +100,9 @@ internal static class PopupMaterials
                 controller.SetSystemBackdropConfiguration(GetDefaultSystemBackdropConfiguration(target, root));
                 if (!controller.AddSystemBackdropTarget(target)) return;
                 _controller = controller;
+                controller.StateChanged += (_, _) => StateChanged?.Invoke();
                 controller = null;
+                StateChanged?.Invoke();
             }
             catch (COMException) { }
             finally
@@ -127,6 +131,7 @@ internal static class PopupMaterials
             {
                 controller?.Dispose();
                 base.OnTargetDisconnected(target);
+                StateChanged?.Invoke();
             }
         }
     }
