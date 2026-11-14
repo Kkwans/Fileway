@@ -165,6 +165,24 @@ func (store *Store) GetManagedProviderConnection(ctx context.Context, actor uint
 	return providerManager(ctx, store.db, actor, admin, connectionID)
 }
 
+// ManagedProviderCredentialForCheck scopes the envelope to its current manager
+// and revision. It does not confer permission to scrape any library.
+func (store *Store) ManagedProviderCredentialForCheck(ctx context.Context, actor uint, admin bool, connectionID string) (int64, []byte, error) {
+	if actor == 0 || !providerIDPattern.MatchString(connectionID) {
+		return 0, nil, ErrInvalid
+	}
+	var revision int64
+	var sealed []byte
+	err := store.db.QueryRowContext(ctx, `SELECT c.revision, s.ciphertext FROM provider_connection c
+JOIN provider_credential s ON s.credential_ref=c.credential_ref
+WHERE c.id=? AND c.status='configured' AND ((c.owner_kind='user' AND c.owner_user_id=?) OR (c.owner_kind='instance' AND ?=1))`,
+		connectionID, actor, admin).Scan(&revision, &sealed)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil, ErrNotFound
+	}
+	return revision, sealed, err
+}
+
 // PutProviderConnection creates or rotates exactly one TMDB credential.
 // ciphertext may change on retry; fingerprint must remain stable for the same
 // token and connection context. The caller verifies the current admin role.

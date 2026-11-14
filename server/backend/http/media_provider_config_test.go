@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync/atomic"
@@ -173,5 +174,45 @@ func TestMediaProviderConfigHTTPNoSecretOrImplicitNetwork(t *testing.T) {
 	}
 	if network.calls.Load() != 0 {
 		t.Fatal("configuration generated provider traffic")
+	}
+}
+
+func TestMediaProviderCheckUsesManagedCredential(t *testing.T) {
+	f := newMediaScanHTTPFixture(t)
+	vault, err := mediaprovider.NewCredentialVault(bytes.Repeat([]byte{42}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.h.storage.MediaProviderVault = vault
+	const path = "/api/media-library/v1/provider-connections"
+	const token = "fixture-check-key"
+	created := f.call(t, f.owner.ID, http.MethodPost, path, map[string]any{"operationId": "check-key", "ownerKind": "user", "token": token})
+	var connection medialibrary.ProviderConnection
+	if created.Code != http.StatusCreated || json.Unmarshal(created.Body.Bytes(), &connection) != nil {
+		t.Fatalf("create: %d %s", created.Code, created.Body)
+	}
+	checkPath := path + "/" + connection.ID + "/check"
+	calls := 0
+	rejected := false
+	f.h.storage.TMDBHTTPClient = &http.Client{Transport: matchTestTransport(func(r *http.Request) (*http.Response, error) {
+		calls++
+		if r.URL.Host != "api.themoviedb.org" || r.URL.Path != "/3/configuration" || r.Header.Get("Authorization") != "Bearer "+token {
+			t.Error("unexpected TMDB probe")
+		}
+		if rejected {
+			return &http.Response{StatusCode: http.StatusUnauthorized, Header: make(http.Header), Body: http.NoBody}, nil
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
+			`{"images":{"secure_base_url":"https://image.tmdb.org/t/p/","poster_sizes":["w500"],"backdrop_sizes":["w780"],"profile_sizes":["w185"],"still_sizes":["w300"]}}`))}, nil
+	})}
+	if response := f.call(t, f.viewer.ID, http.MethodPost, checkPath, nil); response.Code != http.StatusNotFound || calls != 0 {
+		t.Fatalf("unauthorized check: %d", response.Code)
+	}
+	if response := f.call(t, f.owner.ID, http.MethodPost, checkPath, nil); response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"reachable":true`) || calls != 1 || strings.Contains(response.Body.String(), token) {
+		t.Fatalf("connection check: %d", response.Code)
+	}
+	rejected = true
+	if response := f.call(t, f.owner.ID, http.MethodPost, checkPath, nil); response.Code != http.StatusUnprocessableEntity || !strings.Contains(response.Body.String(), "provider_credentials_rejected") || calls != 2 {
+		t.Fatalf("rejected key: %d", response.Code)
 	}
 }

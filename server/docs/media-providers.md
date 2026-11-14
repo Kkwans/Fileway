@@ -30,6 +30,12 @@ and clears its current sealed envelope. Clearing does not promise physical
 erasure from SQLite WAL pages or backups. No library silently switches to a
 different connection after clear or failure.
 
+`POST /provider-connections/{connectionId}/check` checks an already saved
+connection with TMDB's configuration request. Only the credential manager can
+run it. No key is returned or changed. Success returns `connectionId`,
+`revision`, and `reachable: true`. A rejected key returns 422
+`provider_credentials_rejected`.
+
 Only an instance administrator may `GET`, `PUT` or `DELETE`
 `/provider-connections/{connectionId}/grants`. PUT grants and DELETE revokes;
 the body takes `operationId`, `expectedRevision` and exactly one of `userId`

@@ -131,6 +131,7 @@ func NewHandler(
 	api.Handle("/media-library/v1/provider-status", monkey(mediaProviderStatusHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/provider-connections", monkey(mediaProviderConnectionsHandler, "")).Methods("GET", "POST")
 	api.Handle("/media-library/v1/provider-connections/{connectionId}", monkey(mediaProviderConnectionHandler, "")).Methods("PUT", "DELETE")
+	api.Handle("/media-library/v1/provider-connections/{connectionId}/check", monkey(mediaProviderCheckHandler(providerSlots, providerStarts.C), "")).Methods("POST")
 	api.Handle("/media-library/v1/provider-connections/{connectionId}/grants", monkey(mediaProviderGrantsHandler, "")).Methods("GET", "PUT", "DELETE")
 	api.Handle("/media-library/v1/libraries/{id}/metadata-policy", monkey(mediaLibraryMetadataPolicyHandler, "")).Methods("GET", "PUT")
 	api.Handle("/media-library/v1/home", monkey(mediaCatalogHomeHandler, "")).Methods("GET")
