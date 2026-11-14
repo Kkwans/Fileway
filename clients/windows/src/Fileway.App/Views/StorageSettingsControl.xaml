@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl x:Class="Fileway.App.Views.StorageSettingsControl" xmlns:ui="using:Fileway.App.Controls"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid x:Name="LayoutRoot" MinWidth="340" MaxWidth="500" RowSpacing="12">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <Grid ColumnSpacing="12">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                <ToggleButton x:Name="PreferencesTab" Content="位置与下载" Width="114" IsChecked="True"
+                              Click="PreferencesTab_Click" Style="{StaticResource FwSegmentedChoiceStyle}"
+                              AutomationProperties.AutomationId="StoragePreferencesTab"/>
+                <ToggleButton x:Name="UsageTab" Content="缓存占用" Width="102"
+                              Click="UsageTab_Click" Style="{StaticResource FwSegmentedChoiceStyle}"
+                              AutomationProperties.AutomationId="StorageUsageTab"/>
+            </StackPanel>
+            <StackPanel x:Name="EffectHints" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right" Margin="0,0,6,0">
+                <TextBlock x:Name="PreferencesHint" Text="目录更改在下次启动后生效。" TextAlignment="Right" TextWrapping="Wrap"
+                           Style="{StaticResource FwCaptionTextStyle}"/>
+                <TextBlock x:Name="PendingSettingsText" TextAlignment="Right" TextWrapping="Wrap" Visibility="Collapsed"
+                           Style="{StaticResource FwCaptionTextStyle}" AutomationProperties.AutomationId="StorageSettingsPending"/>
+            </StackPanel>
+            <Button x:Name="UsageCloseButton" Grid.Column="1" Content="关闭" HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,0,6,0"
+                    Visibility="Collapsed" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}"
+                    AutomationProperties.AutomationId="StorageUsageCloseButton"/>
+        </Grid>
+        <ScrollViewer Grid.Row="1" x:Name="BodyScroll" AutomationProperties.AutomationId="BodyScroll" MaxHeight="470"
+                      VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                      HorizontalContentAlignment="Stretch">
+            <Grid Padding="0,0,6,8">
+                <ContentControl x:Name="SettingsFields" IsEnabled="False" HorizontalContentAlignment="Stretch" IsTabStop="False">
+                    <StackPanel Spacing="14">
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="磁盘缓存" FontSize="15" FontWeight="SemiBold"/>
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <TextBox x:Name="CacheDirectoryBox" IsReadOnly="True" Style="{StaticResource FwTextBoxStyle}"
+                                         AutomationProperties.Name="缓存根目录" AutomationProperties.AutomationId="StorageCacheDirectory"/>
+                                <Button Grid.Column="1" Content="选择…" Click="ChooseCache_Click" Style="{StaticResource FwSecondaryButtonStyle}"
+                                        AutomationProperties.Name="选择缓存根目录" AutomationProperties.AutomationId="StorageChooseCache"/>
+                            </Grid>
+                            <TextBlock x:Name="ActiveCacheDirectory" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"
+                                       IsTextSelectionEnabled="True" Visibility="Collapsed" AutomationProperties.AutomationId="StorageActiveCacheDirectory"/>
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="磁盘缓存上限（GB）"/>
+                                    <TextBlock Text="设为 0 可关闭磁盘缓存。" Style="{StaticResource FwCaptionTextStyle}"/>
+                                </StackPanel>
+                                <TextBox Grid.Column="1" x:Name="MaximumCacheGbBox" Width="120" TextAlignment="Right"
+                                         InputScope="Number" MaxLength="24" Style="{StaticResource FwTextBoxStyle}"
+                                         AutomationProperties.Name="磁盘缓存总容量，单位GB" AutomationProperties.AutomationId="StorageCapacityInput"/>
+                            </Grid>
+                            <TextBlock x:Name="ActiveCapacity" Style="{StaticResource FwCaptionTextStyle}" Visibility="Collapsed"
+                                       TextWrapping="Wrap" AutomationProperties.AutomationId="StorageActiveCapacity"/>
+                            <TextBlock x:Name="CapacityError" Style="{StaticResource FwDangerTextStyle}" Visibility="Collapsed"
+                                       AutomationProperties.AutomationId="StorageCapacityError" AutomationProperties.LiveSetting="Polite"/>
+                        </StackPanel>
+                        <Border Style="{StaticResource FwDividerStyle}" Height="1"/>
+                        <StackPanel Spacing="6">
+                            <TextBlock Text="默认下载目录" FontSize="15" FontWeight="SemiBold"/>
+                            <Grid ColumnSpacing="8">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <TextBox x:Name="DownloadDirectoryBox" IsReadOnly="True" Style="{StaticResource FwTextBoxStyle}"
+                                         AutomationProperties.Name="默认下载目录" AutomationProperties.AutomationId="StorageDownloadDirectory"/>
+                                <Button Grid.Column="1" Content="选择…" Click="ChooseDownload_Click" Style="{StaticResource FwSecondaryButtonStyle}"
+                                        AutomationProperties.Name="选择默认下载目录" AutomationProperties.AutomationId="StorageChooseDownload"/>
+                            </Grid>
+                            <TextBlock x:Name="ActiveDownloadDirectory" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"
+                                       IsTextSelectionEnabled="True" Visibility="Collapsed" AutomationProperties.AutomationId="StorageActiveDownloadDirectory"/>
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <StackPanel Spacing="2" VerticalAlignment="Center">
+                                    <TextBlock Text="未完成的下载"/>
+                                    <TextBlock Text="连接后可继续有可靠续传记录的任务。" TextWrapping="Wrap" Style="{StaticResource FwCaptionTextStyle}"/>
+                                </StackPanel>
+                                <ToggleSwitch Grid.Column="1" x:Name="AutoResumeBox" OffContent="手动继续" OnContent="自动继续"
+                                              AutomationProperties.Name="连接后自动继续未完成的下载" AutomationProperties.AutomationId="StorageAutoResume"/>
+                            </Grid>
+                        </StackPanel>
+                    </StackPanel>
+                </ContentControl>
+                <StackPanel x:Name="CachePanel" Spacing="10" Visibility="Collapsed">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel Spacing="4" VerticalAlignment="Center">
+                            <TextBlock x:Name="CacheUsageText" Text="正在读取当前缓存池占用…" FontSize="15" FontWeight="SemiBold"
+                                       TextWrapping="Wrap" AutomationProperties.AutomationId="StorageCacheUsage"/>
+                            <TextBlock Style="{StaticResource FwCaptionTextStyle}" x:Name="CacheBlocksText" TextWrapping="Wrap" Visibility="Collapsed"/>
+                        </StackPanel>
+                        <ContentControl Grid.Column="1" x:Name="CacheActions" IsEnabled="False" VerticalAlignment="Center" IsTabStop="False">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Button Click="RefreshCache_Click" Content="刷新" AutomationProperties.Name="刷新缓存占用"
+                                        AutomationProperties.AutomationId="StorageRefreshUsage" Style="{StaticResource FwSecondaryButtonStyle}"/>
+                                <Button Click="ClearCache_Click" Content="清理未使用缓存" AutomationProperties.Name="清理未使用缓存"
+                                        AutomationProperties.AutomationId="StorageClearCache" Style="{StaticResource FwSecondaryButtonStyle}"/>
+                            </StackPanel>
+                        </ContentControl>
+                    </Grid>
+                    <TextBlock Style="{StaticResource FwCaptionTextStyle}" x:Name="PreviousRootsText" TextWrapping="Wrap" Visibility="Collapsed"/>
+                    <InfoBar x:Name="CacheNotice" IsOpen="False" IsClosable="True" Visibility="Collapsed" Severity="Informational"
+                             AutomationProperties.AutomationId="StorageCacheNotice"/>
+                    <TextBlock Style="{StaticResource FwCaptionTextStyle}"
+                               Text="清理只移除未使用的已识别缓存，保留播放中的缓存、下载文件和未知文件。" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Grid>
+        </ScrollViewer>
+        <Border x:Name="Footer" Grid.Row="2" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="0,1,0,0" Padding="0,10,6,0">
+            <StackPanel Spacing="8">
+                <InfoBar x:Name="StatusNotice" IsOpen="False" Visibility="Collapsed" IsClosable="False"
+                         AutomationProperties.AutomationId="StorageSettingsError"/>
+                <Grid x:Name="FooterActions" ColumnSpacing="10">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <Button x:Name="CloseButton" Content="关闭" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}"
+                            AutomationProperties.AutomationId="StorageCloseButton"/>
+                    <TextBlock x:Name="SaveStatusText" Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right"
+                               Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"
+                               AutomationProperties.AutomationId="StorageSettingsStatus" AutomationProperties.LiveSetting="Polite"/>
+                    <Button x:Name="SaveButton" Grid.Column="2" Content="保存" Click="Save_Click" IsEnabled="False"
+                            Style="{StaticResource FwPrimaryButtonStyle}" AutomationProperties.AutomationId="StorageSaveButton"/>
+                </Grid>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>

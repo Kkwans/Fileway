@@ -1,0 +1,1392 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<ResourceDictionary
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ctl="using:Fileway.App.Controls">
+
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Default">
+      <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#FF8B9DB4" />
+      <Thickness x:Key="TextControlBorderThemeThicknessFocused">1</Thickness>
+      <SolidColorBrush x:Key="FileContentSurfaceBrush" Color="#FF1B1D21"/>
+      <SolidColorBrush x:Key="FileContentEdgeBrush" Color="#18FFFFFF"/>
+      <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#354356" />
+      <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#40516A" />
+      <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#304055" />
+      <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#F1F5FA" />
+      <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#F1F5FA" />
+      <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#F1F5FA" />
+      <AcrylicBrush x:Key="ComboBoxDropDownBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
+      <AcrylicBrush x:Key="FlyoutBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
+      <AcrylicBrush x:Key="MenuFlyoutPresenterBackground" TintColor="#24272C" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#24272C" />
+      <SolidColorBrush x:Key="ScrollBarTrackFill" Color="Transparent" />
+      <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" Color="#14FFFFFF" />
+      <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#59FFFFFF" />
+      <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#8CFFFFFF" />
+      <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#B3FFFFFF" />
+      <SolidColorBrush x:Key="ScrollBarThumbFillDisabled" Color="#26FFFFFF" />
+      <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#59FFFFFF" />
+      <Color x:Key="FwShellNeutralColor">#FF202124</Color>
+      <Color x:Key="FwShellWarmColor">#FF242220</Color>
+      <Color x:Key="FwShellCoolColor">#FF1F252D</Color>
+      <Color x:Key="FwShellCustomBaseColor">#FF181818</Color>
+      <Color x:Key="FwVideoMatteColor">#FF000000</Color>
+      <Color x:Key="FwOwnedPanelFallbackColor">#FF2C2C2C</Color>
+      <Color x:Key="FwShellCustomDefaultColor">#FF808080</Color>
+      <SolidColorBrush x:Key="FwSoftChoiceFillBrush" Color="#FF3D444F"/>
+      <StaticResource x:Key="FwArchiveSelectionFillBrush" ResourceKey="FwSoftChoiceFillBrush"/>
+      <SolidColorBrush x:Key="FwArchiveSelectionStrokeBrush" Color="Transparent"/>
+      <SolidColorBrush x:Key="FwSoftChoiceTextBrush" Color="#FFF1F4F8"/>
+      <SolidColorBrush x:Key="FwPopupPresenterBrush" Color="#6624272C"/>
+      <SolidColorBrush x:Key="FwAcrylicPopupPresenterBrush" Color="#A624272C"/>
+      <x:Double x:Key="FwShellCustomMix">0.08</x:Double>
+      <SolidColorBrush x:Key="FwCanvasBrush" Color="#FF0B0C0F" />
+      <SolidColorBrush x:Key="FwSurfaceBrush" Color="#FF17191D" />
+      <SolidColorBrush x:Key="FwSurfaceRaisedBrush" Color="#FF1F2228" />
+      <SolidColorBrush x:Key="FwSurfaceHoverBrush" Color="#FF2A2E36" />
+      <SolidColorBrush x:Key="FwStrokeBrush" Color="#1FFFFFFF" />
+      <SolidColorBrush x:Key="FwStrokeStrongBrush" Color="#33FFFFFF" />
+      <SolidColorBrush x:Key="FwTextPrimaryBrush" Color="#FFF4F6F8" />
+      <SolidColorBrush x:Key="FwTextSecondaryBrush" Color="#FFA8AEB8" />
+      <SolidColorBrush x:Key="FwTextTertiaryBrush" Color="#FF939BA7" />
+      <SolidColorBrush x:Key="FwScrimTextBrush" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="FwScrimMutedBrush" Color="#FFC9CED6" />
+      <SolidColorBrush x:Key="FwDangerBrush" Color="#FFFF6B6B" />
+      <SolidColorBrush x:Key="FwShadowBrush" Color="#66000000" />
+      <AcrylicBrush x:Key="FwChromeBrush" TintColor="#14161A" TintOpacity="0.55" TintLuminosityOpacity="0.72" FallbackColor="#E614161A" />
+      <AcrylicBrush x:Key="FwPanelBrush" TintColor="#1B1E23" TintOpacity="0.72" TintLuminosityOpacity="0.82" FallbackColor="#F21B1E23" />
+      <AcrylicBrush x:Key="FwScrimBrush" TintColor="#0E1013" TintOpacity="0.72" TintLuminosityOpacity="0.78" FallbackColor="#E60E1013" />
+      <SolidColorBrush x:Key="FwGlassBrush" Color="#B3121519" />
+      <SolidColorBrush x:Key="FwGlassStrokeBrush" Color="#26FFFFFF" />
+      <SolidColorBrush x:Key="FwGlassHoverBrush" Color="#33FFFFFF" />
+      <SolidColorBrush x:Key="FwSelectionBrush" Color="#3369A8FF" />
+      <SolidColorBrush x:Key="FwSelectionStrokeBrush" Color="#8069A8FF" />
+      <Thickness x:Key="FwItemBorderThickness">1</Thickness>
+      <StaticResource x:Key="FwChoiceSelectionBrush" ResourceKey="FwSelectionBrush" />
+      <StaticResource x:Key="FwPrimaryButtonBackgroundBrush" ResourceKey="AccentFillColorDefaultBrush" />
+      <StaticResource x:Key="FwPrimaryButtonHoverBrush" ResourceKey="AccentFillColorSecondaryBrush" />
+      <StaticResource x:Key="FwPrimaryButtonPressedBrush" ResourceKey="AccentFillColorTertiaryBrush" />
+      <StaticResource x:Key="FwPrimaryButtonForegroundBrush" ResourceKey="TextOnAccentFillColorPrimaryBrush" />
+      <StaticResource x:Key="FwCheckBoxCheckedBrush" ResourceKey="AccentFillColorDefaultBrush" />
+      <StaticResource x:Key="FwCheckBoxGlyphBrush" ResourceKey="TextOnAccentFillColorPrimaryBrush" />
+      <Thickness x:Key="FwCheckBoxBorderThickness">1</Thickness>
+      <StaticResource x:Key="FwNavSelectedBackgroundBrush" ResourceKey="FwSurfaceHoverBrush" />
+      <SolidColorBrush x:Key="FwNavSelectedBorderBrush" Color="Transparent" />
+      <Thickness x:Key="FwNavSelectedBorderThickness">0</Thickness>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Light">
+      <SolidColorBrush x:Key="TextControlBorderBrushFocused" Color="#FF627890" />
+      <Thickness x:Key="TextControlBorderThemeThicknessFocused">1</Thickness>
+      <SolidColorBrush x:Key="FileContentSurfaceBrush" Color="#FFFFFFFF"/>
+      <SolidColorBrush x:Key="FileContentEdgeBrush" Color="#10000000"/>
+      <SolidColorBrush x:Key="ToggleButtonBackgroundChecked" Color="#E7EDF5" />
+      <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPointerOver" Color="#DCE5F1" />
+      <SolidColorBrush x:Key="ToggleButtonBackgroundCheckedPressed" Color="#D1DDEC" />
+      <SolidColorBrush x:Key="ToggleButtonForegroundChecked" Color="#26364B" />
+      <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPointerOver" Color="#26364B" />
+      <SolidColorBrush x:Key="ToggleButtonForegroundCheckedPressed" Color="#26364B" />
+      <AcrylicBrush x:Key="ComboBoxDropDownBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
+      <AcrylicBrush x:Key="FlyoutBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
+      <AcrylicBrush x:Key="MenuFlyoutPresenterBackground" TintColor="#F9FAFC" TintOpacity="0.82" TintLuminosityOpacity="0.85" FallbackColor="#F9FAFC" />
+      <SolidColorBrush x:Key="ScrollBarTrackFill" Color="Transparent" />
+      <SolidColorBrush x:Key="ScrollBarTrackFillPointerOver" Color="#0F000000" />
+      <SolidColorBrush x:Key="ScrollBarThumbFill" Color="#59000000" />
+      <SolidColorBrush x:Key="ScrollBarThumbFillPointerOver" Color="#8C000000" />
+      <SolidColorBrush x:Key="ScrollBarThumbFillPressed" Color="#B3000000" />
+      <SolidColorBrush x:Key="ScrollBarThumbFillDisabled" Color="#26000000" />
+      <SolidColorBrush x:Key="ScrollBarPanningThumbBackground" Color="#59000000" />
+      <Color x:Key="FwShellNeutralColor">#FFE8E8E8</Color>
+      <Color x:Key="FwShellWarmColor">#FFEEEAE5</Color>
+      <Color x:Key="FwShellCoolColor">#FFE6EBF0</Color>
+      <Color x:Key="FwShellCustomBaseColor">#FFE1E1E1</Color>
+      <Color x:Key="FwVideoMatteColor">#FF000000</Color>
+      <Color x:Key="FwOwnedPanelFallbackColor">#FFF8F8F8</Color>
+      <Color x:Key="FwShellCustomDefaultColor">#FF808080</Color>
+      <SolidColorBrush x:Key="FwSoftChoiceFillBrush" Color="#FFE5E9EF"/>
+      <StaticResource x:Key="FwArchiveSelectionFillBrush" ResourceKey="FwSoftChoiceFillBrush"/>
+      <SolidColorBrush x:Key="FwArchiveSelectionStrokeBrush" Color="Transparent"/>
+      <SolidColorBrush x:Key="FwSoftChoiceTextBrush" Color="#FF232B35"/>
+      <SolidColorBrush x:Key="FwPopupPresenterBrush" Color="#66F9FAFC"/>
+      <SolidColorBrush x:Key="FwAcrylicPopupPresenterBrush" Color="#A6F9FAFC"/>
+      <x:Double x:Key="FwShellCustomMix">0.1</x:Double>
+      <SolidColorBrush x:Key="FwCanvasBrush" Color="#FFF3F4F6" />
+      <SolidColorBrush x:Key="FwSurfaceBrush" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="FwSurfaceRaisedBrush" Color="#FFFFFFFF" />
+      <SolidColorBrush x:Key="FwSurfaceHoverBrush" Color="#FFF0F2F6" />
+      <SolidColorBrush x:Key="FwStrokeBrush" Color="#14000000" />
+      <SolidColorBrush x:Key="FwStrokeStrongBrush" Color="#29000000" />
+      <SolidColorBrush x:Key="FwTextPrimaryBrush" Color="#FF1B1F24" />
+      <SolidColorBrush x:Key="FwTextSecondaryBrush" Color="#FF5C6470" />
+      <SolidColorBrush x:Key="FwTextTertiaryBrush" Color="#FF606B77" />
+      <SolidColorBrush x:Key="FwScrimTextBrush" Color="#FF1B1F24" />
+      <SolidColorBrush x:Key="FwScrimMutedBrush" Color="#FF5C6470" />
+      <SolidColorBrush x:Key="FwDangerBrush" Color="#FFC42B1C" />
+      <SolidColorBrush x:Key="FwShadowBrush" Color="#33000000" />
+      <AcrylicBrush x:Key="FwChromeBrush" TintColor="#F7F8FA" TintOpacity="0.62" TintLuminosityOpacity="0.85" FallbackColor="#E6F7F8FA" />
+      <AcrylicBrush x:Key="FwPanelBrush" TintColor="#FBFCFD" TintOpacity="0.80" TintLuminosityOpacity="0.90" FallbackColor="#F2FBFCFD" />
+      <AcrylicBrush x:Key="FwScrimBrush" TintColor="#F2F4F7" TintOpacity="0.70" TintLuminosityOpacity="0.86" FallbackColor="#E6F2F4F7" />
+      <SolidColorBrush x:Key="FwGlassBrush" Color="#CCF7F8FA" />
+      <SolidColorBrush x:Key="FwGlassStrokeBrush" Color="#1A000000" />
+      <SolidColorBrush x:Key="FwGlassHoverBrush" Color="#22000000" />
+      <SolidColorBrush x:Key="FwSelectionBrush" Color="#2E2563EB" />
+      <SolidColorBrush x:Key="FwSelectionStrokeBrush" Color="#802563EB" />
+      <Thickness x:Key="FwItemBorderThickness">1</Thickness>
+      <StaticResource x:Key="FwChoiceSelectionBrush" ResourceKey="FwSelectionBrush" />
+      <StaticResource x:Key="FwPrimaryButtonBackgroundBrush" ResourceKey="AccentFillColorDefaultBrush" />
+      <StaticResource x:Key="FwPrimaryButtonHoverBrush" ResourceKey="AccentFillColorSecondaryBrush" />
+      <StaticResource x:Key="FwPrimaryButtonPressedBrush" ResourceKey="AccentFillColorTertiaryBrush" />
+      <StaticResource x:Key="FwPrimaryButtonForegroundBrush" ResourceKey="TextOnAccentFillColorPrimaryBrush" />
+      <StaticResource x:Key="FwCheckBoxCheckedBrush" ResourceKey="AccentFillColorDefaultBrush" />
+      <StaticResource x:Key="FwCheckBoxGlyphBrush" ResourceKey="TextOnAccentFillColorPrimaryBrush" />
+      <Thickness x:Key="FwCheckBoxBorderThickness">1</Thickness>
+      <StaticResource x:Key="FwNavSelectedBackgroundBrush" ResourceKey="FwSurfaceHoverBrush" />
+      <SolidColorBrush x:Key="FwNavSelectedBorderBrush" Color="Transparent" />
+      <Thickness x:Key="FwNavSelectedBorderThickness">0</Thickness>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="HighContrast">
+      <SolidColorBrush x:Key="FileContentSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}"/>
+      <SolidColorBrush x:Key="FileContentEdgeBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
+      <StaticResource x:Key="ToggleButtonBackgroundChecked" ResourceKey="SystemColorHighlightColorBrush" />
+      <StaticResource x:Key="ToggleButtonBackgroundCheckedPointerOver" ResourceKey="SystemColorHighlightColorBrush" />
+      <StaticResource x:Key="ToggleButtonBackgroundCheckedPressed" ResourceKey="SystemColorHighlightColorBrush" />
+      <StaticResource x:Key="ToggleButtonForegroundChecked" ResourceKey="SystemColorHighlightTextColorBrush" />
+      <StaticResource x:Key="ToggleButtonForegroundCheckedPointerOver" ResourceKey="SystemColorHighlightTextColorBrush" />
+      <StaticResource x:Key="ToggleButtonForegroundCheckedPressed" ResourceKey="SystemColorHighlightTextColorBrush" />
+      <SolidColorBrush x:Key="ScrollBarTrackFill" Color="Transparent" />
+      <StaticResource x:Key="ScrollBarThumbFill" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="ScrollBarThumbFillPointerOver" ResourceKey="SystemColorHighlightColorBrush" />
+      <StaticResource x:Key="ScrollBarThumbFillPressed" ResourceKey="SystemColorHighlightColorBrush" />
+      <StaticResource x:Key="ScrollBarPanningThumbBackground" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwPopupPresenterBrush" ResourceKey="SystemColorWindowColorBrush"/>
+      <StaticResource x:Key="FwAcrylicPopupPresenterBrush" ResourceKey="SystemColorWindowColorBrush"/>
+      <StaticResource x:Key="FwSoftChoiceFillBrush" ResourceKey="SystemColorHighlightColorBrush"/>
+      <SolidColorBrush x:Key="FwArchiveSelectionFillBrush" Color="Transparent"/>
+      <StaticResource x:Key="FwArchiveSelectionStrokeBrush" ResourceKey="SystemColorWindowTextColorBrush"/>
+      <StaticResource x:Key="FwSoftChoiceTextBrush" ResourceKey="SystemColorHighlightTextColorBrush"/>
+      <StaticResource x:Key="FwCanvasBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <StaticResource x:Key="FwSurfaceBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <StaticResource x:Key="FwSurfaceRaisedBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <StaticResource x:Key="FwSurfaceHoverBrush" ResourceKey="SystemColorHighlightColorBrush" />
+      <StaticResource x:Key="FwStrokeBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwStrokeStrongBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwTextPrimaryBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwTextSecondaryBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwTextTertiaryBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwScrimTextBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwScrimMutedBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwDangerBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwShadowBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <StaticResource x:Key="FwChromeBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <StaticResource x:Key="FwPanelBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <StaticResource x:Key="FwScrimBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <StaticResource x:Key="FwGlassBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <StaticResource x:Key="FwGlassStrokeBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwGlassHoverBrush" ResourceKey="SystemColorHighlightColorBrush" />
+      <SolidColorBrush x:Key="FwSelectionBrush" Color="Transparent" />
+      <StaticResource x:Key="FwSelectionStrokeBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <Thickness x:Key="FwItemBorderThickness">2</Thickness>
+      <StaticResource x:Key="FwChoiceSelectionBrush" ResourceKey="SystemColorHighlightColorBrush" />
+      <StaticResource x:Key="FwPrimaryButtonBackgroundBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwPrimaryButtonHoverBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwPrimaryButtonPressedBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwPrimaryButtonForegroundBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <StaticResource x:Key="FwCheckBoxCheckedBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <StaticResource x:Key="FwCheckBoxGlyphBrush" ResourceKey="SystemColorWindowColorBrush" />
+      <Thickness x:Key="FwCheckBoxBorderThickness">2</Thickness>
+      <SolidColorBrush x:Key="FwNavSelectedBackgroundBrush" Color="Transparent" />
+      <StaticResource x:Key="FwNavSelectedBorderBrush" ResourceKey="SystemColorWindowTextColorBrush" />
+      <Thickness x:Key="FwNavSelectedBorderThickness">1</Thickness>
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+
+  <ctl:FwBoolToVisibilityConverter x:Key="FwBoolToVisibilityConverter" />
+
+  <!-- ===== Typography ===== -->
+  <Style x:Key="FwDisplayTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="28" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style x:Key="FwTitleTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="20" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style x:Key="FwSubtitleTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="15" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style x:Key="FwBodyTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="LineHeight" Value="22" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style x:Key="FwToolbarTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="LineHeight" Value="18" />
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
+    <Setter Property="VerticalAlignment" Value="Center" />
+  </Style>
+  <!-- DESIGN.md code-md：日志、路径与端点使用等宽字体，行高 21。 -->
+  <Style x:Key="FwCodeTextStyle" TargetType="TextBlock">
+    <Setter Property="FontFamily" Value="Cascadia Code, Consolas, Courier New" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="LineHeight" Value="21" />
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
+  </Style>
+  <Style x:Key="FwCodeCaptionTextStyle" TargetType="TextBlock" BasedOn="{StaticResource FwCodeTextStyle}">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="LineHeight" Value="18" />
+    <Setter Property="Foreground" Value="{ThemeResource FwTextSecondaryBrush}" />
+  </Style>
+  <Style x:Key="FwCaptionTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{ThemeResource FwTextSecondaryBrush}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style x:Key="FwPageTitleStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="22"/>
+    <Setter Property="FontWeight" Value="SemiBold"/>
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}"/>
+  </Style>
+  <Style x:Key="FwLucideDefaultStyle" TargetType="ctl:LucideIcon">
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}"/>
+  </Style>
+  <Style x:Key="FwEmptyIconTileStyle" TargetType="Border">
+    <Setter Property="CornerRadius" Value="20"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceBrush}"/>
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}"/>
+  </Style>
+  <Style x:Key="FwDangerTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{ThemeResource FwDangerBrush}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style x:Key="FwIconTileStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceHoverBrush}" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+
+  <!-- ===== Buttons ===== -->
+  <Style x:Key="FwPrimaryButtonStyle" TargetType="Button">
+    <Setter Property="Background" Value="{ThemeResource FwPrimaryButtonBackgroundBrush}" />
+    <Setter Property="Foreground" Value="{ThemeResource FwPrimaryButtonForegroundBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Height" Value="36" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="18,0" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="UseSystemFocusVisuals" Value="False" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid x:Name="Root" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}"
+                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal" />
+                <VisualState x:Name="PointerOver">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwPrimaryButtonHoverBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwPrimaryButtonPressedBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity"
+                                     To="0.4" Duration="0:0:0.12" />
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+              <VisualStateGroup x:Name="FocusStates">
+                <VisualState x:Name="Unfocused" />
+                <VisualState x:Name="PointerFocused" />
+                <VisualState x:Name="Focused">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRingHalo" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <Border x:Name="SelectionBorder" BorderThickness="{TemplateBinding BorderThickness}"
+                    BorderBrush="{TemplateBinding BorderBrush}" CornerRadius="{TemplateBinding CornerRadius}"
+                    IsHitTestVisible="False" />
+            <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}" Padding="{TemplateBinding Padding}"
+                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                              AutomationProperties.AccessibilityView="Raw" />
+            <Border x:Name="FocusRingHalo" BorderThickness="2" BorderBrush="{ThemeResource FwCanvasBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Margin="0" Visibility="Collapsed" IsHitTestVisible="False" />
+            <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{ThemeResource FwTextPrimaryBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Margin="2" Visibility="Collapsed" IsHitTestVisible="False" />
+
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="FwSecondaryButtonStyle" TargetType="Button">
+    <Setter Property="Background" Value="{ThemeResource ControlFillColorSecondaryBrush}" />
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Height" Value="36" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="16,0" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="UseSystemFocusVisuals" Value="False" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid x:Name="Root" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}"
+                BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}">
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal" />
+                <VisualState x:Name="PointerOver">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource ControlFillColorTertiaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity"
+                                     To="0.4" Duration="0:0:0.12" />
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+              <VisualStateGroup x:Name="FocusStates">
+                <VisualState x:Name="Unfocused" />
+                <VisualState x:Name="PointerFocused" />
+                <VisualState x:Name="Focused">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRingHalo" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}" Padding="{TemplateBinding Padding}"
+                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                              AutomationProperties.AccessibilityView="Raw" />
+            <Border x:Name="FocusRingHalo" BorderThickness="2" BorderBrush="{ThemeResource FwCanvasBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Margin="0" Visibility="Collapsed" IsHitTestVisible="False" />
+            <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{ThemeResource FwTextPrimaryBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Margin="2" Visibility="Collapsed" IsHitTestVisible="False" />
+
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="FwIconButtonStyle" TargetType="Button">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Width" Value="36" />
+    <Setter Property="Height" Value="36" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="UseSystemFocusVisuals" Value="False" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid x:Name="Root" Background="{TemplateBinding Background}" BorderBrush="{ThemeResource FwStrokeBrush}" BorderThickness="1" CornerRadius="{TemplateBinding CornerRadius}">
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal" />
+                <VisualState x:Name="PointerOver">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity"
+                                     To="0.35" Duration="0:0:0.12" />
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+              <VisualStateGroup x:Name="FocusStates">
+                <VisualState x:Name="Unfocused" />
+                <VisualState x:Name="PointerFocused" />
+                <VisualState x:Name="Focused">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRingHalo" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                              AutomationProperties.AccessibilityView="Raw" />
+            <Border x:Name="FocusRingHalo" BorderThickness="2" BorderBrush="{ThemeResource FwCanvasBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Margin="0" Visibility="Collapsed" IsHitTestVisible="False" />
+            <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{TemplateBinding Foreground}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Margin="2" Visibility="Collapsed" IsHitTestVisible="False" />
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="FwScrimIconButtonStyle" TargetType="Button" BasedOn="{StaticResource FwIconButtonStyle}">
+    <Setter Property="Foreground" Value="{ThemeResource FwScrimTextBrush}" />
+    <Setter Property="Width" Value="40" />
+    <Setter Property="Height" Value="40" />
+    <Setter Property="CornerRadius" Value="12" />
+  </Style>
+
+  <Style x:Key="FwTextIconButtonStyle" TargetType="Button">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Height" Value="34" />
+    <Setter Property="MinHeight" Value="34" />
+    <Setter Property="Padding" Value="10,0" />
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="HorizontalContentAlignment" Value="Center" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="UseSystemFocusVisuals" Value="False" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid x:Name="Root" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}">
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal" />
+                <VisualState x:Name="PointerOver">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity"
+                                     To="0.35" Duration="0:0:0.12" />
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+              <VisualStateGroup x:Name="FocusStates">
+                <VisualState x:Name="Unfocused" />
+                <VisualState x:Name="PointerFocused" />
+                <VisualState x:Name="Focused">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRingHalo" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}" Padding="{TemplateBinding Padding}"
+                              HorizontalAlignment="Center" VerticalAlignment="Center"
+                              AutomationProperties.AccessibilityView="Raw" />
+            <Border x:Name="FocusRingHalo" BorderThickness="2" BorderBrush="{ThemeResource FwCanvasBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Margin="0" Visibility="Collapsed" IsHitTestVisible="False" />
+            <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{TemplateBinding Foreground}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Margin="2" Visibility="Collapsed" IsHitTestVisible="False" />
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- ===== Viewer chrome surfaces ===== -->
+  <Style x:Key="FwChromeBarStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource FwScrimBrush}" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeStrongBrush}" />
+    <Setter Property="BorderThickness" Value="0,0,0,1" />
+  </Style>
+  <Style x:Key="FwPillStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource FwGlassBrush}" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwGlassStrokeBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="16" />
+    <Setter Property="Padding" Value="6" />
+  </Style>
+  <Style x:Key="FwToastStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource FwScrimBrush}" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="14,8" />
+  </Style>
+  <Style x:Key="FwErrorCardStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource FwPanelBrush}" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeStrongBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="14" />
+    <Setter Property="Padding" Value="22,18" />
+  </Style>
+  <Style x:Key="FwPrimaryIconStyle" TargetType="ctl:LucideIcon">
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
+  </Style>
+  <Style x:Key="FwSecondaryIconStyle" TargetType="ctl:LucideIcon">
+    <Setter Property="Foreground" Value="{ThemeResource FwTextSecondaryBrush}" />
+  </Style>
+  <!-- Viewer surfaces: styles carry ThemeResource so a code-built window still follows its element theme. -->
+  <Style x:Key="FwViewerCanvasStyle" TargetType="Grid">
+    <Setter Property="Background" Value="{ThemeResource FwCanvasBrush}" />
+  </Style>
+  <Style x:Key="FwViewerChromeStyle" TargetType="ctl:ViewerChrome" BasedOn="{StaticResource FwViewerCanvasStyle}" />
+  <Style x:Key="FwPhotoViewportStyle" TargetType="UserControl">
+    <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource FwStrokeStrongBrush}" />
+  </Style>
+  <Style x:Key="FwDividerStrongStyle" TargetType="Border" BasedOn="{StaticResource FwDividerStyle}">
+    <Setter Property="Background" Value="{ThemeResource FwStrokeStrongBrush}" />
+  </Style>
+  <Style x:Key="FwDividerStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource FwStrokeBrush}" />
+  </Style>
+  <Style x:Key="FwDocumentSurfaceStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource FwCanvasBrush}" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="12" />
+  </Style>
+  <!-- Document viewer panels: code-built windows resolve these through the element theme. -->
+  <Style x:Key="FwDocumentPanelStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+  <Style x:Key="FwDocumentNoticeStyle" TargetType="Border" BasedOn="{StaticResource FwDocumentPanelStyle}">
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceRaisedBrush}" />
+  </Style>
+  <!-- Raised card without a border: CSV table head and storage result cards. -->
+  <Style x:Key="FwSubtlePanelStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceRaisedBrush}" />
+  </Style>
+  <Style x:Key="FwAccentBarStyle" TargetType="Border">
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeStrongBrush}" />
+  </Style>
+  <Style x:Key="FwDangerIconStyle" TargetType="ctl:LucideIcon">
+    <Setter Property="Foreground" Value="{ThemeResource FwDangerBrush}" />
+  </Style>
+  <Style x:Key="FwPreviewCardStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Padding" Value="14,12,14,12" />
+  </Style>
+  <Style x:Key="FwFormCardStyle" TargetType="Border">
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Padding" Value="16" />
+  </Style>
+  <Style x:Key="FwScrimTitleTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="FontWeight" Value="SemiBold" />
+    <Setter Property="Foreground" Value="{ThemeResource FwScrimTextBrush}" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style x:Key="FwScrimMutedTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{ThemeResource FwScrimMutedBrush}" />
+    <Setter Property="TextTrimming" Value="CharacterEllipsis" />
+  </Style>
+  <Style x:Key="FwScrimBodyTextStyle" TargetType="TextBlock">
+    <Setter Property="FontSize" Value="13" />
+    <Setter Property="Foreground" Value="{ThemeResource FwScrimTextBrush}" />
+    <Setter Property="TextWrapping" Value="Wrap" />
+  </Style>
+  <Style x:Key="FwNavButtonStyle" TargetType="Button" BasedOn="{StaticResource FwScrimIconButtonStyle}">
+    <Setter Property="Width" Value="44" />
+    <Setter Property="Height" Value="44" />
+    <Setter Property="CornerRadius" Value="22" />
+    <Setter Property="Background" Value="{ThemeResource FwGlassBrush}" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwGlassStrokeBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+  </Style>
+
+  <Style x:Key="FwActionTileStyle" TargetType="Button">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Height" Value="62" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="Padding" Value="0" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="UseSystemFocusVisuals" Value="False" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid x:Name="Root" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}">
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal" />
+                <VisualState x:Name="PointerOver">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity"
+                                     To="0.35" Duration="0:0:0.12" />
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+              <VisualStateGroup x:Name="FocusStates">
+                <VisualState x:Name="Unfocused" />
+                <VisualState x:Name="PointerFocused" />
+                <VisualState x:Name="Focused">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRingHalo" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              HorizontalAlignment="Stretch" VerticalAlignment="Center"
+                              AutomationProperties.AccessibilityView="Raw" />
+            <Border x:Name="FocusRingHalo" BorderThickness="2" BorderBrush="{ThemeResource FwCanvasBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Margin="0" Visibility="Collapsed" IsHitTestVisible="False" />
+            <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{ThemeResource FwTextPrimaryBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Margin="2" Visibility="Collapsed" IsHitTestVisible="False" />
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Dialogs: frosted surface, generous radius and app-wide button styles. -->
+  <Style TargetType="ContentDialog" BasedOn="{StaticResource DefaultContentDialogStyle}">
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceRaisedBrush}" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeStrongBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="18" />
+    <Setter Property="Padding" Value="24,20,24,16" />
+    <Setter Property="PrimaryButtonStyle" Value="{StaticResource FwPrimaryButtonStyle}" />
+    <Setter Property="CloseButtonStyle" Value="{StaticResource FwSecondaryButtonStyle}" />
+    <Setter Property="SecondaryButtonStyle" Value="{StaticResource FwSecondaryButtonStyle}" />
+    <Setter Property="ctl:DialogOrdering.Enable" Value="True" />
+    <Setter Property="ctl:SurfaceStyles.UsePopupMaterial" Value="True" />
+  </Style>
+
+  <!-- Expander: uses the same surface card language as the rest of the app. -->
+  <Style TargetType="Expander">
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceBrush}" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+  </Style>
+
+  <!-- CheckBox: 20px rounded box with the app accent, matching the self-drawn controls. -->
+  <Style TargetType="CheckBox">
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="MinHeight" Value="32" />
+    <Setter Property="UseSystemFocusVisuals" Value="False" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="CheckBox">
+          <Grid x:Name="Root" Background="Transparent">
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal" />
+                <VisualState x:Name="PointerOver">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="HoverOverlay" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.12" />
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="HoverOverlay" Storyboard.TargetProperty="Opacity" To="1" Duration="0:0:0.12" />
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="HoverOverlay" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity" To="0.4" Duration="0:0:0.12" />
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+              <VisualStateGroup x:Name="CheckStates">
+                <VisualState x:Name="Unchecked" />
+                <VisualState x:Name="Checked">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Box" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwCheckBoxCheckedBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Box" Storyboard.TargetProperty="BorderBrush">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Transparent" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CheckGlyph" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Indeterminate">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Box" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwCheckBoxCheckedBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Box" Storyboard.TargetProperty="BorderBrush">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Transparent" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="IndeterminateGlyph" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+              <VisualStateGroup x:Name="FocusStates">
+                <VisualState x:Name="Unfocused" />
+                <VisualState x:Name="PointerFocused" />
+                <VisualState x:Name="Focused">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRingHalo" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+              <Grid Width="20" Height="20" VerticalAlignment="Center">
+                <Border x:Name="Box" CornerRadius="6" BorderThickness="{ThemeResource FwCheckBoxBorderThickness}"
+                        BorderBrush="{ThemeResource FwStrokeStrongBrush}" Background="Transparent" />
+                <Border x:Name="HoverOverlay" CornerRadius="6" Opacity="0"
+                        Background="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                <Path x:Name="CheckGlyph" Data="M2,6.5 L5.5,10 L12,2.5" Stroke="{ThemeResource FwCheckBoxGlyphBrush}"
+                      StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                      HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
+                <Rectangle x:Name="IndeterminateGlyph" Width="10" Height="2" RadiusX="1" RadiusY="1"
+                           Fill="{ThemeResource FwCheckBoxGlyphBrush}"
+                           HorizontalAlignment="Center" VerticalAlignment="Center" Visibility="Collapsed" />
+              </Grid>
+              <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                                Foreground="{TemplateBinding Foreground}" FontSize="{TemplateBinding FontSize}"
+                                FontWeight="{TemplateBinding FontWeight}" VerticalAlignment="Center"
+                                AutomationProperties.AccessibilityView="Raw" />
+            </StackPanel>
+            <Border x:Name="FocusRingHalo" BorderThickness="2" BorderBrush="{ThemeResource FwCanvasBrush}"
+                    CornerRadius="6" Margin="-4" Visibility="Collapsed" IsHitTestVisible="False" />
+            <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{ThemeResource FwTextPrimaryBrush}"
+                    CornerRadius="6" Margin="-2" Visibility="Collapsed" IsHitTestVisible="False" />
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <!-- Menu items keep the WinUI template but use the app focus ring colors. -->
+  <Style TargetType="MenuFlyoutItem" BasedOn="{StaticResource DefaultMenuFlyoutItemStyle}">
+    <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource FwTextPrimaryBrush}" />
+    <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource FwCanvasBrush}" />
+    <Setter Property="FocusVisualMargin" Value="2" />
+    <Setter Property="CornerRadius" Value="10" />
+  </Style>
+  <Style TargetType="ToggleMenuFlyoutItem" BasedOn="{StaticResource DefaultToggleMenuFlyoutItemStyle}">
+    <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource FwTextPrimaryBrush}" />
+    <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource FwCanvasBrush}" />
+    <Setter Property="FocusVisualMargin" Value="2" />
+    <Setter Property="CornerRadius" Value="10" />
+  </Style>
+  <Style TargetType="MenuFlyoutSubItem" BasedOn="{StaticResource DefaultMenuFlyoutSubItemStyle}">
+    <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource FwTextPrimaryBrush}" />
+    <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource FwCanvasBrush}" />
+    <Setter Property="FocusVisualMargin" Value="2" />
+    <Setter Property="CornerRadius" Value="10" />
+  </Style>
+  <Style TargetType="RadioMenuFlyoutItem" BasedOn="{StaticResource DefaultRadioMenuFlyoutItemStyle}">
+    <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource FwTextPrimaryBrush}" />
+    <Setter Property="FocusVisualSecondaryBrush" Value="{ThemeResource FwCanvasBrush}" />
+    <Setter Property="FocusVisualMargin" Value="2" />
+    <Setter Property="CornerRadius" Value="10" />
+  </Style>
+
+  <Style TargetType="MenuFlyoutPresenter" BasedOn="{StaticResource DefaultMenuFlyoutPresenterStyle}">
+    <Setter Property="ctl:SurfaceStyles.UsePopupMaterial" Value="True" />
+  </Style>
+  <Style TargetType="FlyoutPresenter" BasedOn="{StaticResource DefaultFlyoutPresenterStyle}">
+    <Setter Property="ctl:SurfaceStyles.UsePopupMaterial" Value="True" />
+  </Style>
+
+  <!-- Tooltips share the frosted popup language with dialogs and menus. -->
+  <Style TargetType="ToolTip">
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceRaisedBrush}" />
+    <Setter Property="ctl:SurfaceStyles.UsePopupMaterial" Value="True" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeStrongBrush}" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="CornerRadius" Value="8" />
+    <Setter Property="Padding" Value="10,6" />
+    <Setter Property="FontSize" Value="12" />
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
+    <Setter Property="MaxWidth" Value="360" />
+  </Style>
+
+  <Style x:Key="FwNavigationButtonStyle" TargetType="Button">
+    <Setter Property="Background" Value="Transparent" />
+    <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
+    <Setter Property="BorderThickness" Value="0" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="Height" Value="36" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="12,0" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="HorizontalAlignment" Value="Stretch" />
+    <Setter Property="HorizontalContentAlignment" Value="Left" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="UseSystemFocusVisuals" Value="False" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="Button">
+          <Grid x:Name="Root" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}">
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal" />
+                <VisualState x:Name="PointerOver">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity"
+                                     To="0.35" Duration="0:0:0.12" />
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+              <VisualStateGroup x:Name="FocusStates">
+                <VisualState x:Name="Unfocused" />
+                <VisualState x:Name="PointerFocused" />
+                <VisualState x:Name="Focused">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRingHalo" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}" Padding="{TemplateBinding Padding}"
+                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                              AutomationProperties.AccessibilityView="Raw" />
+            <Border x:Name="FocusRingHalo" BorderThickness="2" BorderBrush="{ThemeResource FwCanvasBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Margin="0" Visibility="Collapsed" IsHitTestVisible="False" />
+            <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{ThemeResource FwTextPrimaryBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Margin="2" Visibility="Collapsed" IsHitTestVisible="False" />
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="FwGridViewItemStyle" TargetType="GridViewItem">
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceBrush}" />
+    <Setter Property="BorderThickness" Value="{ThemeResource FwItemBorderThickness}" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="6" />
+    <Setter Property="Margin" Value="4" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Top" />
+    <Setter Property="UseSystemFocusVisuals" Value="False" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="GridViewItem">
+          <Grid x:Name="Root" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}">
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal" />
+                <VisualState x:Name="PointerOver">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Selected">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="BorderBrush">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionStrokeBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="PointerOverSelected">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="BorderBrush">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionStrokeBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="PressedSelected">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="BorderBrush">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionStrokeBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity"
+                                     To="0.4" Duration="0:0:0.12" />
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+              <VisualStateGroup x:Name="FocusStates">
+                <VisualState x:Name="Unfocused">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="PointerFocused">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Focused">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Collapsed" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRingHalo" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              Padding="{TemplateBinding Padding}"
+                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                              AutomationProperties.AccessibilityView="Raw" />
+            <Border x:Name="CardBorder" BorderThickness="{TemplateBinding BorderThickness}"
+                    BorderBrush="{ThemeResource FwStrokeBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" IsHitTestVisible="False" />
+            <Border x:Name="FocusRingHalo" BorderThickness="2" BorderBrush="{ThemeResource FwCanvasBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Margin="0" Visibility="Collapsed" IsHitTestVisible="False" />
+            <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{ThemeResource FwTextPrimaryBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Margin="2" Visibility="Collapsed" IsHitTestVisible="False" />
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+  <Style x:Key="FwListViewItemStyle" TargetType="ListViewItem">
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceBrush}" />
+    <Setter Property="CornerRadius" Value="12" />
+    <Setter Property="Padding" Value="6" />
+    <Setter Property="Margin" Value="4" />
+    <Setter Property="MinHeight" Value="0" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Top" />
+    <Setter Property="UseSystemFocusVisuals" Value="False" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ListViewItem">
+          <Grid x:Name="Root" Background="{TemplateBinding Background}" CornerRadius="{TemplateBinding CornerRadius}">
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal" />
+                <VisualState x:Name="PointerOver">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Selected">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="BorderBrush">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionStrokeBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="PointerOverSelected">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="BorderBrush">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionStrokeBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="PressedSelected">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="BorderBrush">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource FwSelectionStrokeBrush}" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <Storyboard>
+                    <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity"
+                                     To="0.4" Duration="0:0:0.12" />
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+              <VisualStateGroup x:Name="FocusStates">
+                <VisualState x:Name="Unfocused">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="PointerFocused">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+                <VisualState x:Name="Focused">
+                  <Storyboard>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="CardBorder" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Collapsed" />
+                    </ObjectAnimationUsingKeyFrames>
+                    <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Visibility">
+                      <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                    </ObjectAnimationUsingKeyFrames>
+                  </Storyboard>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}"
+                              ContentTemplate="{TemplateBinding ContentTemplate}"
+                              Padding="{TemplateBinding Padding}"
+                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                              AutomationProperties.AccessibilityView="Raw" />
+            <Border x:Name="CardBorder" BorderThickness="{ThemeResource FwItemBorderThickness}"
+                    BorderBrush="{ThemeResource FwStrokeBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" IsHitTestVisible="False" />
+            <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{ThemeResource FocusStrokeColorOuterBrush}"
+                    CornerRadius="{TemplateBinding CornerRadius}" Margin="1" Visibility="Collapsed" IsHitTestVisible="False" />
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="FwArchiveListItemStyle" TargetType="ListViewItem">
+    <Setter Property="Margin" Value="0,0,0,2" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="CornerRadius" Value="{ThemeResource ControlCornerRadius}" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="FocusVisualPrimaryBrush" Value="{ThemeResource FwTextSecondaryBrush}" />
+    <Setter Property="FocusVisualPrimaryThickness" Value="1" />
+    <Setter Property="FocusVisualSecondaryThickness" Value="0" />
+    <Setter Property="UseSystemFocusVisuals" Value="True" />
+    <Setter Property="Template">
+      <Setter.Value>
+        <ControlTemplate TargetType="ListViewItem">
+          <Grid x:Name="Row" Background="Transparent" CornerRadius="{TemplateBinding CornerRadius}">
+            <VisualStateManager.VisualStateGroups>
+              <VisualStateGroup x:Name="CommonStates">
+                <VisualState x:Name="Normal" />
+                <VisualState x:Name="PointerOver">
+                  <VisualState.Setters>
+                    <Setter Target="Row.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}" />
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Pressed">
+                  <VisualState.Setters>
+                    <Setter Target="Row.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Selected">
+                  <VisualState.Setters>
+                    <Setter Target="Row.Background" Value="{ThemeResource FwArchiveSelectionFillBrush}" />
+                    <Setter Target="Outline.BorderBrush" Value="{ThemeResource FwArchiveSelectionStrokeBrush}" />
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="PointerOverSelected">
+                  <VisualState.Setters>
+                    <Setter Target="Row.Background" Value="{ThemeResource FwArchiveSelectionFillBrush}" />
+                    <Setter Target="Outline.BorderBrush" Value="{ThemeResource FwArchiveSelectionStrokeBrush}" />
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="PressedSelected">
+                  <VisualState.Setters>
+                    <Setter Target="Row.Background" Value="{ThemeResource FwArchiveSelectionFillBrush}" />
+                    <Setter Target="Outline.BorderBrush" Value="{ThemeResource FwArchiveSelectionStrokeBrush}" />
+                  </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="Disabled">
+                  <VisualState.Setters>
+                    <Setter Target="Row.Opacity" Value="0.4" />
+                  </VisualState.Setters>
+                </VisualState>
+              </VisualStateGroup>
+            </VisualStateManager.VisualStateGroups>
+            <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                              HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                              AutomationProperties.AccessibilityView="Raw" />
+            <Border x:Name="Outline" BorderThickness="1" BorderBrush="Transparent"
+                    CornerRadius="{TemplateBinding CornerRadius}" IsHitTestVisible="False" />
+          </Grid>
+        </ControlTemplate>
+      </Setter.Value>
+    </Setter>
+  </Style>
+
+  <Style x:Key="FwSearchPopupSurfaceStyle" TargetType="Border">
+    <Setter Property="Width" Value="480" />
+    <Setter Property="Padding" Value="10" />
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeStrongBrush}" />
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceRaisedBrush}" />
+  </Style>
+
+  <Style x:Key="FwTextBoxStyle" TargetType="TextBox">
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="12,7" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
+    <Setter Property="Background" Value="{ThemeResource ControlFillColorSecondaryBrush}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="TextAlignment" Value="Left" />
+  </Style>
+  <Style x:Key="FwPasswordBoxStyle" TargetType="PasswordBox">
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="12,7" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
+    <Setter Property="Background" Value="{ThemeResource ControlFillColorSecondaryBrush}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="HorizontalContentAlignment" Value="Left" />
+  </Style>
+  <Style TargetType="PasswordBox" BasedOn="{StaticResource FwPasswordBoxStyle}" />
+  <Style x:Key="FwSearchTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource AutoSuggestBoxTextBoxStyle}">
+    <Setter Property="CornerRadius" Value="10" />
+    <Setter Property="MinHeight" Value="36" />
+    <Setter Property="Padding" Value="12,7" />
+    <Setter Property="FontSize" Value="14" />
+    <Setter Property="BorderThickness" Value="1" />
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
+    <Setter Property="Background" Value="{ThemeResource ControlFillColorSecondaryBrush}" />
+    <Setter Property="VerticalContentAlignment" Value="Center" />
+    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+    <Setter Property="TextAlignment" Value="Left" />
+  </Style>
+  <Style x:Key="LayoutChoiceStyle" TargetType="ToggleButton">
+   <Setter Property="HorizontalAlignment" Value="Stretch"/>
+   <Setter Property="HorizontalContentAlignment" Value="Left"/>
+   <Setter Property="Padding" Value="12,8"/>
+   <Setter Property="MinHeight" Value="34"/>
+   <Setter Property="BorderThickness" Value="0"/>
+   <Setter Property="CornerRadius" Value="6"/>
+   <Setter Property="Background" Value="Transparent"/>
+   <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}"/>
+   <Setter Property="FontSize" Value="13"/>
+   <Setter Property="UseSystemFocusVisuals" Value="False"/>
+   <Setter Property="Template">
+    <Setter.Value>
+     <ControlTemplate TargetType="ToggleButton">
+      <Grid x:Name="Root" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}">
+       <VisualStateManager.VisualStateGroups>
+        <VisualStateGroup x:Name="CommonStates">
+         <VisualState x:Name="Normal"/>
+         <VisualState x:Name="PointerOver"><Storyboard><ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background"><DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorSecondaryBrush}"/></ObjectAnimationUsingKeyFrames></Storyboard></VisualState>
+         <VisualState x:Name="Pressed"><Storyboard><ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background"><DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorTertiaryBrush}"/></ObjectAnimationUsingKeyFrames></Storyboard></VisualState>
+         <VisualState x:Name="Disabled"><Storyboard><DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity" To="0.35" Duration="0:0:0.12"/></Storyboard></VisualState>
+        </VisualStateGroup>
+        <VisualStateGroup x:Name="CheckStates">
+         <VisualState x:Name="Unchecked"/>
+         <VisualState x:Name="Checked"/>
+         <VisualState x:Name="Indeterminate"/>
+        </VisualStateGroup>
+        <VisualStateGroup x:Name="FocusStates">
+         <VisualState x:Name="Unfocused"/>
+         <VisualState x:Name="PointerFocused"/>
+         <VisualState x:Name="Focused"><Storyboard><ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRingHalo" Storyboard.TargetProperty="Visibility"><DiscreteObjectKeyFrame KeyTime="0" Value="Visible"/></ObjectAnimationUsingKeyFrames><ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Visibility"><DiscreteObjectKeyFrame KeyTime="0" Value="Visible"/></ObjectAnimationUsingKeyFrames></Storyboard></VisualState>
+        </VisualStateGroup>
+       </VisualStateManager.VisualStateGroups>
+       <Border x:Name="SelectionFill" Background="{ThemeResource FwChoiceSelectionBrush}"
+               CornerRadius="{TemplateBinding CornerRadius}" IsHitTestVisible="False"
+               Visibility="{Binding IsChecked, RelativeSource={RelativeSource TemplatedParent}, Converter={StaticResource FwBoolToVisibilityConverter}}" />
+       <ContentPresenter x:Name="ContentPresenter" Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                         Padding="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center"/>
+       <Border x:Name="FocusRingHalo" BorderThickness="2" BorderBrush="{ThemeResource FwCanvasBrush}"
+               CornerRadius="{TemplateBinding CornerRadius}" Margin="0" Visibility="Collapsed" IsHitTestVisible="False" />
+       <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{TemplateBinding Foreground}"
+               CornerRadius="{TemplateBinding CornerRadius}" Margin="2" Visibility="Collapsed" IsHitTestVisible="False" />
+      </Grid>
+     </ControlTemplate>
+    </Setter.Value>
+   </Setter>
+  </Style>
+  <Style x:Key="FwListRecordItemStyle" TargetType="ListViewItem" BasedOn="{StaticResource FwListViewItemStyle}">
+    <Setter Property="Padding" Value="0"/>
+    <Setter Property="Margin" Value="0,0,0,6"/>
+    <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+  </Style>
+  <Style x:Key="FwSegmentedChoiceStyle" TargetType="ToggleButton" BasedOn="{StaticResource LayoutChoiceStyle}">
+    <Setter Property="MinHeight" Value="36"/>
+    <Setter Property="BorderThickness" Value="1"/>
+    <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}"/>
+    <Setter Property="Background" Value="{ThemeResource FwSurfaceBrush}"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+  </Style>
+  <Style x:Key="FwViewerToggleStyle" TargetType="ToggleButton" BasedOn="{StaticResource LayoutChoiceStyle}">
+    <Setter Property="Height" Value="34"/>
+    <Setter Property="Padding" Value="8,0"/>
+    <Setter Property="HorizontalContentAlignment" Value="Center"/>
+    <Setter Property="VerticalAlignment" Value="Center"/>
+  </Style>
+</ResourceDictionary>

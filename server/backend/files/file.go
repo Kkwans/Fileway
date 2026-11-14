@@ -20,6 +20,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -72,15 +73,30 @@ func (i *FileInfo) MarshalJSON() ([]byte, error) {
 	type fileInfoAlias FileInfo
 	return json.Marshal(&struct {
 		*fileInfoAlias
-		Path     string `json:"path"`
-		Name     string `json:"name"`
-		WirePath string `json:"wirePath"`
+		Path          string `json:"path"`
+		Name          string `json:"name"`
+		WirePath      string `json:"wirePath"`
+		SourceVersion string `json:"sourceVersion,omitempty"`
 	}{
 		fileInfoAlias: (*fileInfoAlias)(i),
 		Path:          displayPath(i.Path),
 		Name:          displayName(i.Name),
 		WirePath:      encodeWirePath(i.Path),
+		SourceVersion: i.SourceVersion(),
 	})
+}
+
+// SourceVersion is an opaque observation of the current file identity. It is
+// deliberately derived from size and modification time only; it is not a
+// content hash and must never be presented as one. Clients use it as a
+// conditional-read fence when the server advertises that capability.
+func (i *FileInfo) SourceVersion() string {
+	if i == nil || i.IsDir {
+		return ""
+	}
+	payload := "fileway-source-v1:" + strconv.FormatInt(i.Size, 10) + ":" + strconv.FormatInt(i.ModTime.UTC().UnixNano(), 10)
+	digest := sha256.Sum256([]byte(payload))
+	return "v1-" + hex.EncodeToString(digest[:16])
 }
 
 func displayName(value string) string {

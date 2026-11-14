@@ -83,3 +83,49 @@ func TestHLSManifestRejectsForeignJobsOriginsQueriesAndTraversal(t *testing.T) {
 		}
 	}
 }
+
+func TestLegacyHLSLeaseAllowsSegmentsButOrdinaryLeaseStaysScoped(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Auth") != "owned.token" {
+			t.Error("request lost its account")
+		}
+		if r.URL.Path != "/media/hls/task/segment.ts" {
+			t.Errorf("unexpected upstream request: %s", r.URL.Path)
+		}
+		_, _ = io.WriteString(w, "segment")
+	}))
+	defer server.Close()
+	b, err := New()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	session, err := b.Open(server.URL, "owned.token", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, err := b.Lease(session, "/media/hls/task/index.m3u8", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := http.Get(legacy + "/segment.ts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		t.Fatal("legacy segment failed:", res.Status)
+	}
+	file, err := b.Lease(session, "/api/raw/private/video.mp4", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err = http.Get(file + "/other.mp4")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res.Body.Close()
+	if res.StatusCode != http.StatusNotFound {
+		t.Fatal("ordinary lease reached a sibling:", res.Status)
+	}
+}

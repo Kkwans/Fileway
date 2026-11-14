@@ -1190,7 +1190,7 @@ const viewModes = [
   {
     value: "windows-icons" as ViewModeType,
     icon: listingViewIcon("windows-icons"),
-    label: "Windows 图标",
+    label: "无界网格",
   },
   {
     value: "details" as ViewModeType,

@@ -1,7 +1,7 @@
 name: Go transport
 on:
   push:
-    branches: [main]
+    branches: [main, codex/windows-native-client]
     paths: ['clients/shared/core/**', '.github/workflows/native-core.yml']
   workflow_dispatch:
 permissions:

@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <SupportedOSPlatformVersion>10.0.22000.0</SupportedOSPlatformVersion>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TestingPlatformDotnetTestSupport>true</TestingPlatformDotnetTestSupport>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="..\..\src\Fileway.App\TransferCenterPresentationPolicy.cs" Link="Transfers\TransferCenterPresentationPolicy.cs" />
+    <Compile Include="..\..\src\Fileway.App\RecentAccessListController.cs" Link="Recent\RecentAccessListController.cs" />
+    <Compile Include="..\..\src\Fileway.App\FileTypePresentation.cs" Link="Presentation\FileTypePresentation.cs" />
+    <Compile Include="..\..\src\Fileway.App\FileLocationPresentation.cs" Link="Presentation\FileLocationPresentation.cs" />
+    <Compile Include="..\..\src\Fileway.App\SearchResultsController.cs" Link="Search\SearchResultsController.cs" />
+    <Compile Include="..\..\src\Fileway.App\NasTaskListController.cs" Link="Presentation\NasTaskListController.cs" />
+    <Compile Include="..\..\src\Fileway.App\NasTaskPresentationPolicy.cs" Link="Presentation\NasTaskPresentationPolicy.cs" />
+    <Compile Include="..\..\src\Fileway.App\TrashListController.cs" Link="Trash\TrashListController.cs" />
+    <Compile Include="..\..\src\Fileway.App\RemoteClipboardState.cs" Link="Clipboard\RemoteClipboardState.cs" />
+    <Compile Include="..\..\src\Fileway.App\FileChecksumController.cs" Link="Files\FileChecksumController.cs" />
+    <Compile Include="..\Fileway.HostTestHarness\PidReceipt.cs" Link="Ipc\PidReceipt.cs" />
+    <Compile Include="..\..\src\Fileway.App\MediaSurfaces\LocalSubtitlePolicy.cs" Link="Playback\LocalSubtitlePolicy.cs" />
+    <Compile Include="..\..\src\Fileway.App\MediaSurfaces\PlaybackPausePolicy.cs" Link="Playback\PlaybackPausePolicy.cs" />
+    <Compile Include="..\..\src\Fileway.App\MediaSurfaces\PlaybackVideoGesturePolicy.cs" Link="Playback\PlaybackVideoGesturePolicy.cs" />
+    <Compile Include="..\..\src\Fileway.App\MediaSurfaces\PlaybackPointerActivityPolicy.cs" Link="Playback\PlaybackPointerActivityPolicy.cs" />
+    <Compile Include="..\..\src\Fileway.App\MediaSurfaces\PlaybackDownloadPresentation.cs" Link="Playback\PlaybackDownloadPresentation.cs" />
+    <Compile Include="..\..\src\Fileway.App\MediaSurfaces\PlaybackSnapshotDispatcher.cs" Link="Playback\PlaybackSnapshotDispatcher.cs" />
+    <Compile Include="..\..\src\Fileway.App\MediaSurfaces\PlaybackResponsivenessDiagnostics.cs" Link="Playback\PlaybackResponsivenessDiagnostics.cs" />
+    <Compile Include="..\..\src\Fileway.App\MediaSurfaces\ShutdownDiagnostics.cs" Link="Playback\ShutdownDiagnostics.cs" />
+    <Compile Include="..\..\src\Fileway.App\UploadPresentationPolicy.cs" Link="Transfers\UploadPresentationPolicy.cs" />
+    <Compile Include="..\..\src\Fileway.App\DownloadPresentationPolicy.cs" Link="Transfers\DownloadPresentationPolicy.cs" />
+    <Compile Include="..\..\src\Fileway.App\Controls\Playback\ScreenboxBufferedTimelineLayout.cs" Link="Playback\ScreenboxBufferedTimelineLayout.cs" />
+    <PackageReference Include="xunit.v3.mtp-v2" Version="4.0.2" />
+    <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" Version="2.5.1" />
+    <ProjectReference Include="..\..\src\Fileway.Core\Fileway.Core.csproj" />
+    <ProjectReference Include="..\..\src\Fileway.Infrastructure\Fileway.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\src\Fileway.Playback\Fileway.Playback.csproj" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>

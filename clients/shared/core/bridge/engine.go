@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net/url"
 	"sync"
 	"time"
 
@@ -25,6 +26,10 @@ type Command struct {
 	RemoteSaved         bool                    `json:"remoteSaved"`
 	CacheConfig         transport.CacheConfig   `json:"cacheConfig"`
 	CacheKey            string                  `json:"cacheKey"`
+	CacheOwner          string                  `json:"cacheOwner,omitempty"`
+	CacheRoot           string                  `json:"cacheRoot,omitempty"`
+	CacheItem           string                  `json:"cacheItem,omitempty"`
+	InactiveOnly        bool                    `json:"inactiveOnly,omitempty"`
 	Clear               bool                    `json:"clear"`
 	Op                  string                  `json:"op"`
 	RequestID           string                  `json:"requestId"`
@@ -40,6 +45,9 @@ type Command struct {
 	BodyBase64          *string                 `json:"bodyBase64,omitempty"`
 	Path                string                  `json:"path"`
 	WirePath            string                  `json:"wirePath"`
+	SourceVersion       string                  `json:"sourceVersion,omitempty"`
+	ArchiveFiles        []string                `json:"archiveFiles,omitempty"`
+	ArchiveFormat       string                  `json:"archiveFormat,omitempty"`
 	URL                 string                  `json:"url"`
 	Network             string                  `json:"network"`
 	StateDir            string                  `json:"stateDir"`
@@ -286,8 +294,16 @@ func (e *Engine) execute(c Command) (any, error) {
 		return nil, b.ConfigureCache(c.CacheConfig)
 	case "cache_cleanup":
 		return b.CleanCache(c.Clear)
+	case "cache_stats":
+		return b.CacheStatsForRootContext(ctx, c.CacheRoot, c.CacheOwner)
+	case "cache_cleanup_owner":
+		return b.CleanCacheOwnerInRootContext(ctx, c.CacheOwner, c.CacheRoot, c.InactiveOnly)
+	case "cache_gallery_list":
+		return b.CacheGalleryList(ctx, c.CacheOwner)
+	case "cache_gallery_read":
+		return b.CacheGalleryRead(ctx, c.CacheOwner, c.CacheItem)
 	case "lease_stats":
-		return b.LeaseStats(c.Session, c.URL)
+		return b.CacheLeaseStats(c.Session, c.URL)
 	case "upload_lease":
 		return b.UploadLease(c.Session, c.Path, c.WirePath, c.Upload)
 	case "upload_stats":
@@ -297,8 +313,43 @@ func (e *Engine) execute(c Command) (any, error) {
 		if err != nil {
 			return nil, err
 		}
+		if c.SourceVersion != "" {
+			parsed, parseErr := url.Parse(endpoint)
+			if parseErr != nil {
+				return nil, errors.New("invalid source version endpoint")
+			}
+			query := parsed.Query()
+			query.Set("sourceVersion", c.SourceVersion)
+			parsed.RawQuery = query.Encode()
+			endpoint = parsed.RequestURI()
+		}
+		if len(c.ArchiveFiles) != 0 {
+			// A server-side archive export streams one synthetic file; it is never resumed,
+			// so a source version must not be attached to it.
+			if c.SourceVersion != "" {
+				return nil, errors.New("archive export cannot be version-conditioned")
+			}
+			parsed, parseErr := url.Parse(endpoint)
+			if parseErr != nil {
+				return nil, errors.New("invalid archive endpoint")
+			}
+			format := c.ArchiveFormat
+			if format == "" {
+				format = "zip"
+			}
+			if format != "zip" || len(c.ArchiveFiles) > 1000 {
+				return nil, errors.New("archive export supports zip with at most 1000 entries")
+			}
+			query := parsed.Query()
+			query.Set("algo", format)
+			for _, file := range c.ArchiveFiles {
+				query.Add("fileWirePath", file)
+			}
+			parsed.RawQuery = query.Encode()
+			endpoint = parsed.RequestURI()
+		}
 		if c.CacheKey != "" {
-			return b.LeaseCached(c.Session, endpoint, c.CacheKey)
+			return b.LeaseCachedForOwner(c.Session, endpoint, c.CacheKey, c.CacheOwner)
 		}
 		return b.Lease(c.Session, endpoint, true)
 	case "asset":
@@ -312,6 +363,9 @@ func (e *Engine) execute(c Command) (any, error) {
 		}
 		if c.Scope == "contain" {
 			endpoint += "?fit=contain"
+		}
+		if c.CacheKey != "" {
+			return b.LeaseCachedPreviewForOwner(c.Session, endpoint, c.CacheKey, c.CacheOwner)
 		}
 		return b.Lease(c.Session, endpoint, false)
 	case "revoke":

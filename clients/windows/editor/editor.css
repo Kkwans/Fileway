@@ -1,0 +1,79 @@
+:root {
+  color-scheme: light;
+  background: #fcfcfd;
+  scrollbar-color: #87919e transparent;
+}
+
+:root[data-dark="true"] {
+  color-scheme: dark;
+  background: #15171a;
+  scrollbar-color: #65717e transparent;
+}
+
+body {
+  margin: 0;
+}
+
+#document .milkdown {
+  --crepe-font-default: "Segoe UI Variable Text", "Microsoft YaHei UI", sans-serif;
+  --crepe-font-title: "Segoe UI Variable Display", "Microsoft YaHei UI", sans-serif;
+  --crepe-font-code: "Cascadia Code", Consolas, monospace;
+  --crepe-color-background: #fcfcfd;
+  --crepe-color-on-background: #20262e;
+  --crepe-color-surface: #f0f2f5;
+  --crepe-color-on-surface: #303943;
+  --crepe-color-outline: #87919e;
+}
+
+:root[data-dark="true"] #document .milkdown {
+  --crepe-color-background: #15171a;
+  --crepe-color-on-background: #e6e9ed;
+  --crepe-color-surface: #23272d;
+  --crepe-color-on-surface: #d9dfe6;
+  --crepe-color-surface-low: #292e35;
+  --crepe-color-on-surface-variant: #a9b2bd;
+  --crepe-color-outline: #717d8a;
+  --crepe-color-primary: #91bafa;
+  --crepe-color-secondary: #253957;
+  --crepe-color-on-secondary: #e6eefb;
+  --crepe-color-hover: #252a31;
+  --crepe-color-selected: #293950;
+  --crepe-color-inline-code: #f0af9d;
+  --crepe-color-inline-area: #303842;
+  --crepe-color-error: #f59595;
+}
+
+#document .milkdown .editor {
+  box-sizing: border-box;
+  max-width: 860px;
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 32px clamp(20px, 6vw, 44px) 56px;
+  font-size: 15px;
+  line-height: 1.65;
+}
+
+#document .milkdown .editor h1 {
+  font-size: 30px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+#document .milkdown .editor h2 {
+  font-size: 24px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+#document .milkdown .editor > :first-child {
+  margin-top: 0;
+}
+
+#document .milkdown .editor pre {
+  overflow: auto;
+}
+
+#document .milkdown .cm-editor .cm-activeLine,
+#document .milkdown .cm-editor .cm-activeLineGutter {
+  background-color: transparent;
+}

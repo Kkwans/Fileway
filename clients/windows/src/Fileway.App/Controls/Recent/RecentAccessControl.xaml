@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl x:Class="Fileway.App.Controls.Recent.RecentAccessControl" xmlns:ui="using:Fileway.App.Controls"
+ xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+ xmlns:local="using:Fileway.App">
+ <Grid Padding="20,12,20,12" RowSpacing="12" SizeChanged="Panel_SizeChanged">
+  <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+  <StackPanel Spacing="12">
+   <ui:FwPageHeader Title="最近访问" Subtitle="选中记录后按 Enter 打开，服务器最多保留 100 条。">
+    <ui:FwPageHeader.Actions>
+     <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center"><Button x:Name="OpenSelectedButton" Content="打开" IsEnabled="False" Click="Open_Click" Style="{StaticResource FwSecondaryButtonStyle}" ToolTipService.ToolTip="打开选中资源 (Enter)" AutomationProperties.Name="打开选中的最近访问资源"/><ProgressRing x:Name="RecentLoadingRing" Width="20" Height="20" IsActive="False" AutomationProperties.Name="正在读取最近访问"/><Button x:Name="RecentRefreshButton" Click="Refresh_Click" Style="{StaticResource FwIconButtonStyle}" Width="36" Height="36" AutomationProperties.Name="刷新最近访问" ToolTipService.ToolTip="刷新最近访问 (F5)"><ui:LucideIcon IconName="arrows-clockwise" Width="16" Height="16"/></Button><Button Content="返回文件" VerticalAlignment="Center" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开最近访问，返回文件"/></StackPanel>
+    </ui:FwPageHeader.Actions>
+   </ui:FwPageHeader>
+   <InfoBar x:Name="RecentError" IsOpen="False" IsClosable="False" Severity="Warning" Title="最近访问需要处理"
+            Visibility="{x:Bind RecentError.IsOpen, Mode=OneWay, Converter={StaticResource FwBoolToVisibilityConverter}}"/>
+  </StackPanel>
+  <Grid Grid.Row="1">
+   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+   <Grid x:Name="RecentHeaders" Padding="10,0,10,6" ColumnSpacing="12" MinHeight="24">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+    <TextBlock Style="{StaticResource FwCaptionTextStyle}" Text="名称" Margin="40,0,0,0"/>
+    <TextBlock Style="{StaticResource FwCaptionTextStyle}" Grid.Column="1" Text="访问时间" HorizontalAlignment="Right"/>
+   </Grid>
+   <ListView x:Name="RecentRecords" Grid.Row="1" SelectionMode="Single" SelectionChanged="Record_Changed" DoubleTapped="Records_DoubleTapped" PreviewKeyDown="Records_PreviewKeyDown" HorizontalContentAlignment="Stretch" AutomationProperties.Name="最近访问列表，选中后按 Enter 打开" ItemContainerStyle="{StaticResource FwListRecordItemStyle}">
+    <ListView.ItemTemplate>
+     <DataTemplate x:DataType="local:RecentAccessRow">
+      <ui:FwResourceRow IconName="{x:Bind IconName}" Title="{x:Bind Name}" Detail="{x:Bind Detail, Mode=OneWay}"
+                        DetailToolTip="{x:Bind DisplayPath}" Hint="{x:Bind IdentityHint}" Summary="{x:Bind AccessedTime}"
+                        AutomationProperties.Name="{x:Bind AccessibleName, Mode=OneWay}" AutomationProperties.HelpText="{x:Bind DisplayPath}"/>
+     </DataTemplate>
+    </ListView.ItemTemplate>
+   </ListView>
+   <ui:FwEmptyState x:Name="RecentEmptyState" Grid.RowSpan="2" IconName="clock" Title="暂无最近访问" Description="成功打开远端图片或视频后，可刷新查看服务器记录。"/>
+  </Grid>
+  <TextBlock Style="{StaticResource FwCaptionTextStyle}" x:Name="RecentCount" Grid.Row="2" TextWrapping="Wrap"/>
+ </Grid>
+</UserControl>

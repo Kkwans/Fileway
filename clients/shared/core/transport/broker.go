@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -14,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -35,6 +37,8 @@ type Session struct {
 	cancel           context.CancelFunc
 	mu               sync.RWMutex
 	token            string
+	principal        uint64
+	cacheNamespace   string
 	renewMu          sync.Mutex
 	renewing         *renewalFlight
 	health           string
@@ -42,30 +46,37 @@ type Session struct {
 }
 
 type Lease struct {
-	hlsRoot   string
-	upload    *uploadCapability
-	telemetry leaseTelemetry
-	cacheKey  string
-	prefetch  chan struct{}
-	session   *Session
-	endpoint  string
-	media     bool
-	ctx       context.Context
-	cancel    context.CancelFunc
+	hlsRoot            string
+	upload             *uploadCapability
+	telemetry          leaseTelemetry
+	cacheKey           string
+	cacheOwner         string
+	cachePreview       bool
+	cacheManaged       bool
+	cacheWriteFailures atomic.Int64
+	prefetch           chan struct{}
+	session            *Session
+	endpoint           string
+	media              bool
+	ctx                context.Context
+	cancel             context.CancelFunc
 }
 
 // Broker binds source credentials to immutable sessions. The public HTTP
 // surface consists solely of random, revocable loopback lease URLs.
 type Broker struct {
-	cache    *mediaCache
-	mu       sync.RWMutex
-	sessions map[string]*Session
-	leases   map[string]*Lease
-	searches map[string]*searchStream
-	commands map[string]*commandStream
-	listener net.Listener
-	server   *http.Server
-	closed   bool
+	cache        *mediaCache
+	cacheBinding sync.RWMutex
+	cacheJobsMu  sync.Mutex
+	cacheJob     *cacheControlJob
+	mu           sync.RWMutex
+	sessions     map[string]*Session
+	leases       map[string]*Lease
+	searches     map[string]*searchStream
+	commands     map[string]*commandStream
+	listener     net.Listener
+	server       *http.Server
+	closed       bool
 }
 
 func New() (*Broker, error) {
@@ -118,7 +129,7 @@ func (b *Broker) Open(baseURL, token string, client *http.Client) (string, error
 		cancel()
 		return "", errors.New("transport closed")
 	}
-	b.sessions[id] = &Session{base: base, client: &copyClient, token: token, ctx: ctx, cancel: cancel}
+	b.sessions[id] = &Session{base: base, client: &copyClient, token: token, principal: tokenPrincipal(token), ctx: ctx, cancel: cancel, cacheNamespace: id}
 	return id, nil
 }
 
@@ -139,6 +150,42 @@ func combined(parent, root context.Context) (context.Context, func()) {
 }
 
 func (s *Session) currentToken() string { s.mu.RLock(); defer s.mu.RUnlock(); return s.token }
+
+// This is an identity fence, not signature validation. The server authenticates
+// JWTs; a renewal must never rebind a previously identified source session.
+func tokenPrincipal(token string) uint64 {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return 0
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(parts[1], "="))
+	if err != nil {
+		return 0
+	}
+	var claims struct {
+		User struct {
+			ID uint64 `json:"id"`
+		} `json:"user"`
+	}
+	if json.Unmarshal(payload, &claims) != nil {
+		return 0
+	}
+	return claims.User.ID
+}
+
+func (s *Session) replaceToken(token string) error {
+	principal := tokenPrincipal(token)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.principal != 0 && principal != s.principal {
+		return errors.New("session account changed; sign in again")
+	}
+	s.token = token
+	if principal != 0 {
+		s.principal = principal
+	}
+	return nil
+}
 
 func (s *Session) do(ctx context.Context, method, endpoint string, body []byte, headers http.Header) (*http.Response, error) {
 	u, err := Endpoint(s.base, endpoint)
@@ -206,9 +253,9 @@ func (b *Broker) Login(ctx context.Context, sessionID, username, password string
 		if strings.Count(token, ".") != 2 {
 			return Response{}, errors.New("login did not return a JWT text token")
 		}
-		s.mu.Lock()
-		s.token = token
-		s.mu.Unlock()
+		if err := s.replaceToken(token); err != nil {
+			return Response{}, err
+		}
 	}
 	return response, nil
 }
@@ -342,6 +389,36 @@ func (b *Broker) Close() error {
 	return b.server.Close()
 }
 
+// leaseSubpath resolves one relative sibling reference against a leased endpoint's
+// directory. Traversal, queries and escapes outside that directory are rejected; the
+// result stays inside the two leased endpoint families.
+func leaseSubpath(endpoint, rest string) (string, error) {
+	if rest == "" || strings.ContainsAny(rest, "?#\\") {
+		return "", errors.New("invalid stream subpath")
+	}
+	for _, segment := range strings.Split(rest, "/") {
+		if segment == "" {
+			return "", errors.New("invalid stream subpath")
+		}
+		decoded, err := url.PathUnescape(segment)
+		if err != nil || decoded == "." || decoded == ".." {
+			return "", errors.New("invalid stream subpath")
+		}
+	}
+	if strings.ContainsAny(endpoint, "?#") {
+		return "", errors.New("invalid stream subpath base")
+	}
+	cut := strings.LastIndexByte(endpoint, '/')
+	if cut < 0 {
+		return "", errors.New("invalid stream subpath base")
+	}
+	candidate := endpoint[:cut+1] + rest
+	if !strings.HasPrefix(candidate, "/api/") && !strings.HasPrefix(candidate, "/media/hls/") {
+		return "", errors.New("invalid stream subpath")
+	}
+	return candidate, nil
+}
+
 func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !strings.HasPrefix(r.URL.Path, "/stream/") || r.URL.RawQuery != "" || r.Header.Get("Origin") != "" {
 		http.Error(w, "unknown stream", http.StatusNotFound)
@@ -351,12 +428,19 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid host", http.StatusBadRequest)
 		return
 	}
-	key, asset, collection := strings.Cut(strings.TrimPrefix(r.URL.Path, "/stream/"), "/")
+	// EscapedPath keeps percent-encoded bytes stable; a sub-path is appended to the
+	// leased endpoint's parent without re-encoding either side.
+	trimmed := strings.TrimPrefix(r.URL.EscapedPath(), "/stream/")
+	key, asset, collection := strings.Cut(trimmed, "/")
 	b.mu.RLock()
 	l := b.leases[key]
 	b.mu.RUnlock()
 	if l == nil || l.ctx.Err() != nil {
 		http.Error(w, "stream closed", http.StatusGone)
+		return
+	}
+	if l.upload != nil {
+		b.serveUpload(w, r, l)
 		return
 	}
 	endpoint := l.endpoint
@@ -367,12 +451,18 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		endpoint = l.hlsRoot + asset
 	} else if collection {
-		http.Error(w, "unknown stream", http.StatusNotFound)
-		return
-	}
-	if l.upload != nil {
-		b.serveUpload(w, r, l)
-		return
+		// The legacy compatibility player references siblings of its playlist.
+		if !strings.HasPrefix(l.endpoint, "/media/hls/") &&
+			!(l.media && strings.HasSuffix(strings.SplitN(l.endpoint, "?", 2)[0], ".m3u8")) {
+			http.Error(w, "unknown stream", http.StatusNotFound)
+			return
+		}
+		resolved, err := leaseSubpath(l.endpoint, asset)
+		if err != nil {
+			http.Error(w, "unknown stream", http.StatusNotFound)
+			return
+		}
+		endpoint = resolved
 	}
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
@@ -387,7 +477,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		defer l.telemetry.finish(requestID)
 	}
 	headers := make(http.Header)
-	for _, k := range []string{"Range", "If-Range", "If-Modified-Since", "If-None-Match"} {
+	for _, k := range []string{"Range", "If-Range", "If-Modified-Since", "If-None-Match", "If-Match", "X-Fileway-Source-Version"} {
 		if v := r.Header.Get(k); v != "" {
 			headers.Set(k, v)
 		}
@@ -418,7 +508,7 @@ func (b *Broker) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if l.media && b.serveCached(ctx, w, r, res, l) {
 		return
 	}
-	for _, k := range []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified"} {
+	for _, k := range []string{"Content-Type", "Content-Length", "Content-Range", "Accept-Ranges", "ETag", "Last-Modified", "X-Fileway-Source-Version"} {
 		if v := res.Header.Get(k); v != "" {
 			w.Header().Set(k, v)
 		}

@@ -31,7 +31,9 @@ func clientCapabilities(tvUpdateVersion int) handleFunc {
 			EnableExec                   bool   `json:"enableExec"`
 			MinimumPasswordLength        uint   `json:"minimumPasswordLength"`
 			ConditionalTextSave          bool   `json:"conditionalTextSave"`
+			ConditionalDownloadV1        bool   `json:"conditionalDownloadV1"`
 			ResourceWireOperations       bool   `json:"resourceWireOperations"`
+			SearchWirePathV1             bool   `json:"searchWirePathV1"`
 			MediaPlaybackVersion         int    `json:"mediaPlaybackVersion"`
 			SourceSubtitles              bool   `json:"sourceSubtitles"`
 			SubtitleAttachments          bool   `json:"subtitleAttachments"`
@@ -41,7 +43,7 @@ func clientCapabilities(tvUpdateVersion int) handleFunc {
 			TVUpdateProxyVersion         int    `json:"tvUpdateProxyVersion,omitempty"`
 			ResourceSubtitlePagesVersion int    `json:"resourceSubtitlePagesVersion,omitempty"`
 			MediaLibraryVersion          int    `json:"mediaLibraryVersion,omitempty"`
-		}{string(d.settings.AuthMethod), d.server.EnableExec, d.settings.MinimumPasswordLength, true, true, 1, true, true, true, 1, 1, tvUpdateVersion, subtitleVersion, mediaLibraryVersion})
+		}{string(d.settings.AuthMethod), d.server.EnableExec, d.settings.MinimumPasswordLength, true, true, true, true, 1, true, true, true, 1, 1, tvUpdateVersion, subtitleVersion, mediaLibraryVersion})
 	})
 }
 

@@ -518,6 +518,11 @@ func fileTransferRunner(d *data, task *tasks.Task, args fileTransferTaskArgs) ta
 		}
 		totalBytes := int64(0)
 		for _, item := range args.Items {
+			if item.IsDir {
+				// A directory's stat size does not measure its contents.
+				totalBytes = 0
+				break
+			}
 			totalBytes += item.Size
 		}
 		processedItems := 0
@@ -553,11 +558,11 @@ func fileTransferRunner(d *data, task *tasks.Task, args fileTransferTaskArgs) ta
 				current = updated
 				return nil
 			}
-			directoryRun := func() error {
-				directoryBytes := processedBytes
-				return runDirectoryPublication(ctx, current, task, item, args.Directories,
+			directoryRun := func() (int64, error) {
+				copied := int64(0)
+				err := runDirectoryPublication(ctx, current, task, item, args.Directories,
 					func() error {
-						return report(tasks.Progress{TotalItems: len(args.Items), ProcessedItems: processedItems, TotalBytes: totalBytes, ProcessedBytes: processedBytes, Checkpoint: checkpointJSON()})
+						return report(tasks.Progress{TotalItems: len(args.Items), ProcessedItems: processedItems, TotalBytes: totalBytes, ProcessedBytes: processedBytes + copied, Checkpoint: checkpointJSON()})
 					},
 					func() (*data, error) {
 						if err := verify(); err != nil {
@@ -566,17 +571,19 @@ func fileTransferRunner(d *data, task *tasks.Task, args fileTransferTaskArgs) ta
 						return current, nil
 					},
 					func(delta int64) error {
-						directoryBytes += delta
-						return report(tasks.Progress{TotalItems: len(args.Items), ProcessedItems: processedItems, TotalBytes: totalBytes, ProcessedBytes: directoryBytes})
+						copied += delta
+						return report(tasks.Progress{TotalItems: len(args.Items), ProcessedItems: processedItems, TotalBytes: totalBytes, ProcessedBytes: processedBytes + copied})
 					})
+				return copied, err
 			}
 			if args.Directories[directoryKey(item)] != nil {
-				if err := directoryRun(); err != nil {
+				copied, err := directoryRun()
+				if err != nil {
 					result.Failed = append(result.Failed, fileTransferFailure{From: item.From, To: item.To, Error: err.Error()})
 					return marshalFileTransferResult(result), err
 				}
 				processedItems++
-				processedBytes += item.Size
+				processedBytes += copied
 				result.Completed = append(result.Completed, fileTransferResultItem{From: item.From, To: item.To})
 				if err := report(tasks.Progress{TotalItems: len(args.Items), ProcessedItems: processedItems, TotalBytes: totalBytes, ProcessedBytes: processedBytes, Checkpoint: checkpointJSON()}); err != nil {
 					return marshalFileTransferResult(result), err
@@ -586,7 +593,9 @@ func fileTransferRunner(d *data, task *tasks.Task, args fileTransferTaskArgs) ta
 			if completedPath(args.CompletedPaths, item) || completedCheckpoint(itemFS, checkpoint.Completed, item) {
 				if destinationMatchesItem(itemFS, item) {
 					processedItems++
-					processedBytes += item.Size
+					if !item.IsDir {
+						processedBytes += item.Size
+					}
 					_ = report(tasks.Progress{TotalItems: len(args.Items), ProcessedItems: processedItems, TotalBytes: totalBytes, ProcessedBytes: processedBytes, Checkpoint: checkpointJSON()})
 					result.Completed = append(result.Completed, fileTransferResultItem{From: item.From, To: item.To})
 					continue
@@ -611,12 +620,13 @@ func fileTransferRunner(d *data, task *tasks.Task, args fileTransferTaskArgs) ta
 					if !dst.IsDir() {
 						return marshalFileTransferResult(result), fmt.Errorf("目录目标类型已变化，未覆盖")
 					}
-					if err := directoryRun(); err != nil {
+					copied, err := directoryRun()
+					if err != nil {
 						result.Failed = append(result.Failed, fileTransferFailure{From: item.From, To: item.To, Error: err.Error()})
 						return marshalFileTransferResult(result), err
 					}
 					processedItems++
-					processedBytes += item.Size
+					processedBytes += copied
 					result.Completed = append(result.Completed, fileTransferResultItem{From: item.From, To: item.To})
 					if err := report(tasks.Progress{TotalItems: len(args.Items), ProcessedItems: processedItems, TotalBytes: totalBytes, ProcessedBytes: processedBytes, Checkpoint: checkpointJSON()}); err != nil {
 						return marshalFileTransferResult(result), err
@@ -663,7 +673,9 @@ func fileTransferRunner(d *data, task *tasks.Task, args fileTransferTaskArgs) ta
 							continue
 						}
 						processedItems++
-						processedBytes += processedBytesForItem(info, item)
+						if !info.IsDir() {
+							processedBytes += info.Size()
+						}
 						checkpoint.Completed[key] = true
 						result.Completed = append(result.Completed, fileTransferResultItem{From: item.From, To: item.To})
 						if err := report(tasks.Progress{TotalItems: len(args.Items), ProcessedItems: processedItems, TotalBytes: totalBytes, ProcessedBytes: processedBytes, Checkpoint: checkpointJSON()}); err != nil {
@@ -731,8 +743,8 @@ func fileTransferRunner(d *data, task *tasks.Task, args fileTransferTaskArgs) ta
 
 			processedItems++
 			processedBytes = copyBytes
-			if processedBytes < processedBytesForItem(info, item) {
-				processedBytes = processedBytesForItem(info, item)
+			if !info.IsDir() && processedBytes < info.Size() {
+				processedBytes = info.Size()
 			}
 			checkpoint.Completed[key] = true
 			result.Completed = append(result.Completed, fileTransferResultItem{From: item.From, To: item.To})
@@ -812,13 +824,6 @@ func completedCheckpoint(afs afero.Fs, completed map[string]bool, item fileTrans
 		}
 	}
 	return false
-}
-
-func processedBytesForItem(info os.FileInfo, item fileTransferItem) int64 {
-	if info.IsDir() {
-		return item.Size
-	}
-	return info.Size()
 }
 
 func marshalFileTransferResult(result fileTransferResult) json.RawMessage {

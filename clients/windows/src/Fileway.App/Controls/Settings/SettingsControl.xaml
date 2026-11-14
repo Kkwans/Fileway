@@ -1,0 +1,162 @@
+<UserControl x:Class="Fileway.App.Controls.Settings.SettingsControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:ui="using:Fileway.App.Controls"
+             AutomationProperties.Name="设置">
+ <UserControl.Resources>
+  <Style x:Key="SettingsLabel" TargetType="TextBlock" BasedOn="{StaticResource FwCaptionTextStyle}">
+   <Setter Property="VerticalAlignment" Value="Center"/>
+   <Setter Property="TextWrapping" Value="Wrap"/>
+  </Style>
+  <Style x:Key="SettingsGroupTitle" TargetType="TextBlock">
+   <Setter Property="FontSize" Value="15"/>
+   <Setter Property="FontWeight" Value="SemiBold"/>
+   <Setter Property="VerticalAlignment" Value="Center"/>
+  </Style>
+ </UserControl.Resources>
+ <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
+  <Grid Padding="20,12" RowSpacing="12" MaxWidth="1120" HorizontalAlignment="Stretch">
+   <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+   <ui:FwPageHeader Title="设置" Subtitle="管理外观、交互、播放与连接偏好。修改立即生效。">
+    <ui:FwPageHeader.Actions>
+     <Button Content="返回文件" Click="Close_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="离开设置，返回文件"/>
+    </ui:FwPageHeader.Actions>
+   </ui:FwPageHeader>
+
+   <Grid Grid.Row="1" x:Name="CardsHost" RowSpacing="12" SizeChanged="Cards_SizeChanged">
+    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition x:Name="SecondarySettingsColumn" Width="0"/></Grid.ColumnDefinitions>
+    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+    <StackPanel Spacing="12">
+     <Border Style="{StaticResource FwFormCardStyle}">
+      <StackPanel Spacing="10">
+       <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <TextBlock Text="外观" Style="{StaticResource SettingsGroupTitle}"/>
+        <Button Grid.Column="1" Content="外观选项…" Click="Appearance_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="打开更多外观与取色设置"/>
+       </Grid>
+       <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="112"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <TextBlock Text="界面主题" Style="{StaticResource SettingsLabel}"/>
+        <ui:ChoiceBox x:Name="ThemeBox" Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="界面主题">
+         <ComboBoxItem Content="跟随系统"/><ComboBoxItem Content="浅色"/><ComboBoxItem Content="深色"/>
+        </ui:ChoiceBox>
+       </Grid>
+       <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="112"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <TextBlock Text="外壳背景" Style="{StaticResource SettingsLabel}"/>
+        <ui:ChoiceBox x:Name="MaterialBox" Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="侧栏与顶栏背景">
+         <ComboBoxItem Content="中性底色"/><ComboBoxItem Content="实时模糊"/><ComboBoxItem Content="壁纸取色（Mica）"/>
+        </ui:ChoiceBox>
+       </Grid>
+       <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="112"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <TextBlock Text="中性底色" Style="{StaticResource SettingsLabel}"/>
+        <ui:ChoiceBox x:Name="ToneBox" Grid.Column="1" HorizontalAlignment="Stretch" AutomationProperties.Name="中性底色配色">
+         <ComboBoxItem Content="雾灰"/><ComboBoxItem Content="暖灰"/><ComboBoxItem Content="冷灰"/><ComboBoxItem Content="自定义取色"/>
+        </ui:ChoiceBox>
+       </Grid>
+       <Grid ColumnSpacing="8">
+        <Grid.ColumnDefinitions><ColumnDefinition Width="112"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <StackPanel VerticalAlignment="Center">
+         <TextBlock Text="弹窗材质" Style="{StaticResource SettingsLabel}"/>
+         <TextBlock x:Name="PopupMaterialFallback" Text="系统限制 · 实色" Style="{StaticResource SettingsLabel}"
+                    Visibility="Collapsed" AutomationProperties.AutomationId="PopupMaterialFallback"
+                    AutomationProperties.LiveSetting="Polite"/>
+        </StackPanel>
+        <ui:ChoiceBox x:Name="PopupMaterialBox" Grid.Column="1" HorizontalAlignment="Stretch"
+                      AutomationProperties.Name="弹窗材质" AutomationProperties.AutomationId="PopupMaterialChoice">
+         <ComboBoxItem Content="高级毛玻璃"/><ComboBoxItem Content="柔和模糊"/><ComboBoxItem Content="实色"/>
+        </ui:ChoiceBox>
+        <InfoBar x:Name="PopupMaterialError" Grid.Row="1" Grid.ColumnSpan="2" IsOpen="False" IsClosable="True"
+                 Severity="Error" Title="弹窗材质未保存" Message="已恢复原选项。请检查设置写入权限后重试。"
+                 AutomationProperties.AutomationId="PopupMaterialSaveError"/>
+       </Grid>
+      </StackPanel>
+     </Border>
+
+     <Border Style="{StaticResource FwFormCardStyle}">
+      <StackPanel Spacing="8">
+       <TextBlock Text="交互" Style="{StaticResource SettingsGroupTitle}"/>
+       <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <TextBlock Text="关闭窗口后" Style="{StaticResource SettingsLabel}"/>
+        <ToggleSwitch x:Name="TraySwitch" Grid.Column="1" OnContent="保留在托盘" OffContent="退出应用" AutomationProperties.Name="关闭窗口后保留在托盘"/>
+       </Grid>
+       <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="112"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <TextBlock Text="提示消失" Style="{StaticResource SettingsLabel}"/>
+        <Slider x:Name="ToastSlider" Grid.Column="1" Minimum="2" Maximum="30" StepFrequency="1" AutomationProperties.Name="提示自动消失秒数"/>
+        <TextBlock x:Name="ToastValue" Grid.Column="2" MinWidth="36" TextAlignment="Right" Style="{StaticResource SettingsLabel}"/>
+       </Grid>
+       <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="112"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <TextBlock Text="播放控件隐藏" Style="{StaticResource SettingsLabel}"/>
+        <Slider x:Name="ControlsSlider" Grid.Column="1" Minimum="2" Maximum="30" StepFrequency="1" AutomationProperties.Name="播放控件自动隐藏秒数"/>
+        <TextBlock x:Name="ControlsValue" Grid.Column="2" MinWidth="36" TextAlignment="Right" Style="{StaticResource SettingsLabel}"/>
+       </Grid>
+      </StackPanel>
+     </Border>
+
+     <Border Style="{StaticResource FwFormCardStyle}">
+      <StackPanel Spacing="8">
+       <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <TextBlock Text="播放窗口" Style="{StaticResource SettingsGroupTitle}"/>
+        <ToggleSwitch x:Name="RememberPlayerSwitch" Grid.Column="1" OnContent="保留上次大小" OffContent="按视频比例" AutomationProperties.Name="再次打开视频保留上次窗口大小"/>
+       </Grid>
+       <TextBlock Text="字幕样式和偏移可在播放时从播放器菜单调整。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
+      </StackPanel>
+     </Border>
+    </StackPanel>
+
+    <StackPanel x:Name="SecondarySettings" Grid.Row="1" Spacing="12">
+     <Border Style="{StaticResource FwFormCardStyle}">
+      <StackPanel Spacing="8">
+       <Grid MinHeight="36"><TextBlock Text="存储与打开方式" Style="{StaticResource SettingsGroupTitle}"/></Grid>
+       <TextBlock Text="查看本机缓存，管理下载目录和文件打开方式。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
+       <StackPanel Orientation="Horizontal" Spacing="6" HorizontalAlignment="Right">
+        <Button Content="缓存图库…" Click="CacheGallery_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.AutomationId="OpenCacheGallery"/>
+        <Button Content="打开方式…" Click="OpenWith_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="打开打开方式设置"/>
+        <Button Content="缓存与存储…" Click="Storage_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="打开缓存与存储设置"/>
+       </StackPanel>
+      </StackPanel>
+     </Border>
+
+     <Border Style="{StaticResource FwFormCardStyle}">
+      <StackPanel Spacing="8">
+       <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+        <TextBlock Text="连接与服务器" Style="{StaticResource SettingsGroupTitle}"/>
+        <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="6">
+         <Button Content="存储工具…" Click="ServerTools_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="打开存储工具"/>
+         <Button Content="本地服务端…" Click="LocalServer_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.Name="打开本地服务端管理"/>
+        </StackPanel>
+       </Grid>
+       <TextBlock Text="分析服务器存储，或管理本机部署和局域网访问。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
+      </StackPanel>
+     </Border>
+
+     <Border x:Name="ServerManagementCard" Style="{StaticResource FwFormCardStyle}" Visibility="Collapsed">
+      <Grid x:Name="ServerManagementLayout" ColumnSpacing="12" SizeChanged="ServerManagementLayout_SizeChanged">
+       <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+       <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+       <StackPanel x:Name="ServerManagementLabels" VerticalAlignment="Center" Spacing="4">
+        <TextBlock Text="当前服务器管理" Style="{StaticResource SettingsGroupTitle}"/>
+        <TextBlock x:Name="ServerManagementCaption" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
+       </StackPanel>
+       <StackPanel x:Name="ServerManagementActions" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right"
+                   VerticalAlignment="Center" Spacing="6" SizeChanged="ServerManagementLayout_SizeChanged">
+        <Button x:Name="ServerUsersButton" Content="用户管理" Padding="10,0" Click="ServerUsers_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.AutomationId="OpenServerUsers"/>
+        <Button x:Name="ServerSettingsButton" Content="全局设置" Padding="10,0" Click="ServerSettings_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.AutomationId="OpenServerSettings"/>
+        <Button x:Name="ServerSharesButton" Content="分享管理" Padding="10,0" Click="ServerShares_Click" Style="{StaticResource FwSecondaryButtonStyle}" AutomationProperties.AutomationId="OpenServerShares"/>
+       </StackPanel>
+      </Grid>
+     </Border>
+
+     <Border Style="{StaticResource FwFormCardStyle}">
+      <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+       <StackPanel Spacing="4" VerticalAlignment="Center">
+        <TextBlock Text="关于与更新" Style="{StaticResource SettingsGroupTitle}"/>
+        <TextBlock Text="当前版本、公开发布与许可证。" Style="{StaticResource FwCaptionTextStyle}" TextWrapping="Wrap"/>
+       </StackPanel>
+       <Button Grid.Column="1" Content="查看…" Click="About_Click" Style="{StaticResource FwSecondaryButtonStyle}"
+               VerticalAlignment="Center" AutomationProperties.Name="关于与更新" AutomationProperties.AutomationId="OpenAboutAndUpdates"/>
+      </Grid>
+     </Border>
+    </StackPanel>
+   </Grid>
+  </Grid>
+ </ScrollViewer>
+</UserControl>

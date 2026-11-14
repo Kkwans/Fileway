@@ -1,0 +1,1422 @@
+using System.Collections.ObjectModel;
+using System.Collections.Specialized;
+using System.ComponentModel;
+using Fileway.Core.Contracts;
+using Fileway.App.Views;
+using Fileway.App.Branding;
+using Fileway.App.Controls.Browser;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Input;
+using Windows.System;
+using Windows.UI.ViewManagement;
+
+namespace Fileway.App;
+
+public sealed partial class MainPage : Page, IDisposable
+{
+    private IConnectionService? _connection;
+    private IFileRepository? _files;
+    private IResourceCollectionsService? _collections;
+    private IBrowserPreferencesService? _browserPreferencesService;
+    private BrowserPreferences _browserPreferences = new();
+    private Task _preferenceSaves = Task.CompletedTask;
+    private long _preferenceRevision;
+    private bool _applyingPreferences;
+    private IImageContentService? _images;
+    private ITextContentService? _texts;
+    private IArchiveBrowseService? _archiveBrowse;
+    private IFileBytesService? _fileBytes;
+    private IStorageAnalysisService? _storageAnalysis;
+    private IAccountSecurityService? _accountSecurity;
+    private int _sessionPasswordMinimum = 8;
+    private IThumbnailContentService? _thumbnails;
+    private readonly BrowserThumbnailController _thumbnailController;
+    private IPlaybackService? _playback;
+    private IConnectionCatalog? _catalog;
+    private ILocalStorageSettingsService? _storageSettings;
+    private nint _storageOwnerHwnd;
+    private ContentDialog? _storageDialog;
+    private StorageSettingsControl? _storageControl;
+    private ConnectionProfile? _selectedProfile;
+    private CancellationTokenSource? _connectionCancellation;
+    private bool _refreshingSavedConnections;
+    private Task _connectionOperation = Task.CompletedTask;
+    public Task ConnectionCompletion => _connectionOperation;
+    private ConnectionSession? _session;
+    private RemoteResourceRef? _root;
+    private RemoteResourceRef? _directory;
+    private readonly List<RemoteResourceRef> _trail = [];
+    private readonly Stack<RemoteResourceRef[]> _history = [];
+    private readonly List<RemoteFile> _items = [];
+    private readonly BrowserRows _rows = new();
+    private readonly UISettings _browserTextSettings = new();
+    private readonly TextBlock _unboundedNameMeasure = new() { FontSize = 13.5, TextWrapping = TextWrapping.Wrap };
+    private (double Width, double Scale, int Revision) _unboundedMeasureKey;
+    private int _unboundedRowsRevision;
+    private double _unboundedNameHeight;
+    private RemoteFile[]? _sortedItems;
+    private (FileSortField Field, bool Descending) _sortedOrder;
+    private readonly HashSet<ImageWindow> _imageWindows = [];
+    private readonly HashSet<TextWindow> _textWindows = [];
+    private readonly HashSet<ArchiveWindow> _archiveWindows = [];
+    private readonly HashSet<PdfWindow> _pdfWindows = [];
+    private const long ArchiveBrowseBudget = 64L * 1024 * 1024;
+    private static bool IsPdf(FileRow row) => !row.File.IsDirectory && row.File.Size <= PdfWindow.MaximumPdfBytes &&
+        (row.Name.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ||
+         row.File.MediaType?.Equals("application/pdf", StringComparison.OrdinalIgnoreCase) == true);
+
+    private static bool IsZipArchive(FileRow row) => !row.File.IsDirectory &&
+        row.File.Size <= ArchiveBrowseBudget &&
+        (row.Name.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+         row.File.MediaType?.Equals("application/zip", StringComparison.OrdinalIgnoreCase) == true);
+    private CancellationTokenSource? _loadCancellation;
+    private readonly CancellationTokenSource _lifetime = new();
+    private long _generation;
+    private bool _connecting;
+    private bool _disposed;
+    private bool _changingView;
+    private bool _detailsVisible;
+    private string? _loadStateTitle;
+    private string? _loadStateDescription;
+    private ListViewBase ActiveFiles => FileGrid.Visibility == Visibility.Visible ? FileGrid : FileList;
+
+    public MainPage()
+    {
+        Localization.ApplyCulture();
+        InitializeComponent();
+        ConfigurePopupMaterial(SortBox.Flyout);
+        ConfigurePopupMaterial(TypeFilterBox.Flyout);
+        ConfigurePopupMaterial(ViewOptionsButton.Flyout);
+        ConfigurePopupMaterial(MoreBrowserActionsButton.Flyout);
+        ApplyLocalization();
+        InitializePresentation();
+        InitializeConnectionForm();
+        _thumbnailController = new BrowserThumbnailController(_lifetime.Token, FileList, FileGrid);
+        CollectionsPanel.CloseRequested += (_, _) => HideCollections();
+        CollectionsPanel.OpenResourceAsync = OpenCollectionResourceAsync;
+        CollectionsPanel.SnapshotChanged += (_, snapshot) =>
+        {
+            if (_disposed || _session?.Account != snapshot.Account) return;
+            SidebarCollections.SetSnapshot(snapshot); UpdateCollectionActions();
+        };
+        CollectionsPanel.StatusChanged += (_, status) =>
+        {
+            // Background synchronization succeeds quietly; warnings and failures remain visible.
+            if (!_disposed && CollectionsPanel.Visibility != Visibility.Visible && status.Severity != InfoBarSeverity.Success)
+                SetNotice("收藏与标签", status.Message, status.Severity);
+        };
+        CollectionsPanel.CommandsChanged += (_, _) => UpdateCollectionActions();
+        CollectionsPanel.ReceiptWarningChanged += (_, warning) => RememberReceiptWarning(warning.Account, warning.Message);
+        SidebarCollections.FavoriteRequested += async (_, favorite) =>
+        {
+            if (_disposed || _connecting || _session?.Account != favorite.Account) return;
+            CloseSidebarOverlay();
+            UpdateCollectionsContext(); await CollectionsPanel.OpenReferenceAsync(favorite.Reference);
+        };
+        SidebarCollections.TagRequested += async (_, tag) =>
+        {
+            if (_disposed || _connecting || _session?.Account != tag.Account) return;
+            CloseSidebarOverlay();
+            ShowPane(MainPane.Collections);
+            UpdateCollectionsContext(); await CollectionsPanel.ShowTagResourcesAsync(tag.Id);
+        };
+        SidebarCollections.ManageRequested += (_, _) => Collections_Click(this, new RoutedEventArgs());
+        FileList.ItemsSource = FileGrid.ItemsSource = _rows;
+        FileGrid.Loaded += (_, _) => QueueGridMetricsUpdate();
+        FileGrid.SizeChanged += (_, _) => UpdateGridMetrics();
+        _browserTextSettings.TextScaleFactorChanged += BrowserTextScaleChanged;
+        InitializeBrowserShell();
+        InitializeTransferCenter();
+        InitializeRecentAccess();
+        InitializeRemoteTools();
+        InitializeApplicationMenus();
+        InitializeSettings();
+        ApplyBrowserPresentation();
+        Loaded += (_, _) => { ApplyTheme(); UpdateThumbnailContext(); };
+        Unloaded += (_, _) => _thumbnailController.SetContext(null, null);
+    }
+
+    public void SetStorageSettings(ILocalStorageSettingsService settings, nint ownerHwnd)
+    {
+        if (_disposed) return;
+        _storageSettings = settings; _storageOwnerHwnd = ownerHwnd;
+        StorageSettingsButton.IsEnabled = ownerHwnd != 0;
+    }
+
+    public void ShowStorageWarning(string message)
+    {
+        if (!_disposed) SetNotice("本地缓存暂不可用", message, InfoBarSeverity.Warning);
+    }
+
+    private async void StorageSettings_Click(object sender, RoutedEventArgs args) => await ShowStorageSettingsAsync(showUsage: false);
+
+    private async Task ShowStorageSettingsAsync(bool showUsage)
+    {
+        if (_disposed || _storageSettings is null || _storageOwnerHwnd == 0 || _storageDialog is not null) return;
+        using var control = new StorageSettingsControl(_storageSettings, _storageOwnerHwnd, _lifetime.Token);
+        control.SetMaxContentHeight(Fileway.App.Controls.DialogOrdering.ContentMaxHeight(this, 560));
+        if (showUsage) control.ShowCacheUsage();
+        var dialog = new ContentDialog
+        {
+            XamlRoot = XamlRoot, Title = "缓存与存储", Content = control,
+            RequestedTheme = Shell.RequestedTheme,
+        };
+        _storageDialog = dialog; _storageControl = control;
+        RenderDownloadNotice();
+        dialog.Opened += (_, _) => dialog.DispatcherQueue.TryEnqueue(control.FocusInitial);
+        dialog.Closed += (_, _) => control.Dispose();
+        control.CloseRequested += (_, _) => dialog.Hide();
+        control.SaveRequested += async (_, _) => { try { await control.SaveAsync(); } catch (OperationCanceledException) { } };
+        try
+        {
+            var completion = dialog.ShowAsync();
+            _ = LoadStorageControlAsync();
+            await completion;
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) { if (!_disposed) SetNotice("存储设置未能打开", "请关闭其他对话框后重试。", InfoBarSeverity.Error); }
+        finally
+        {
+            if (ReferenceEquals(_storageDialog, dialog))
+            {
+                _storageDialog = null; _storageControl = null;
+                RenderDownloadNotice();
+            }
+        }
+        async Task LoadStorageControlAsync()
+        {
+            try { await control.LoadAsync(); }
+            catch (OperationCanceledException) { }
+            catch (Exception)
+            {
+                if (!_disposed && ReferenceEquals(_storageDialog, dialog))
+                    SetNotice("存储设置未能加载", "请关闭设置后重试。", InfoBarSeverity.Error);
+            }
+        }
+    }
+    public async Task SetServicesAsync(IConnectionService connection, IFileRepository files, IImageContentService images,
+        IPlaybackService playback, IConnectionCatalog catalog, IThumbnailContentService? thumbnails = null,
+        ITextContentService? texts = null, IArchiveBrowseService? archiveBrowse = null, IFileBytesService? fileBytes = null,
+        IStorageAnalysisService? storageAnalysis = null, IAccountSecurityService? accountSecurity = null)
+    {
+        _connection = connection; _files = files; _collections = files as IResourceCollectionsService; _browserPreferencesService = files as IBrowserPreferencesService; _recentAccess = files as IRecentAccessService; _images = images; _playback = playback; _catalog = catalog; _thumbnails = thumbnails; _texts = texts; _archiveBrowse = archiveBrowse; _fileBytes = fileBytes; _storageAnalysis = storageAnalysis; _accountSecurity = accountSecurity; _sessionPasswordMinimum = Math.Clamp(_session?.Capabilities.MinimumPasswordLength ?? 0, 1, 128);
+        UpdateNetworkPane();
+        UpdateThumbnailContext();
+        _connection.SessionUpdated += Connection_SessionUpdated;
+        _connection.ConnectionIssue += Connection_Issue;
+        NewConnectionButton.IsEnabled = true;
+        LoginNotice.IsOpen = false;
+        Notice.IsOpen = false;
+        UpdateApplicationMenus();
+        try
+        {
+            await RefreshSavedConnectionsAsync(selectMostRecent: true);
+            if (SavedConnectionBox.SelectedItem is ConnectionChoice { Saved.KeepSignedIn: true })
+                await RestoreSelectedAsync(silent: true);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception exception) { LoginError(DescribeError(exception)); }
+        finally
+        {
+            if (!_disposed)
+            {
+                if (_session is null || _directory is null) SetConnectionView(true);
+                StartupPanel.Visibility = Visibility.Collapsed;
+                if (ConnectionPanel.Visibility == Visibility.Visible) FocusConnectionForm();
+            }
+        }
+    }
+    public void ShowStartupError(string message)
+    {
+        StartupPanel.Visibility = Visibility.Collapsed;
+        SetConnectionView(true);
+        PresentNotice(LoginNotice, LoginErrorDetailsButton, "核心服务启动失败", message, InfoBarSeverity.Error);
+    }
+    public void ShowFileOpenError(string name, string message) => SetNotice("无法打开文件", $"{name}：{message}", InfoBarSeverity.Error);
+    public void Shutdown() => Dispose();
+    internal async Task ClosePdfViewersAsync()
+    {
+        var windows = _pdfWindows.ToArray();
+        foreach (var window in windows) window.CloseIfOpen();
+        await Task.WhenAll(windows.Select(window => window.DisposeAsync().AsTask()));
+    }
+
+    public void BeginShutdown()
+    {
+        if (_disposed) return;
+        IsEnabled = false;
+        _connectionCancellation?.Cancel();
+        StopTailnetObservation();
+        _tailnetActionCancellation?.Cancel();
+        _loadCancellation?.Cancel();
+        // Accepted transfer work shares the page lifetime. Let its application
+        // service suspend writers before Dispose cancels that lifetime.
+    }
+    public void Dispose()
+    {
+        if (_disposed) return;
+        FileGrid.LayoutUpdated -= FileGrid_LayoutUpdated;
+        _browserTextSettings.TextScaleFactorChanged -= BrowserTextScaleChanged;
+        _remoteClipboard.Clear();
+        DisposePresentation();
+        DisposeApplicationMenus();
+        DisposeUploadPresentation();
+        DisposeDownloadPresentation();
+        RetireStorageAnalysis();
+        RetireServerUsers();
+        TransfersPanel.Dispose();
+        RetireChecksumDialog();
+        _browserDialog?.Hide();
+        _storageDialog?.Hide(); _storageControl?.Dispose();
+        _disposed = true; CollectionsPanel.Dispose(); RecentPane.Dispose(); SearchPane.Dispose(); NasTasksPane.Dispose(); TrashPane.Dispose(); _thumbnailController.Dispose(); _lifetime.Cancel(); _loadCancellation?.Cancel();
+        _connectionCancellation?.Cancel();
+        if (_connection is not null)
+        {
+            _connection.SessionUpdated -= Connection_SessionUpdated;
+            _connection.ConnectionIssue -= Connection_Issue;
+        }
+        foreach (var window in _imageWindows.ToArray()) window.Close();
+        foreach (var window in _textWindows.ToArray()) window.Close();
+        foreach (var window in _archiveWindows.ToArray()) window.Close();
+        foreach (var window in _pdfWindows.ToArray()) window.CloseIfOpen();
+        _connectionCancellation?.Dispose(); _loadCancellation?.Dispose(); _lifetime.Dispose();
+    }
+
+    private async void Connect_Click(object sender, RoutedEventArgs e) => await ExecutePrimaryConnectionActionAsync();
+
+    private void ConnectionPanel_SizeChanged(object sender, SizeChangedEventArgs args)
+    {
+        if (ConnectionBrandHost is null || ConnectionBrandColumn is null || ConnectionCardColumn is null) return;
+        var wide = args.NewSize.Width >= 1000;
+        ConnectionBrandHost.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
+        ConnectionBrandColumn.Width = wide ? new GridLength(1, GridUnitType.Star) : new GridLength(0);
+        ConnectionCardColumn.Width = new GridLength(wide ? 440 : Math.Clamp(args.NewSize.Width - 96, 300, 440));
+        ConnectionFormGrid.ColumnSpacing = wide ? 64 : 0;
+    }
+
+    private async Task ConnectFromFormAsync()
+    {
+        if (_connection is null || _files is null || _connecting || _tailnetBusy) return;
+        if (!TryReadConnectionAddress(out var address))
+        {
+            LoginError("请输入有效的 HTTP 或 HTTPS 服务器地址，且不要包含账号、查询参数或片段。");
+            FocusConnectionField(ServerBox);
+            return;
+        }
+        if (PasswordAuthentication && string.IsNullOrWhiteSpace(UsernameBox.Text))
+        {
+            LoginError("请输入服务器用户名。");
+            FocusConnectionField(UsernameBox);
+            return;
+        }
+        if (PasswordAuthentication && PasswordBox.Password.Length == 0)
+        {
+            LoginError("请输入服务器密码。");
+            FocusConnectionField(PasswordBox);
+            return;
+        }
+        var login = !PasswordAuthentication
+            ? new LoginInput(AuthenticationMode.NoAuthentication, KeepSignedIn: KeepSignedInBox.IsChecked == true)
+            : new LoginInput(AuthenticationMode.Password, UsernameBox.Text, PasswordBox.Password, KeepSignedInBox.IsChecked == true);
+        var displayName = string.IsNullOrWhiteSpace(ConnectionNameBox.Text) ? ConnectionChoice.DefaultDisplayName(address) : ConnectionNameBox.Text.Trim();
+        var network = SelectedConnectionNetwork;
+        if (!ConnectionNetworkReady)
+        {
+            LoginError("请先启动内嵌 Tailscale 并完成授权，再连接服务器。");
+            return;
+        }
+        var profile = _selectedProfile is { } saved
+            ? saved with { DisplayName = displayName, BaseAddress = address, Network = network,
+                SourceRevision = saved.BaseAddress.AbsoluteUri == address.AbsoluteUri && saved.Network == network ? saved.SourceRevision : Guid.NewGuid() }
+            : new ConnectionProfile(Guid.NewGuid(), Guid.NewGuid(), displayName, address, network, new ProxyPolicy(ProxyMode.Direct));
+        await RunConnectionAsync(token => _connection.ConnectAsync(profile, login, token), profile.Id);
+    }
+
+    private Task RunConnectionAsync(Func<CancellationToken, Task<ConnectionSession>> connect, Guid profileId,
+        bool restoring = false, bool silent = false, bool openingOnly = false)
+        => _connectionOperation = RunConnectionCoreAsync(connect, profileId, restoring, silent, openingOnly);
+
+    private async Task RunConnectionCoreAsync(Func<CancellationToken, Task<ConnectionSession>> connect, Guid profileId,
+        bool restoring, bool silent, bool openingOnly)
+    {
+        if (_connection is null || _files is null || _connecting || _disposed) return;
+        _connectionCancellation?.Dispose();
+        _connectionCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        var token = _connectionCancellation.Token;
+        _restoringConnection = restoring;
+        bool authenticated = false;
+        Control? failureFocus = null;
+        SetConnecting(true);
+        if (silent)
+            LoginNotice.IsOpen = false;
+        else
+        {
+            LoginNotice.Title = "";
+            LoginErrorDetailsButton.Visibility = Visibility.Collapsed;
+            LoginNotice.Severity = InfoBarSeverity.Informational;
+            LoginNotice.Message = openingOnly ? "正在打开文件空间…" : restoring ? "正在恢复已保存连接…" : "正在连接服务器…";
+            LoginNotice.IsOpen = true;
+        }
+        try
+        {
+            if (!openingOnly && _session is not null)
+            {
+                foreach (var window in _imageWindows.ToArray()) window.Close();
+                foreach (var window in _textWindows.ToArray()) window.Close();
+                foreach (var window in _archiveWindows.ToArray()) window.Close();
+                foreach (var window in _pdfWindows.ToArray()) window.CloseIfOpen();
+                if (_playback is not null) await _playback.CloseAccountAsync(_session.Account, token);
+                await _connection.DisconnectAsync(_session.Account, token);
+                ClearActiveWorkspace();
+            }
+            _session = await connect(token);
+            authenticated = true;
+            _savedConnectionRecovery.Remove(profileId);
+            LoginNotice.IsOpen = false;
+            PasswordBox.Password = "";
+            _sessionPasswordMinimum = Math.Clamp(_session.Capabilities.MinimumPasswordLength, 1, 128);
+            _root = await _files.GetRootAsync(_session, token);
+            var initialDirectory = _root;
+            if (_files is INavigationStateService navigation)
+            {
+                try { initialDirectory = await navigation.GetLastDirectoryAsync(_session.Account, token) ?? _root; }
+                catch (FilewayException error) when (error.Error.Code == ErrorCode.LocalStorageUnavailable)
+                { SetNotice("已连接", "上次浏览位置暂不可用，已打开根目录。", InfoBarSeverity.Warning); }
+            }
+            _trail.Clear(); _trail.Add(_root); _history.Clear();
+            if (initialDirectory.WirePath != _root.WirePath) _trail.Add(initialDirectory);
+            _workspaceRetrySession = null;
+            ConnectionLabel.Text = _session.DisplayName; SidebarConnectionActionLabel.Text = "切换连接";
+            LogoutButton.Visibility = Visibility.Visible;
+            DismissConnection.Visibility = Visibility.Visible; SetConnectionView(false);
+            NavigationCommands.IsEnabled = !_connecting;
+            if (!await LoadAsync(initialDirectory) && initialDirectory.WirePath != _root.WirePath && !_disposed && !token.IsCancellationRequested)
+            {
+                _trail.Clear(); _trail.Add(_root);
+                await LoadAsync(_root);
+            }
+            try { await RefreshSavedConnectionsAsync(selectMostRecent: true); }
+            catch (Exception exception) when (exception is not OperationCanceledException)
+            { SetNotice("已连接，列表更新失败", exception, InfoBarSeverity.Warning); }
+        }
+        catch (OperationCanceledException)
+        {
+            if (!_disposed)
+            {
+                if (authenticated && _directory is null) _workspaceRetrySession = _session?.Id;
+                LoginError(authenticated ? "已登录，打开文件空间已取消。" : "连接已取消。");
+                failureFocus = ConnectButton;
+            }
+        }
+        catch (Exception exception)
+        {
+            if (_disposed) return;
+            if (silent || _session is null || _directory is null) SetConnectionView(true);
+            var error = DescribeError(exception);
+            if (authenticated)
+            {
+                if (_directory is null) _workspaceRetrySession = _session?.Id;
+                PresentNotice(LoginNotice, LoginErrorDetailsButton, "已登录，暂时无法打开文件空间",
+                    error.Message, InfoBarSeverity.Error, error);
+            }
+            else
+            {
+                if (restoring) RememberConnectionRecovery(profileId, error);
+                if (restoring && SelectedConnectionNetwork == NetworkMode.EmbeddedTailnet && error.Code == ErrorCode.CapabilityMissing)
+                    PresentNotice(LoginNotice, LoginErrorDetailsButton, "内嵌网络需要处理", error.Message, InfoBarSeverity.Warning, error);
+                else LoginError(error, automatic: silent, restoring: restoring);
+            }
+            failureFocus = !authenticated && (error.Code is ErrorCode.AuthenticationExpired or ErrorCode.CredentialsUnavailable)
+                ? PasswordAuthentication ? PasswordBox : AuthenticationBox : ConnectButton;
+        }
+        finally
+        {
+            _restoringConnection = false;
+            if (!_disposed)
+            {
+                PasswordBox.Password = "";
+                SetConnecting(false);
+                if (!silent && failureFocus is not null) FocusConnectionField(failureFocus);
+            }
+        }
+    }
+
+    private void SetConnecting(bool connecting)
+    {
+        _connecting = connecting;
+        CollectionsButton.IsEnabled = !connecting && _session is not null && _collections is not null;
+        SidebarCollections.IsEnabled = CollectionsButton.IsEnabled;
+        if (connecting) { HideCollections(); CollectionsPanel.SetContext(null, null, null, null); SidebarCollections.SetSnapshot(null); }
+        UpdateThumbnailContext();
+        NewConnectionButton.IsEnabled = !connecting && _connection is not null;
+        ForgetSavedButton.IsEnabled = SavedConnectionBox.IsEnabled = !connecting;
+        ConnectionNameBox.IsEnabled = ServerBox.IsEnabled = AuthenticationBox.IsEnabled = !connecting;
+        UpdateNetworkPane();
+        UsernameBox.IsEnabled = PasswordBox.IsEnabled = KeepSignedInBox.IsEnabled = !connecting;
+        CancelConnectionButton.Visibility = connecting ? Visibility.Visible : Visibility.Collapsed;
+        DismissConnection.Visibility = !connecting && _session is not null && _directory is not null ? Visibility.Visible : Visibility.Collapsed;
+        NavigationCommands.IsEnabled = !connecting && _session is not null;
+        SortBox.IsEnabled = !connecting;
+        UpdateSelection();
+        UpdateBreadcrumbs();
+        if (!connecting && _session is not null && _collections is not null) _ = CollectionsPanel.RefreshAsync();
+    }
+
+    private void CancelConnection_Click(object sender, RoutedEventArgs args) => _connectionCancellation?.Cancel();
+
+    private async Task RefreshSavedConnectionsAsync(bool selectMostRecent = false)
+    {
+        if (_catalog is null || _disposed) return;
+        var saved = await _catalog.ListAsync(_lifetime.Token);
+        if (_disposed) return;
+        var selected = _selectedProfile?.Id;
+        _refreshingSavedConnections = true;
+        try
+        {
+            var choices = saved.Select(item => new ConnectionChoice(item)).ToArray();
+            SavedConnectionBox.ItemsSource = choices;
+            SavedConnectionsPanel.Visibility = choices.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+            SavedConnectionBox.SelectedItem = choices.FirstOrDefault(item => item.Saved.Profile.Id == selected)
+                ?? (selectMostRecent ? choices.FirstOrDefault() : null);
+        }
+        finally { _refreshingSavedConnections = false; }
+        FillSavedSelection();
+    }
+
+    private void SavedConnection_Changed(object sender, SelectionChangedEventArgs args)
+    {
+        if (!_refreshingSavedConnections && !_connecting) FillSavedSelection();
+    }
+
+    private void FillSavedSelection()
+    {
+        _workspaceRetrySession = null;
+        LoginNotice.IsOpen = false;
+        if (SavedConnectionBox.SelectedItem is not ConnectionChoice choice)
+        {
+            _selectedProfile = null;
+            ConnectionModeTitle.Text = "新建连接";
+            ForgetSavedButton.Visibility = Visibility.Collapsed;
+            UpdateConnectionPrimaryAction();
+            return;
+        }
+        var saved = choice.Saved;
+        _selectedProfile = saved.Profile;
+        ConnectionModeTitle.Text = "编辑已保存连接";
+        _applyingConnectionForm = true;
+        try
+        {
+            ConnectionNameBox.Text = choice.DisplayName;
+            ServerBox.Text = saved.Profile.BaseAddress.AbsoluteUri;
+            ConnectionNetworkBox.SelectedIndex = (int)saved.Profile.Network;
+            AuthenticationBox.SelectedIndex = saved.AuthenticationMode == AuthenticationMode.NoAuthentication ? 1 : 0;
+            UsernameBox.Text = saved.Username;
+            PasswordBox.Password = "";
+            KeepSignedInBox.IsChecked = saved.KeepSignedIn;
+        }
+        finally { _applyingConnectionForm = false; }
+        ForgetSavedButton.Visibility = Visibility.Visible;
+        UpdateNetworkPane();
+    }
+
+    private async Task RestoreSelectedAsync(bool silent = false)
+    {
+        if (_connection is null || SavedConnectionBox.SelectedItem is not ConnectionChoice choice || _connecting || _tailnetBusy) return;
+        if (!choice.Saved.KeepSignedIn) { LoginError("此连接未保持登录，请输入密码重新连接。"); return; }
+        // At startup the service can start a saved embedded network identity.
+        // Manual actions use the currently observed network readiness.
+        if (!silent && !ConnectionNetworkReady) return;
+        await RunConnectionAsync(token => _connection.RestoreAsync(choice.Saved.Profile.Id, token),
+            choice.Saved.Profile.Id, restoring: true, silent: silent);
+    }
+
+    private void NewConnection_Click(object sender, RoutedEventArgs args)
+    {
+        if (_connecting) return;
+        _workspaceRetrySession = null;
+        _refreshingSavedConnections = _applyingConnectionForm = true;
+        try
+        {
+            SavedConnectionBox.SelectedItem = null;
+            _selectedProfile = null;
+            ConnectionModeTitle.Text = "新建连接";
+            ConnectionNameBox.Text = string.Empty;
+            ServerBox.Text = string.Empty;
+            ConnectionNetworkBox.SelectedIndex = (int)NetworkMode.SystemNetwork;
+            AuthenticationBox.SelectedIndex = 0;
+            UsernameBox.Text = string.Empty;
+            PasswordBox.Password = string.Empty;
+            KeepSignedInBox.IsChecked = true;
+        }
+        finally { _refreshingSavedConnections = _applyingConnectionForm = false; }
+        ForgetSavedButton.Visibility = Visibility.Collapsed;
+        LoginNotice.IsOpen = false;
+        UpdateNetworkPane();
+        FocusConnectionField(ServerBox);
+    }
+
+    private async void ForgetSaved_Click(object sender, RoutedEventArgs args)
+    {
+        if (_catalog is null || SavedConnectionBox.SelectedItem is not ConnectionChoice choice || _connecting) return;
+        var confirm = new ContentDialog { XamlRoot = XamlRoot, Title = "忘记这个连接？", Content = "将移除本机连接档案与保存的会话。服务器上的文件不会删除。", PrimaryButtonText = "忘记连接", CloseButtonText = "取消", DefaultButton = ContentDialogButton.None };
+        if (await confirm.ShowAsync() != ContentDialogResult.Primary) return;
+        try
+        {
+            await _catalog.ForgetAsync(choice.Saved.Profile.Id, _lifetime.Token);
+            _savedConnectionRecovery.Remove(choice.Saved.Profile.Id);
+            if (_session?.Account.ProfileId == choice.Saved.Profile.Id)
+            {
+                if (_playback is not null) await _playback.CloseAccountAsync(_session.Account, _lifetime.Token);
+                foreach (var window in _imageWindows.ToArray()) window.Close();
+                ClearActiveWorkspace(); SetConnectionView(true);
+            }
+            await RefreshSavedConnectionsAsync();
+            LoginNotice.Severity = InfoBarSeverity.Informational; LoginNotice.Message = "本机连接已移除。";
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception exception) { LoginError(DescribeError(exception)); }
+    }
+
+    private async void Logout_Click(object sender, RoutedEventArgs args)
+    {
+        if (_connection is null || _session is not { } session || _connecting) return;
+        SetConnecting(true); LogoutButton.IsEnabled = false;
+        try
+        {
+            await _connection.LogoutAsync(session.Account, _lifetime.Token);
+            if (_playback is not null) await _playback.CloseAccountAsync(session.Account, _lifetime.Token);
+            foreach (var window in _imageWindows.ToArray()) window.Close();
+            ClearActiveWorkspace(); SetConnectionView(true);
+            await RefreshSavedConnectionsAsync();
+            LoginNotice.Severity = InfoBarSeverity.Informational; LoginNotice.Message = "已退出登录。连接档案保留，保存的会话已清除。";
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception exception) { SetNotice("退出登录尚未完成", exception, InfoBarSeverity.Error); }
+        finally { LogoutButton.IsEnabled = true; SetConnecting(false); }
+    }
+
+    private void ClearActiveWorkspace()
+    {
+        _workspaceRetrySession = null;
+        _remoteClipboard.Clear();
+        ClearFileMoveDrag();
+        HideCollections();
+        ClearUploadPresentation();
+        ClearDownloadPresentation();
+        Notice.IsOpen = false;
+        ReceiptWarning.IsOpen = false;
+        ResetToast(Notice);
+        ResetToast(ReceiptWarning);
+        _session = null; _root = null; _directory = null; ++_generation; _loadCancellation?.Cancel();
+        CollectionsPanel.SetContext(null, null, null, null);
+        SidebarCollections.SetSnapshot(null); SidebarCollections.IsEnabled = false;
+        UpdateThumbnailContext();
+        _items.Clear(); _sortedItems = null; _rows.Clear(); _trail.Clear(); _history.Clear();
+        NavigationCommands.IsEnabled = false; LogoutButton.Visibility = DismissConnection.Visibility = Visibility.Collapsed;
+        ConnectionLabel.Text = "尚未连接"; SidebarConnectionActionLabel.Text = "连接服务器"; PathBox.Text = "尚未连接";
+        UpdateBreadcrumbs(); ResetOperationContext();
+        _loadStateTitle = _loadStateDescription = null;
+        SetLoading(false); SetDetailsVisible(false); ApplyFilter();
+    }
+
+    private void Connection_SessionUpdated(object? sender, ConnectionSession session) => DispatcherQueue.TryEnqueue(() =>
+    {
+        if (!_disposed && _session?.Id == session.Id && _session.Account == session.Account)
+        { _session = session; ConnectionLabel.Text = session.DisplayName; UpdateSelection(); }
+    });
+
+    private void Connection_Issue(object? sender, ConnectionIssue issue) => DispatcherQueue.TryEnqueue(async () =>
+    {
+        if (_disposed || _session?.Id != issue.SessionId || _session.Account != issue.Account) return;
+        if (!issue.SessionInvalidated)
+        {
+            SetNotice("连接状态需要处理", issue.Error, InfoBarSeverity.Warning);
+            return;
+        }
+        foreach (var window in _imageWindows.ToArray()) window.Close();
+        bool preserveDraft = ConnectionPanel.Visibility == Visibility.Visible &&
+            (SavedConnectionBox.SelectedItem is not ConnectionChoice choice || choice.Saved.Profile.Id != issue.Account.ProfileId ||
+                HasSavedConnectionEdits(choice) || PasswordBox.Password.Length > 0);
+        RememberConnectionRecovery(issue.Account.ProfileId, issue.Error);
+        ClearActiveWorkspace();
+        SetConnectionView(true);
+        if (!preserveDraft && SelectSavedConnection(issue.Account.ProfileId))
+        {
+            LoginError(issue.Error);
+            FocusConnectionForm();
+        }
+        else LoginError("原文件空间已断开。当前连接表单已保留。");
+        try { if (_playback is not null) await _playback.CloseAccountAsync(issue.Account, _lifetime.Token); }
+        catch (OperationCanceledException) { }
+        catch (Exception) { /* Session leases are already retired by the connection service. */ }
+    });
+
+    private async Task<bool> LoadAsync(RemoteResourceRef directory)
+    {
+        if (_files is null || _session is not { } session || _disposed) return false;
+        ClearFileMoveDrag();
+        _loadCancellation?.Cancel(); _loadCancellation?.Dispose();
+        _loadCancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        var token = _loadCancellation.Token;
+        var generation = ++_generation;
+        _thumbnailController.Invalidate(dropPreviews: true);
+        bool CurrentLoad() => !_disposed && generation == _generation && _session?.Id == session.Id && _session.Account == session.Account;
+        _loadStateTitle = _loadStateDescription = null;
+        _directory = directory; PathBox.Text = directory.DisplayPath; UpdateBreadcrumbs(); CloseSidebarOverlay();
+        _items.Clear(); _sortedItems = null; _rows.Clear(); SearchBox.Text = "";
+        var preferenceRevision = ++_preferenceRevision;
+        RestoreDirectoryTypeFilters(directory); _browserPreferences = new BrowserPreferences(); ApplyBrowserPresentation();
+        _ = ReadBrowserPreferencesAsync(directory, session, generation, preferenceRevision, token);
+        SetLoading(true); Notice.IsOpen = false; EmptyState.Visibility = Visibility.Collapsed;
+        bool loaded = false;
+        try
+        {
+            var query = Query();
+            string? cursor = null;
+            var seenCursors = new HashSet<string>(StringComparer.Ordinal);
+            do
+            {
+                var page = await _files.ListAsync(directory, query with { Cursor = cursor }, token);
+                if (!CurrentLoad()) return false;
+                token.ThrowIfCancellationRequested();
+                _items.AddRange(page.Items); _sortedItems = null; cursor = page.NextCursor;
+                if (cursor is not null && !seenCursors.Add(cursor)) throw new FilewayException(new ErrorInfo(ErrorCode.ProtocolMismatch, "服务器返回了重复的分页标记。"));
+                ApplyFilter();
+            } while (cursor is not null);
+            loaded = true;
+            if (CurrentLoad() && _files is INavigationStateService navigation)
+            {
+                try { await navigation.RememberDirectoryAsync(directory, token); }
+                catch (FilewayException error) when (error.Error.Code == ErrorCode.LocalStorageUnavailable)
+                { if (CurrentLoad()) SetNotice("目录已打开", "浏览位置未能保存，下次启动可能回到根目录。", InfoBarSeverity.Warning); }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            if (CurrentLoad()) { _loadStateTitle = "加载已取消"; _loadStateDescription = "可重新加载当前目录。已取得的项目会保留。"; SetNotice(_loadStateTitle, _loadStateDescription, InfoBarSeverity.Informational); }
+        }
+        catch (Exception exception)
+        {
+            if (CurrentLoad())
+            {
+                var error = DescribeError(exception);
+                _loadStateTitle = "无法加载目录";
+                _loadStateDescription = error.Message;
+                SetNotice(_loadStateTitle, error, InfoBarSeverity.Error);
+            }
+        }
+        finally { if (CurrentLoad()) { SetLoading(false); ApplyFilter(); BackButton.IsEnabled = _history.Count > 0; UpButton.IsEnabled = _trail.Count > 1; } }
+        return loaded && CurrentLoad();
+    }
+    private DirectoryQuery Query() => new(_browserPreferences.SortBy, _browserPreferences.Descending);
+    private void ApplyFilter(bool rebuild = false)
+    {
+        var filter = SearchBox.Text.Trim();
+        var sorted = GetSortedFiles();
+        var matching = filter.Length == 0 && _typeFilters.Count == 0
+            ? sorted
+            : sorted.Where(item => item.Resource.DisplayName.Contains(filter, StringComparison.CurrentCultureIgnoreCase) && MatchesTypeFilters(item)).ToArray();
+        var prefixMatches = !rebuild && _rows.Count <= matching.Length;
+        for (int index = 0; prefixMatches && index < _rows.Count; index++)
+            prefixMatches = ReferenceEquals(_rows[index].File, matching[index]);
+        if (!prefixMatches || _rows.Count != matching.Length)
+        {
+            _changingView = true;
+            try
+            {
+                if (!prefixMatches || _rows.Count == 0)
+                {
+                    var selected = ActiveFiles.SelectedItems.Cast<FileRow>().Select(row => row.File.Resource.WirePath).ToHashSet(StringComparer.Ordinal);
+                    _thumbnailController.Invalidate();
+                    _rows.ReplaceAll(matching.Select(file => new FileRow(file, _browserPreferences)));
+                    if (selected.Count > 0)
+                        foreach (var row in _rows.Where(row => selected.Contains(row.File.Resource.WirePath)))
+                            ActiveFiles.SelectedItems.Add(row);
+                }
+                else
+                    for (int index = _rows.Count; index < matching.Length; index++)
+                        _rows.Add(new FileRow(matching[index], _browserPreferences));
+            }
+            finally { _changingView = false; }
+            if (_browserPreferences.ViewMode == BrowserViewMode.WindowsIcons)
+            {
+                ++_unboundedRowsRevision;
+                QueueGridMetricsUpdate();
+            }
+        }
+        UpdateSelection();
+        if (LoadingRing.IsActive) return;
+        EmptyState.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        var filtering = filter.Length > 0 || _typeFilters.Count > 0;
+        EmptyState.Title = _session is null ? "你的文件，在这里相遇" : _loadStateTitle ?? (filtering ? "没有匹配的文件" : "这个目录还没有文件");
+        EmptyState.Description = _session is null ? "连接服务器后即可浏览文件、打开图片和播放视频。" : _loadStateDescription ?? (filter.Length > 0
+            ? "筛选只覆盖当前列表。按 Enter 搜索当前目录及子目录，或清除筛选。"
+            : filtering ? "可清除类型筛选。" : "可以刷新目录，查看服务器上的最新内容。");
+        RetryLoadButton.Visibility = _session is not null && _loadStateTitle is not null ? Visibility.Visible : Visibility.Collapsed;
+    }
+    private void SetLanguage(AppLanguage language)
+    {
+        Localization.Language = language;
+        UpdateLanguageMenuChecks();
+        // Reopen flows re-render on next navigation; visible surfaces refresh via the event.
+        ApplyLocalization();
+    }
+
+    private void UpdateLanguageMenuChecks()
+    {
+        var language = Localization.Language;
+        LanguageFollowItem.Text = Localization.T("语言：跟随系统");
+        LanguageChineseItem.Text = Localization.T("语言：简体中文");
+        LanguageEnglishItem.Text = Localization.IsEnglish ? "Language: English (partial)" : "语言：English（部分翻译）";
+        LanguageFollowItem.Visibility = Localization.IsEnglish ? Visibility.Visible : Visibility.Visible;
+        _ = language;
+    }
+
+    private void LanguageFollow_Click(object sender, RoutedEventArgs args) => SetLanguage(AppLanguage.FollowSystem);
+    private void LanguageChinese_Click(object sender, RoutedEventArgs args) => SetLanguage(AppLanguage.Chinese);
+    private void LanguageEnglish_Click(object sender, RoutedEventArgs args) => SetLanguage(AppLanguage.English);
+
+    /// <summary>Applies the active language to the named menu surfaces; keys fall back to Chinese.</summary>
+    private void ApplyLocalization()
+    {
+        string T(string key) => Localization.T(key);
+        if (NewButton is not null) { ToolTipService.SetToolTip(NewButton, T("新建")); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(NewButton, T("新建")); }
+        if (UploadFileButton is not null) { ToolTipService.SetToolTip(UploadFileButton, T("上传文件")); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(UploadFileButton, T("上传文件")); }
+        if (DownloadFileButton is not null) { ToolTipService.SetToolTip(DownloadFileButton, T("下载")); Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(DownloadFileButton, T("下载")); }
+        if (DownloadHistoryButton is not null) DownloadHistoryButton.Text = T("下载记录");
+        if (UploadHistoryButton is not null) UploadHistoryButton.Text = T("上传记录");
+        if (LogoutButton is not null) LogoutButton.Text = T("退出登录");
+        if (MenuTrashPageItem is not null) MenuTrashPageItem.Text = T("回收站");
+        if (CollectionsButton is not null) CollectionsButton.Text = T("管理收藏与标签…");
+        if (StorageSettingsButton is not null) StorageSettingsButton.Text = T("缓存与存储…");
+        if (MenuRecentItem is not null) MenuRecentItem.Text = T("最近访问");
+        if (MenuTransfersItem is not null) MenuTransfersItem.Text = T("传输中心");
+        if (MenuServerSearchItem is not null) MenuServerSearchItem.Text = T("服务器搜索");
+        if (MenuNasTasksItem is not null) MenuNasTasksItem.Text = T("文件任务");
+        if (ChangePasswordButton is not null) ChangePasswordButton.Text = T("修改密码…");
+        if (FavoriteActionButton is not null) FavoriteActionButton.Text = T("收藏");
+        if (TagActionButton is not null) TagActionButton.Text = T("标记");
+        Localization.CultureChanged -= ApplyLocalization;
+        Localization.CultureChanged += ApplyLocalization;
+    }
+
+    private async Task OpenSelectedAsync()
+    {
+        if (_disposed || _connecting || _session is not { } session || ActiveFiles.SelectedItem is not FileRow row) return;
+        await OpenFileAsync(row, _rows.Where(item => item.IsImage).Select(item => item.File.Resource).ToArray());
+    }
+    private async Task OpenFileAsync(FileRow row, IReadOnlyList<RemoteResourceRef> images)
+    {
+        if (_disposed || _connecting || _session is not { } session || row.File.Resource.Account != session.Account) return;
+        var generation = _generation;
+        var navigation = _navigationRevision;
+        bool CurrentOpen() => !_disposed && generation == _generation && navigation == _navigationRevision &&
+            _session?.Id == session.Id && _session.Account == session.Account;
+        if (row.File.IsDirectory) { _history.Push(_trail.ToArray()); _trail.Add(row.File.Resource); await LoadAsync(row.File.Resource); return; }
+        try
+        {
+            if (CategoryOf(row) is { } openCategory)
+            {
+                var preferences = OpenWith;
+                var preference = preferences.For(openCategory);
+                if (preference == OpenPreference.SystemDefault ||
+                    (openCategory == OpenWithCategory.Markdown && preference == OpenPreference.SelectedApplication))
+                {
+                    await OpenWithExternalAsync(row, CurrentOpen, preference, preferences.MarkdownApplicationPath);
+                    return;
+                }
+            }
+            if (row.IsImage && _images is not null)
+            {
+                var window = new ImageWindow(_images, row.File.Resource, images, _files as IRecentAccessService); _imageWindows.Add(window);
+                window.SetTheme(Shell.RequestedTheme);
+                window.Closed += (_, _) => _imageWindows.Remove(window); window.Activate();
+            }
+            else if (row.IsMedia && _playback is not null)
+            {
+                var openingTitle = row.IsAudio ? "正在打开音频" : "正在打开视频";
+                SetNotice(openingTitle, string.Empty, InfoBarSeverity.Informational);
+                try
+                {
+                    await _playback.OpenAsync(new PlaybackOpenRequest(new RemotePlaybackInput(row.File.Resource)), _lifetime.Token);
+                }
+                finally
+                {
+                    if (CurrentOpen() && Notice.Title == openingTitle && string.IsNullOrEmpty(Notice.Message))
+                        Notice.IsOpen = false;
+                }
+            }
+            else if (IsPdf(row) && _fileBytes is { } pdfBytes)
+            {
+                var window = new PdfWindow(pdfBytes, row.File.Resource); _pdfWindows.Add(window);
+                window.SetTheme(Shell.RequestedTheme);
+                window.Closed += async (_, _) =>
+                {
+                    try { await window.DisposeAsync(); }
+                    catch (Exception error) { if (!_disposed) ShowFileOpenError(row.Name, ErrorMessage(error)); }
+                    finally { _pdfWindows.Remove(window); }
+                };
+                window.Activate();
+            }
+            else if (IsZipArchive(row) && _archiveBrowse is { } archives)
+            {
+                if (row.File.Size > ArchiveBrowseBudget)
+                { SetNotice("压缩包过大", "超过 64 MB 的压缩包暂不支持在线浏览，请下载后解压。", InfoBarSeverity.Informational); return; }
+                var window = new ArchiveWindow(archives, _storageSettings!, row.File.Resource); _archiveWindows.Add(window);
+                window.SetTheme(Shell.RequestedTheme);
+                window.Closed += (_, _) => _archiveWindows.Remove(window); window.Activate();
+            }
+            else if (row.IsText && _texts is { } texts)
+            {
+                if (row.File.Size > TextWindow.MaximumTextBytes)
+                { SetNotice("文本过大", "超过 4 MB 的文本暂不支持预览，请下载后查看。", InfoBarSeverity.Informational); return; }
+                var window = new TextWindow(texts, row.File.Resource); _textWindows.Add(window);
+                window.SetTheme(Shell.RequestedTheme);
+                window.Closed += (_, _) => _textWindows.Remove(window); window.Activate();
+            }
+            else SetNotice("暂不支持打开此文件", "本次原生预览支持图片、视频与音频。你仍可浏览其他文件的名称、大小和修改时间。", InfoBarSeverity.Informational);
+        }
+        catch (OperationCanceledException) { if (CurrentOpen()) SetNotice("打开已取消", "可以重新选择文件。", InfoBarSeverity.Informational); }
+        catch (Exception exception) { if (CurrentOpen()) SetNotice("无法打开文件", exception, InfoBarSeverity.Error); }
+    }
+    private async void ChangePassword_Click(object sender, RoutedEventArgs args)
+    {
+        if (_disposed || _connecting || _session is not { } session || _accountSecurity is not { } service) return;
+        var account = session.Account;
+        var current = new PasswordBox { Header = "当前密码" };
+        var next = new PasswordBox { Header = "新密码（至少 " + _sessionPasswordMinimum + " 位）" };
+        var again = new PasswordBox { Header = "确认新密码" };
+        var panel = new StackPanel { Spacing = 12, MinWidth = 320 };
+        panel.Children.Add(new TextBlock { Text = "修改当前连接账户（" + session.DisplayName + "）的登录密码。修改后需要用新密码重新登录其他设备。", TextWrapping = TextWrapping.Wrap });
+        panel.Children.Add(current); panel.Children.Add(next); panel.Children.Add(again);
+        var confirm = new ContentDialog { Title = "修改密码", Content = panel, PrimaryButtonText = "修改", CloseButtonText = "取消", DefaultButton = ContentDialogButton.Primary, IsPrimaryButtonEnabled = false };
+        void Validate(object? s, object e) => confirm.IsPrimaryButtonEnabled =
+            current.Password.Length > 0 && next.Password.Length >= _sessionPasswordMinimum && next.Password == again.Password;
+        current.PasswordChanged += (_, _) => Validate(null, null!);
+        next.PasswordChanged += (_, _) => Validate(null, null!);
+        again.PasswordChanged += (_, _) => Validate(null, null!);
+        var choice = await ShowBrowserDialogAsync(confirm);
+        if (choice != ContentDialogResult.Primary || IsCurrentAccount(account) is false) return;
+        SetNotice("正在修改密码", "如修改成功，当前连接保持有效。", InfoBarSeverity.Informational);
+        try
+        {
+            var result = await service.ChangePasswordAsync(account, current.Password, next.Password, _lifetime.Token);
+            if (!IsCurrentAccount(account)) return;
+            SetNotice("密码已修改", result.LocalCredentialUpdateFailed
+                ? "服务器密码已更新，但本机自动登录凭据未能更新，请重新登录一次。"
+                : result.Username + " 的登录密码已更新。", result.LocalCredentialUpdateFailed ? InfoBarSeverity.Warning : InfoBarSeverity.Success);
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception error) { if (IsCurrentAccount(account)) SetNotice("密码修改未完成", error, InfoBarSeverity.Error); }
+    }
+
+    private bool IsCurrentAccount(AccountKey account) => !_disposed && _session?.Account == account;
+
+    private async void Collections_Click(object sender, RoutedEventArgs e)
+    {
+        if (_disposed || _connecting || _session is null || _collections is null) return;
+        CloseSidebarOverlay(); ShowPane(MainPane.Collections);
+        _thumbnailController.SetContext(null, null);
+        UpdateCollectionsContext();
+        CollectionsPanel.EnterManagementView();
+        await CollectionsPanel.RefreshAsync();
+    }
+    private void UpdateCollectionsContext() => CollectionsPanel.SetContext(_collections, _files, _connecting ? null : _session,
+        ActiveFiles.SelectedItems.Count == 1 && ActiveFiles.SelectedItem is FileRow selected ? selected.File.Resource : null);
+    private void UpdateCollectionActions()
+    {
+        if (FavoriteActionButton is null) return;
+        var enabled = !_disposed && !_connecting && CollectionsPanel.CanManageCurrentResource;
+        SidebarCollections.IsEnabled = !_disposed && !_connecting && CollectionsPanel.CanNavigate;
+        FavoriteActionButton.IsEnabled = TagActionButton.IsEnabled = DetailsFavoriteButton.IsEnabled = DetailsTagButton.IsEnabled = enabled;
+        var favorite = CollectionsPanel.IsCurrentResourceFavorite;
+        FavoriteActionButton.Text = favorite ? "取消收藏" : "收藏";
+        ToolTipService.SetToolTip(DetailsFavoriteButton, favorite ? "取消收藏" : "收藏");
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(DetailsFavoriteButton, favorite ? "取消收藏" : "收藏");
+    }
+    private async void FavoriteResource_Click(object sender, RoutedEventArgs args)
+    {
+        if (_disposed || _connecting) return;
+        SetDetailsVisible(false);
+        UpdateCollectionsContext(); await CollectionsPanel.ToggleCurrentFavoriteAsync();
+    }
+    private async void TagResource_Click(object sender, RoutedEventArgs args)
+    {
+        if (_disposed || _connecting) return;
+        SetDetailsVisible(false);
+        UpdateCollectionsContext(); await CollectionsPanel.ManageCurrentResourceTagsAsync();
+    }
+    private void HideCollections() => ReturnToBrowserOrConnection();
+    private async Task OpenCollectionResourceAsync(RemoteFile file)
+    {
+        if (_disposed || _connecting || _session is not { } session || file.Resource.Account != session.Account) return;
+        if (file.IsDirectory)
+        {
+            await NavigateToResourceAsync(file.Resource);
+        }
+        else await OpenFileAsync(new FileRow(file), [file.Resource]);
+    }
+    private void SetLoading(bool loading)
+    {
+        LoadingRing.IsActive = loading;
+        LoadingRing.Visibility = CancelButton.Visibility = loading ? Visibility.Visible : Visibility.Collapsed;
+        if (loading) StatusText.Text = "正在加载目录…";
+        UpdateDownloadAvailability();
+        UpdateApplicationMenus();
+    }
+    private void Authentication_Changed(object sender, SelectionChangedEventArgs e)
+    {
+        if (CredentialFields is null) return;
+        CredentialFields.Visibility = AuthenticationBox.SelectedIndex == 1 ? Visibility.Collapsed : Visibility.Visible;
+        if (RetentionDescription is not null)
+        {
+            string saved = AuthenticationBox.SelectedIndex == 1 ? "会话" : "密码和会话";
+            RetentionDescription.Text = $"加密保存{saved}，共用电脑请取消。";
+        }
+        if (AuthenticationBox.SelectedIndex == 1) PasswordBox.Password = "";
+        ConnectionDraftChanged(sender, e);
+    }
+    private void Connection_Click(object sender, RoutedEventArgs e) { CloseSidebarOverlay(); SetConnectionView(true); FocusConnectionForm(); }
+    private void DismissConnection_Click(object sender, RoutedEventArgs e) => SetConnectionView(false);
+    private void Search_Changed(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args)
+    {
+        if (FileList is null) return;
+        var filtering = !string.IsNullOrWhiteSpace(sender.Text);
+        BrowserFilterIndicator.Visibility = filtering ? Visibility.Visible : Visibility.Collapsed;
+        var label = filtering ? "筛选与搜索文件（已筛选）" : "筛选与搜索文件";
+        AutomationProperties.SetName(BrowserSearchButton, label);
+        ToolTipService.SetToolTip(BrowserSearchButton, label + " (Ctrl+F)");
+        ApplyFilter();
+    }
+    private void Sort_Click(object sender, RoutedEventArgs args)
+    {
+        if (_applyingPreferences || FileList is null || sender is not ToggleButton { Tag: string tag }) return;
+        var (field, descending) = tag switch
+        {
+            "ModifiedAsc" => (FileSortField.Modified, false),
+            "ModifiedDesc" => (FileSortField.Modified, true),
+            "SizeAsc" => (FileSortField.Size, false),
+            "SizeDesc" => (FileSortField.Size, true),
+            "TypeAsc" => (FileSortField.Type, false),
+            "TypeDesc" => (FileSortField.Type, true),
+            "NameDesc" => (FileSortField.Name, true),
+            _ => (FileSortField.Name, false),
+        };
+        ChangeBrowserPreferences(_browserPreferences with { SortBy = field, Descending = descending });
+        UpdateSortMenu();
+        if (SortBox.Flyout is Flyout flyout) flyout.Hide();
+    }
+
+    private void UpdateSortMenu()
+    {
+        var (label, key) = _browserPreferences.SortBy switch
+        {
+            FileSortField.Modified => ("修改时间", _browserPreferences.Descending ? "ModifiedDesc" : "ModifiedAsc"),
+            FileSortField.Size => ("大小", _browserPreferences.Descending ? "SizeDesc" : "SizeAsc"),
+            FileSortField.Type => ("类型", _browserPreferences.Descending ? "TypeDesc" : "TypeAsc"),
+            _ => ("名称", _browserPreferences.Descending ? "NameDesc" : "NameAsc"),
+        };
+        if (SortBox is not null)
+        {
+            SortBox.Content = label + (_browserPreferences.Descending ? " ↓" : " ↑");
+            ToolTipService.SetToolTip(SortBox, $"排序：{label}{(_browserPreferences.Descending ? "降序" : "升序")}");
+        }
+        if (_sortOptions is null) return;
+        foreach (var choice in _sortOptions.Children.OfType<ToggleButton>())
+            choice.IsChecked = (choice.Tag as string) == key;
+    }
+    private async void Refresh_Click(object sender, RoutedEventArgs e)
+    {
+        if (TransfersPanel.Visibility == Visibility.Visible) { await RefreshTransferCenterAsync(); return; }
+        if (RecentPane.Visibility == Visibility.Visible) { await RecentPane.RefreshAsync(); return; }
+        if (SearchPane.Visibility == Visibility.Visible) { await SearchPane.RefreshAsync(); return; }
+        if (NasTasksPane.Visibility == Visibility.Visible) { await NasTasksPane.RefreshAsync(); return; }
+        if (TrashPane.Visibility == Visibility.Visible) { await TrashPane.RefreshAsync(); return; }
+        if (_directory is not null) await LoadAsync(_directory);
+        if (!_disposed && !_connecting && _session is not null) { UpdateCollectionsContext(); await CollectionsPanel.RefreshAsync(); }
+    }
+    private async void Root_Click(object sender, RoutedEventArgs e) { HideCollections(); if (_root is null) { SetConnectionView(true); return; } _history.Push(_trail.ToArray()); _trail.Clear(); _trail.Add(_root); await LoadAsync(_root); }
+    private async void Back_Click(object sender, RoutedEventArgs e) { if (!_history.TryPop(out var previous)) return; HideCollections(); _trail.Clear(); _trail.AddRange(previous); await LoadAsync(_trail[^1]); }
+    private async void Up_Click(object sender, RoutedEventArgs e) { if (_trail.Count < 2) return; HideCollections(); _history.Push(_trail.ToArray()); _trail.RemoveAt(_trail.Count - 1); await LoadAsync(_trail[^1]); }
+    private void Cancel_Click(object sender, RoutedEventArgs e) => _loadCancellation?.Cancel();
+    private async void FileList_DoubleTapped(object sender, DoubleTappedRoutedEventArgs e)
+    {
+        var source = e.OriginalSource as DependencyObject;
+        while (source is not null && !ReferenceEquals(source, sender) && source is not SelectorItem)
+            source = Microsoft.UI.Xaml.Media.VisualTreeHelper.GetParent(source);
+        if (source is SelectorItem item && sender is ListViewBase view)
+        {
+            view.SelectedItem = item.Content;
+            await OpenSelectedAsync();
+        }
+    }
+    private void FileList_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Handled || IsTextInput(e.OriginalSource as DependencyObject)) return;
+        var control = Microsoft.UI.Input.InputKeyboardSource.GetKeyStateForCurrentThread(VirtualKey.Control).HasFlag(Windows.UI.Core.CoreVirtualKeyStates.Down);
+        if (control && e.Key == VirtualKey.A) { e.Handled = true; ActiveFiles.SelectAll(); return; }
+        if (e.Key == VirtualKey.F2) { e.Handled = true; Rename_Click(sender, e); return; }
+        if (e.Key == VirtualKey.Delete) { e.Handled = true; Trash_Click(sender, e); return; }
+        if (e.Key == VirtualKey.Back) { e.Handled = true; Up_Click(sender, e); return; }
+        if (e.Key == VirtualKey.Escape && _detailsVisible) { e.Handled = true; SetDetailsVisible(false); }
+    }
+    private void Details_Click(object sender, RoutedEventArgs e) { SetDetailsVisible(!_detailsVisible); UpdateSelection(); }
+    private void CloseDetails_Click(object sender, RoutedEventArgs e) { SetDetailsVisible(false); ActiveFiles.Focus(FocusState.Keyboard); }
+    private void DetailsPanel_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Handled || e.Key != VirtualKey.Escape) return;
+        e.Handled = true; CloseDetails_Click(sender, e);
+    }
+    private async void DetailsOpen_Click(object sender, RoutedEventArgs e) { SetDetailsVisible(false); await OpenSelectedAsync(); }
+    private void FileList_SelectionChanged(object sender, SelectionChangedEventArgs e) { if (StatusText is not null && !_changingView && ReferenceEquals(sender, ActiveFiles)) UpdateSelection(); }
+    private void UpdateSelection()
+    {
+        if (DetailsName is null) return;
+        var count = ActiveFiles.SelectedItems.Count;
+        var row = count == 1 ? ActiveFiles.SelectedItem as FileRow : null;
+        StatusText.Text = LoadingRing.IsActive ? $"正在加载目录… · {_rows.Count} 个项目"
+            : _rows.Count == 0 ? "0 个项目"
+            : $"{_rows.Count} 个项目{(count > 0 ? $" · 已选择 {count} 个" : "")} · 双击或按 Enter 打开";
+        DetailsName.Text = row?.Name ?? (count > 1 ? $"已选择 {count} 个项目" : "选择一个项目");
+        DetailsKindText.Text = row?.Kind ?? (count > 1 ? $"{count} 个项目" : "—");
+        DetailsSizeText.Text = row?.Size ?? "—";
+        bool folder = row?.File.IsDirectory == true;
+        DetailsFileSize.Visibility = folder ? Visibility.Collapsed : Visibility.Visible;
+        Grid.SetColumn(DetailsModified, folder ? 0 : 1);
+        UpdateFolderStatsContext(folder ? row?.File.Resource : null);
+        DetailsModifiedText.Text = row?.Modified ?? "—";
+        DetailsCreatedText.Text = row?.File.Created is { } created ? created.LocalDateTime.ToString("yyyy/M/d HH:mm", System.Globalization.CultureInfo.CurrentCulture) : "—";
+        DetailsLocationButton.IsEnabled = row is not null && !_connecting;
+        DetailsChecksumButton.IsEnabled = CanChecksumSelection;
+        DetailsRefreshButton.IsEnabled = row is not null && !_connecting;
+        DetailsPath.Text = row?.File.Resource.DisplayPath ?? "";
+        DetailsOpenButton.IsEnabled = row is not null && !_connecting;
+        DetailsFileIcon.IconName = row?.IconName ?? "file";
+        DetailsCopyButton.IsEnabled = CanCaptureClipboard(FileTransferAction.Copy);
+        DetailsCutButton.IsEnabled = CanCaptureClipboard(FileTransferAction.Move);
+        DetailsRenameButton.IsEnabled = row is not null && CanWrite(p => p.Rename);
+        DetailsMoveButton.IsEnabled = row is not null && CanWrite(p => p.Rename && p.Create);
+        DetailsTrashButton.IsEnabled = row is not null && CanWrite(p => p.Delete);
+        CollectionsButton.IsEnabled = !_connecting && _session is not null && _collections is not null;
+        SidebarCollections.IsEnabled = CollectionsButton.IsEnabled;
+        MenuShareManagerItem.IsEnabled = !_connecting && _session is { } shareSession && shareSession.Permissions.Share && shareSession.Permissions.Download && _files is IShareService;
+        UpdateCollectionsContext(); UpdateCollectionActions(); UpdateBrowserCommands(); UpdateUploadContext(); UpdateDownloadContext(); UpdateRecentAccessContext(); UpdateRemoteToolsContext(); UpdateChecksumContext(); UpdateShareContext(); UpdateMediaInfoContext(); UpdateCacheGalleryContext();
+        UpdateServerSettingsContext();
+        UpdateApplicationMenus();
+    }
+    private void ViewMode_Click(object sender, RoutedEventArgs e)
+    {
+        if (_applyingPreferences || sender is not FrameworkElement { Tag: string mode } || !Enum.TryParse<BrowserViewMode>(mode, out var view)) return;
+        ChangeBrowserPreferences(_browserPreferences with { ViewMode = view });
+    }
+    private void IconSize_Click(object sender, RoutedEventArgs e)
+    {
+        if (_applyingPreferences || sender is not FrameworkElement { Tag: string value } || !Enum.TryParse<BrowserIconSize>(value, out var size)) return;
+        ChangeBrowserPreferences(_browserPreferences.ViewMode == BrowserViewMode.WindowsIcons ? _browserPreferences with { WindowsIconSize = size } : _browserPreferences with { CompactGridSize = size });
+    }
+    private void ChangeBrowserPreferences(BrowserPreferences preferences)
+    {
+        ++_preferenceRevision; _browserPreferences = preferences; ApplyBrowserPresentation(); RebuildPresentation(); QueuePreferenceSave();
+    }
+    private void ApplyBrowserPresentation()
+    {
+        ClearFileMoveDrag();
+        if (FileList is null) return;
+        var selected = ActiveFiles.SelectedItems.Cast<FileRow>().Select(row => row.File.Resource).ToHashSet();
+        _changingView = true;
+        _applyingPreferences = true;
+        try
+        {
+            var mode = _browserPreferences.ViewMode;
+            var grid = mode != BrowserViewMode.Details;
+            FileGrid.Visibility = grid ? Visibility.Visible : Visibility.Collapsed;
+            FileList.Visibility = ListHeader.Visibility = grid ? Visibility.Collapsed : Visibility.Visible;
+            FileGrid.ItemTemplate = (DataTemplate)Resources[mode switch
+            {
+                BrowserViewMode.CompactList => "BrowserCompactListTemplate",
+                BrowserViewMode.WindowsIcons => "BrowserUnboundedGridTemplate",
+                _ => "BrowserGridTemplate",
+            }];
+            FileGrid.ItemContainerStyle = (Style)Resources[mode == BrowserViewMode.WindowsIcons
+                ? "BrowserUnboundedGridItemStyle" : "BrowserGridItemStyle"];
+            MosaicViewItem.IsChecked = mode == BrowserViewMode.Mosaic; CompactGridViewItem.IsChecked = mode == BrowserViewMode.CompactGrid; WindowsIconsViewItem.IsChecked = mode == BrowserViewMode.WindowsIcons; DetailsViewItem.IsChecked = mode == BrowserViewMode.Details; CompactListViewItem.IsChecked = mode == BrowserViewMode.CompactList;
+            IconSizesMenu.Visibility = mode is BrowserViewMode.CompactGrid or BrowserViewMode.WindowsIcons ? Visibility.Visible : Visibility.Collapsed;
+            var size = mode == BrowserViewMode.WindowsIcons ? _browserPreferences.WindowsIconSize : _browserPreferences.CompactGridSize;
+            SmallIconItem.IsChecked = size == BrowserIconSize.Small; MediumIconItem.IsChecked = size == BrowserIconSize.Medium; LargeIconItem.IsChecked = size == BrowserIconSize.Large; ExtraLargeIconItem.IsChecked = size == BrowserIconSize.ExtraLarge;
+            UpdateTypeFilterMenu();
+            ViewOptionsButton.Content = mode switch { BrowserViewMode.Mosaic => "详细网格", BrowserViewMode.CompactGrid => "紧凑网格", BrowserViewMode.WindowsIcons => "无界网格", BrowserViewMode.CompactList => "紧凑列表", _ => "详细列表" };
+            UpdateSortMenu();
+            ActiveFiles.SelectedItems.Clear();
+            foreach (var row in _rows.Where(row => selected.Contains(row.File.Resource))) ActiveFiles.SelectedItems.Add(row);
+        }
+        finally { _applyingPreferences = false; _changingView = false; }
+        QueueGridMetricsUpdate();
+        _thumbnailController.RefreshVisibility();
+        UpdateSelection();
+    }
+    private void QueueGridMetricsUpdate()
+    {
+        // Changing the template can retire ItemsPanelRoot until the next layout.
+        // One pending handler applies the latest preference to the new panel.
+        FileGrid.LayoutUpdated -= FileGrid_LayoutUpdated;
+        FileGrid.LayoutUpdated += FileGrid_LayoutUpdated;
+        FileGrid.InvalidateMeasure();
+    }
+    private void FileGrid_LayoutUpdated(object? sender, object e)
+    {
+        if (_disposed || FileGrid.Visibility != Visibility.Visible)
+        { FileGrid.LayoutUpdated -= FileGrid_LayoutUpdated; return; }
+        if (FileGrid.ItemsPanelRoot is not ItemsWrapGrid) return;
+        FileGrid.LayoutUpdated -= FileGrid_LayoutUpdated;
+        UpdateGridMetrics();
+    }
+    private void BrowserTextScaleChanged(UISettings sender, object args) => DispatcherQueue.TryEnqueue(() =>
+    {
+        if (!_disposed) QueueGridMetricsUpdate();
+    });
+
+    private void UpdateGridMetrics()
+    {
+        if (FileGrid.ItemsPanelRoot is not ItemsWrapGrid panel) return;
+        var mode = _browserPreferences.ViewMode;
+        var size = mode == BrowserViewMode.WindowsIcons ? _browserPreferences.WindowsIconSize : _browserPreferences.CompactGridSize;
+        var visual = FileRow.IconSize(mode, size);
+        // GridViewItem keeps its 4px side margins inside the ItemsWrapGrid slot, so
+        // the slot pitch equals ItemWidth. Splitting the viewport exactly by the
+        // column count keeps the outer margins symmetric and leaves no trailing strip.
+        if (FilesArea.ActualWidth <= 0) return;
+        // The GridView viewport loses this strip to its vertical scrollbar once
+        // content overflows; excluding it keeps the last column from wrapping.
+        const double scrollbarAllowance = 10;
+        var available = Math.Max(1, FilesArea.ActualWidth - scrollbarAllowance);
+        var textScale = Math.Max(1, _browserTextSettings.TextScaleFactor);
+        if (mode == BrowserViewMode.CompactList)
+        {
+            var columns = available >= 650 + (textScale - 1) * 160 ? 2 : 1;
+            panel.ItemWidth = Math.Max(1, available / columns);
+        }
+        else
+        {
+            var preferred = mode == BrowserViewMode.Mosaic ? 180 : mode == BrowserViewMode.WindowsIcons ? size switch { BrowserIconSize.Small => 112, BrowserIconSize.Large => 224, BrowserIconSize.ExtraLarge => 288, _ => 160 } : size switch { BrowserIconSize.Small => 100, BrowserIconSize.Large => 168, BrowserIconSize.ExtraLarge => 228, _ => 124 };
+            var textWidth = mode == BrowserViewMode.Mosaic ? 128 : 80;
+            var targetWidth = Math.Max(preferred, 20 + textWidth * textScale);
+            var columns = Math.Max(1, (int)(available / targetWidth));
+            panel.ItemWidth = Math.Max(1, available / columns);
+        }
+        // Grow the text region with accessibility scaling while keeping the chosen icon size.
+        var (height, textHeight) = mode switch
+        {
+            BrowserViewMode.CompactList => (64d, 36d),
+            BrowserViewMode.Mosaic => (216d, 56d),
+            _ => (visual + 96, 40d),
+        };
+        panel.ItemHeight = mode == BrowserViewMode.WindowsIcons
+            ? visual + 48 + MeasureUnboundedNameHeight(panel.ItemWidth, textScale)
+            : height + Math.Ceiling((textScale - 1) * textHeight);
+    }
+
+    private double MeasureUnboundedNameHeight(double itemWidth, double textScale)
+    {
+        var key = (Math.Max(1, Math.Floor(itemWidth) - 40), textScale, _unboundedRowsRevision);
+        if (_unboundedMeasureKey == key) return _unboundedNameHeight;
+        // Reserve both the container and template insets when measuring wrapped names.
+        _unboundedNameMeasure.FontSize = 13.5 * textScale;
+        _unboundedNameMeasure.IsTextScaleFactorEnabled = false;
+        var available = new Windows.Foundation.Size(key.Item1, double.PositiveInfinity);
+        double height = 20 * textScale;
+        foreach (var row in _rows)
+        {
+            _unboundedNameMeasure.Text = row.Name;
+            _unboundedNameMeasure.Measure(available);
+            height = Math.Max(height, _unboundedNameMeasure.DesiredSize.Height);
+        }
+        _unboundedMeasureKey = key;
+        return _unboundedNameHeight = Math.Ceiling(height);
+    }
+    private void RebuildPresentation() => ApplyFilter(rebuild: true);
+
+    private RemoteFile[] GetSortedFiles()
+    {
+        var orderKey = (_browserPreferences.SortBy, _browserPreferences.Descending);
+        if (_sortedItems is not null && _sortedOrder == orderKey) return _sortedItems;
+        var comparer = Comparer<RemoteFile>.Create((left, right) =>
+        {
+            if (left.IsDirectory != right.IsDirectory) return left.IsDirectory ? -1 : 1;
+            var order = orderKey.SortBy switch
+            {
+                FileSortField.Size => left.Size.CompareTo(right.Size),
+                FileSortField.Modified => Nullable.Compare(left.Modified, right.Modified),
+                FileSortField.Type => StringComparer.OrdinalIgnoreCase.Compare(left.MediaType, right.MediaType),
+                _ => StringComparer.OrdinalIgnoreCase.Compare(left.Resource.DisplayName, right.Resource.DisplayName),
+            };
+            if (order == 0) order = StringComparer.Ordinal.Compare(left.Resource.WirePath, right.Resource.WirePath);
+            return orderKey.Descending ? -Math.Sign(order) : order;
+        });
+        _sortedOrder = orderKey;
+        return _sortedItems = _items.OrderBy(item => item, comparer).ToArray();
+    }
+
+    private sealed class BrowserRows : ObservableCollection<FileRow>
+    {
+        internal void ReplaceAll(IEnumerable<FileRow> rows)
+        {
+            CheckReentrancy();
+            Items.Clear();
+            foreach (var row in rows) Items.Add(row);
+            OnPropertyChanged(new PropertyChangedEventArgs(nameof(Count)));
+            OnPropertyChanged(new PropertyChangedEventArgs("Item[]"));
+            OnCollectionChanged(new NotifyCollectionChangedEventArgs(NotifyCollectionChangedAction.Reset));
+        }
+    }
+    private async Task ReadBrowserPreferencesAsync(RemoteResourceRef directory, ConnectionSession session, long generation, long revision, CancellationToken token)
+    {
+        if (_browserPreferencesService is not { } service) return;
+        bool CurrentRead() => !_disposed && !token.IsCancellationRequested && _generation == generation && _preferenceRevision == revision && _directory == directory && _session?.Id == session.Id && _session.Account == session.Account;
+        try
+        {
+            await _preferenceSaves;
+            if (!CurrentRead()) return;
+            var preferences = await service.ReadBrowserPreferencesAsync(directory, token);
+            if (!CurrentRead()) return;
+            _browserPreferences = preferences; ApplyBrowserPresentation(); RebuildPresentation();
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception) { if (CurrentRead()) SetNotice("视图偏好未能读取", "已使用默认视图；仍可继续浏览和调整布局。", InfoBarSeverity.Warning); }
+    }
+    private void QueuePreferenceSave()
+    {
+        if (_browserPreferencesService is not { } service || _directory is not { } directory || _session is not { } session) return;
+        var previous = _preferenceSaves;
+        var preferences = _browserPreferences; var revision = _preferenceRevision; var generation = _generation;
+        _preferenceSaves = SaveAfterPreviousAsync();
+        async Task SaveAfterPreviousAsync()
+        {
+            await previous;
+            if (_disposed || _session?.Id != session.Id || _session.Account != session.Account) return;
+            try { await service.SaveBrowserPreferencesAsync(directory, preferences, _lifetime.Token); }
+            catch (OperationCanceledException) { }
+            catch (Exception)
+            {
+                if (!_disposed && _session?.Id == session.Id && _session.Account == session.Account && _directory == directory && _generation == generation && _preferenceRevision == revision)
+                    SetNotice("视图偏好未保存", "本次已应用，未保存。可以继续浏览，稍后调整视图时会再次保存。", InfoBarSeverity.Warning);
+            }
+        }
+    }
+    private void UpdateThumbnailContext()
+    {
+        var visible = !_connecting && ConnectionPanel.Visibility != Visibility.Visible && Workspace.Visibility == Visibility.Visible;
+        _thumbnailController.SetContext(visible ? _thumbnails : null, visible ? _session : null);
+    }
+    private void SetDetailsVisible(bool visible)
+    {
+        if (!visible) { _detailsPopup?.Dispose(); _detailsPopup = null; _detailsVisible = false; UpdateFolderStatsContext(null); return; }
+        if (_detailsPopup is not null || _storageOwnerHwnd == 0 || XamlRoot is null) return;
+        _detailsVisible = true; DetailsPanel.Visibility = Visibility.Visible;
+        try
+        {
+            _detailsPopup = new MediaSurfaces.PlayerSettingsWindow(_storageOwnerHwnd, DetailsPanel, null,
+                () => { _detailsPopup = null; _detailsVisible = false; UpdateFolderStatsContext(null); if (!_disposed) UpdateApplicationMenus(); },
+                theme: ActualTheme == ElementTheme.Dark ? ElementTheme.Dark : ElementTheme.Light, wrapContent: false, lightDismiss: false, movable: true);
+            _detailsPopup.Title = "详细信息";
+            _detailsPopup.ShowCentered();
+        }
+        catch (Exception) { _detailsPopup?.Dispose(); _detailsPopup = null; _detailsVisible = false; SetNotice("详情未能打开", "请重新选择项目后重试。", InfoBarSeverity.Warning); }
+    }
+    private void BrowserBody_SizeChanged(object sender, SizeChangedEventArgs e) { UpdateDetailsLayout(); UpdateGridMetrics(); }
+    private void FilesArea_SizeChanged(object sender, SizeChangedEventArgs e) => UpdateGridMetrics();
+    private void UpdateDetailsLayout()
+    {
+        if (DetailsColumn is null) return;
+        DetailsColumn.Width = new GridLength(0);
+        DetailsRow.Height = new GridLength(0);
+    }
+    private void ApplyTheme()
+    {
+        if (Shell is null) return;
+        var theme = _applicationTheme;
+        if (XamlRoot?.Content is FrameworkElement windowRoot) windowRoot.RequestedTheme = theme;
+        Shell.RequestedTheme = theme;
+        if (_uploadDialog is not null) _uploadDialog.RequestedTheme = theme;
+        if (_downloadDialog is not null) _downloadDialog.RequestedTheme = theme;
+        foreach (var window in _imageWindows) window.SetTheme(theme);
+        UpdateApplicationMenus();
+    }
+    private void Workspace_SizeChanged(object sender, SizeChangedEventArgs e) { UpdateDetailsLayout(); }
+}
+
+public sealed record ConnectionChoice(SavedConnection Saved)
+{
+    public string DisplayName => string.Equals(Saved.Profile.DisplayName, Saved.Profile.BaseAddress.Host, StringComparison.OrdinalIgnoreCase)
+        ? DefaultDisplayName(Saved.Profile.BaseAddress) : Saved.Profile.DisplayName;
+
+    public string Label => string.IsNullOrWhiteSpace(Saved.Username)
+        ? $"{DisplayName} · 无需认证"
+        : $"{DisplayName} · {Saved.Username}";
+
+    internal static string DefaultDisplayName(Uri address) =>
+        System.Net.IPAddress.TryParse(address.IdnHost, out var ip)
+            ? System.Net.IPAddress.IsLoopback(ip) ? "本地文件空间" : "服务器文件空间"
+            : address.IdnHost;
+    public override string ToString() => "ConnectionChoice (profile redacted)";
+}
+
+public sealed class FileRow(RemoteFile file, BrowserPreferences? preferences = null)
+{
+    private readonly BrowserPreferences _presentation = preferences ?? new();
+    internal static readonly HashSet<string> ImageExtensions = FileTypePresentation.ImageExtensions;
+    internal static readonly HashSet<string> AudioExtensions = new(StringComparer.OrdinalIgnoreCase) { ".mp3", ".flac", ".wav", ".aac", ".ogg", ".opus", ".m4a", ".wma", ".ape", ".mka", ".aiff" };
+    internal static readonly HashSet<string> TextExtensions = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ".txt", ".md", ".markdown", ".log", ".json", ".xml", ".yaml", ".yml", ".toml", ".ini", ".cfg", ".conf",
+        ".csv", ".tsv", ".srt", ".ass", ".vtt", ".lrc", ".py", ".cs", ".go", ".js", ".ts", ".c", ".h", ".cpp",
+        ".hpp", ".java", ".kt", ".rs", ".sh", ".bat", ".cmd", ".ps1", ".sql", ".html", ".htm", ".css", ".properties",
+    };
+    public RemoteFile File { get; } = file;
+    public string Name => File.Resource.DisplayName;
+    public bool IsImage => !File.IsDirectory && FileTypePresentation.IsImage(Path.GetExtension(Name), File.MediaType);
+    public bool IsVideo => !File.IsDirectory && FileTypePresentation.IsVideo(Path.GetExtension(Name), File.MediaType);
+    public bool IsAudio => !File.IsDirectory && (FileTypePresentation.HasAudioMediaType(File.MediaType) || AudioExtensions.Contains(Path.GetExtension(Name)));
+    public bool IsMedia => IsVideo || IsAudio;
+    public bool IsText => !File.IsDirectory && (File.MediaType?.StartsWith("text/", StringComparison.OrdinalIgnoreCase) == true ||
+        !IsMedia && File.Size <= 4 * 1024 * 1024 && TextExtensions.Contains(Path.GetExtension(Name)));
+    public string Glyph => File.IsDirectory ? "\uE8B7" : IsImage ? "\uEB9F" : IsVideo ? "\uE714" : "\uE8A5";
+    public string IconName => FileTypePresentation.ResolveIconName(Name, File.IsDirectory, File.MediaType);
+    public string Kind => File.IsDirectory ? "文件夹" : IsImage ? "图片" : IsVideo ? "视频" : IsAudio ? "音频" : IsText ? "文本" : string.IsNullOrEmpty(Path.GetExtension(Name)) ? "文件" : Path.GetExtension(Name).TrimStart('.').ToUpperInvariant() + " 文件";
+    public string Size => File.IsDirectory ? "—" : FormatSize(File.Size);
+    public string Summary => File.IsDirectory ? Kind : $"{Kind} · {Size}";
+    public string Metadata => $"{Kind} · {Size} · {Modified}";
+    public Visibility GridMetadataVisibility => _presentation.ViewMode == BrowserViewMode.Mosaic ? Visibility.Visible : Visibility.Collapsed;
+    public double VisualSize => IconSize(_presentation.ViewMode, _presentation.ViewMode == BrowserViewMode.WindowsIcons ? _presentation.WindowsIconSize : _presentation.CompactGridSize);
+    public override string ToString() => Name;
+    public static double IconSize(BrowserViewMode mode, BrowserIconSize size) => mode == BrowserViewMode.Mosaic ? 72 : mode == BrowserViewMode.WindowsIcons
+        ? size switch { BrowserIconSize.Small => 48, BrowserIconSize.Large => 160, BrowserIconSize.ExtraLarge => 256, _ => 96 }
+        : size switch { BrowserIconSize.Small => 48, BrowserIconSize.Large => 104, BrowserIconSize.ExtraLarge => 156, _ => 72 };
+    public static (string Glyph, string Kind) NameTypeHint(string name)
+    {
+        var extension = Path.GetExtension(name);
+        return ImageExtensions.Contains(extension) ? ("\uEB9F", "图片") : FileTypePresentation.VideoExtensions.Contains(extension) ? ("\uE714", "视频") : string.IsNullOrEmpty(extension) ? ("\uE8B7", "文件或文件夹") : ("\uE8A5", extension.TrimStart('.').ToUpperInvariant() + " 文件");
+    }
+    private static readonly Dictionary<BrowserFileTypeFilter, HashSet<string>> TypeExtensions = new()
+    {
+        [BrowserFileTypeFilter.Image] = new(["jpg", "jpeg", "png", "gif", "webp", "bmp", "svg", "avif"], StringComparer.OrdinalIgnoreCase),
+        [BrowserFileTypeFilter.Audio] = new(["mp3", "m4a", "aac", "flac", "wav", "ogg", "opus"], StringComparer.OrdinalIgnoreCase),
+        [BrowserFileTypeFilter.Video] = new(["mp4", "mkv", "avi", "mov", "webm", "m4v", "ts"], StringComparer.OrdinalIgnoreCase),
+        [BrowserFileTypeFilter.Pdf] = new(["pdf"], StringComparer.OrdinalIgnoreCase),
+        [BrowserFileTypeFilter.Markdown] = new(["md", "markdown", "mdown", "mkd"], StringComparer.OrdinalIgnoreCase),
+        [BrowserFileTypeFilter.Config] = new(["json", "json5", "yaml", "yml", "toml", "ini", "conf", "config", "env", "xml", "properties"], StringComparer.OrdinalIgnoreCase),
+        [BrowserFileTypeFilter.Code] = new(["java", "py", "go", "js", "jsx", "ts", "tsx", "vue", "rs", "c", "h", "cpp", "hpp", "cs", "php", "rb", "kt", "kts", "swift", "sh", "ps1", "sql"], StringComparer.OrdinalIgnoreCase),
+    };
+    public static bool MatchesType(RemoteFile file, BrowserFileTypeFilter filter)
+    {
+        if (filter == BrowserFileTypeFilter.All) return true;
+        if (file.IsDirectory || !TypeExtensions.TryGetValue(filter, out var extensions)) return false;
+        var name = file.Resource.DisplayName;
+        var extension = name.StartsWith('.') && !name.AsSpan(1).Contains('.') ? name[1..] : name.LastIndexOf('.') is var index && index >= 0 ? name[(index + 1)..] : "";
+        return extensions.Contains(extension);
+    }
+    public string Modified => File.Modified?.LocalDateTime.ToString("yyyy/M/d HH:mm", System.Globalization.CultureInfo.CurrentCulture) ?? "—";
+    private static string FormatSize(long bytes) => bytes < 1024 ? $"{bytes} B" : bytes < 1024 * 1024 ? $"{bytes / 1024d:0.#} KB" : bytes < 1024L * 1024 * 1024 ? $"{bytes / (1024d * 1024):0.#} MB" : $"{bytes / (1024d * 1024 * 1024):0.#} GB";
+}

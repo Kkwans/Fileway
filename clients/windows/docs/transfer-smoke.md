@@ -1,0 +1,175 @@
+# Native single-file transfer smoke
+
+`eng/Test-TransferSmoke.ps1` drives the real built Windows App and Go Host against
+the repository's real server. It never substitutes a mock API for a transfer or
+uses a NAS, personal computer, password, saved login or external server.
+
+## Inputs and isolation
+
+Use a disposable Windows CI runner with an unlocked interactive desktop, the
+hash-pinned winapp CLI 0.7.1 and the normal built native application/Go Host. Run
+the PowerShell parser and offline source guards before provisioning. Run true
+preflight before the application build; the full journey repeats it.
+
+Transfer CI does not download or probe mpv/media: this journey never opens media,
+and the playback service constructs its native library lazily and disposes it
+only if created. The ordinary non-publishing App build supports an absent media
+directory. Real App/server/UI/byte checks and normal shutdown remain mandatory.
+This CI does not cover playback or media packaging; the separate player smoke
+keeps its complete hash-locked media restore, probe and real playback validation.
+
+```powershell
+./eng/Test-TransferSmoke.ps1 -PreflightOnly -WinAppPath $winapp -OutputRoot $evidence
+# From server/backend, using the repository's isolated Go environment:
+go build -o $serverExe .
+# From clients/windows, after the normal native App/Host build:
+./eng/Test-TransferSmoke.ps1 -AppPath $appExe -ServerPath $serverExe -WinAppPath $winapp -OutputRoot $evidence
+```
+
+All executable paths and the evidence directory must be absolute. Evidence must
+be new/empty or contain only the successful preflight's fixed allowlist. Private
+runtime state is a newly generated temporary directory outside Git. The server
+binds only `127.0.0.1`, uses a private database/root/HLS directory, noauth and
+disabled execution/previews. Inherited `FB_*` configuration is removed. Quick
+setup's unused password and all server output are drained without retention.
+
+`server/backend/frontend/assets.go` embeds the tracked `dist/README.txt`, so the
+native-only API server can compile without generated Web assets. The static
+index is loaded when requested, not to serve `/health` or the native APIs. This
+smoke is not Web packaging validation; normal unified-server CI builds and
+embeds the actual Web artifact. Server build, ready probe and APIs must pass on
+the actual Windows runner; source inspection alone is not runtime evidence.
+
+The App's existing `FILEWAY_WINDOWS_DATA_ROOT` isolates its database and private
+credentials directory. UI connects to the synthetic server using noauth with
+keep-signed-in off and explicit HTTP consent. The actual Downloads Known Folder
+must already exist and be usable. A unique `fileway-ci-<random>.bin` name is
+checked absent before submitting. The App must show that exact default target
+in its native confirmation; no setting, safety guard or destination is changed.
+
+## Verified journey
+
+1. True native desktop/UIA/three-color pixel preflight, reused from player smoke.
+2. Native single-file picker, upload confirmation to remote root, completed UI
+   and exact one-MiB deterministic payload length/SHA256 in the server root.
+3. Native row selection and download confirmation, completed UI and matching
+   length/SHA256 at the explicitly confirmed local target.
+4. Repeated download produces the real local-name conflict and preserves bytes.
+5. From the same selected remote file, invoke the native context menu and
+   choose Download Save As. Enter a different unique local leaf name, prepare
+   read-only, observe the exact remote name/local name/Active directory preview,
+   then explicitly start. Require completed UI, matching local one-MiB SHA256
+   and unchanged original remote bytes. The existing local file stays untouched.
+6. Same-name upload of different synthetic bytes produces the real remote-name
+   conflict and preserves the original bytes. Recheck the one-MiB length and
+   SHA256 of all three remote/local/Save As copies after both conflict journeys.
+7. Read-only transfer center shows the observed completed/conflict upload and
+   download records, without selecting a record or starting recovery work.
+8. Normal application close and owned Host exit both return zero within budgets.
+
+Only explicit UI actions initiate transfers. HTTP is used solely for `/health`.
+UIA selectors are freshly inspected and required to be unique, enabled and
+visible; mismatched actual UI fails rather than guessing a coordinate. Inspection
+collapses repeated entries only when their exact selector and
+type/name/enabled/offscreen/automation-id metadata agree. Different selectors remain distinct;
+conflicting metadata for one selector fails without choosing an arbitrary entry.
+On short desktops, the connection submit button can sit below the viewport.
+The harness selects its unique enabled identity, uses the pinned CLI's UIA
+`scroll --to bottom` against its scrollable ancestor, checks the response, then
+freshly inspects and invokes only a visible enabled button. This does not use
+coordinates or invoke an offscreen control; the default connection layout's
+need to scroll remains a separate product usability issue.
+Nullable/omitted UIA names are excluded from dialog-title/close candidates;
+dialog closing still requires one matching dialog subtree and one enabled
+visible Close button. Unexpected harness errors retain only fixed numeric
+strict-property/variable/invalid-argument category flags, never exception text.
+The transfer center's ToggleButton download tab is activated with one real Space
+key targeted at its freshly inspected unique visible enabled identity. The
+pinned CLI verifies target focus/foreground for `send-input`; its returned
+window/target/key/action-count/warnings and the freshly selected toggle state
+must match before observing download records. It does not request an unsupported
+InvokePattern or guess a coordinate.
+Stage polls, CLI commands, startup and shutdown are bounded. An application or Host
+nonzero exit fails the journey even if screenshots and byte checks succeeded.
+Forced teardown after failure does not satisfy normal shutdown.
+After recording an original journey failure, the harness also attempts bounded
+normal close on its already-owned App/Host processes and records numeric exit
+outcomes as diagnostics. These observations never mark that journey passed or
+replace its original failure; forced cleanup still follows if required.
+
+Cancel, resume, pause, uncertain publish/cleanup and local-reconcile UI paths are
+not exercised here. Reports keep cancellation/unknown UI verification false.
+Small loopback payloads can finish before intermediate progress is observed;
+this deterministic journey validates real confirmation/terminal/conflict states,
+not a fabricated activity phase or a probabilistic large-file cancellation.
+
+## Evidence and cleanup
+
+Upload only `report.json`, `events.jsonl` and the script's explicitly named PNGs
+under `screenshots`. Captures are confined to the verified owned App HWND and
+use player smoke's tested foreground/foreign-window safety checks. Never capture
+the system picker. Do not upload UIA trees, CLI output, exception text, paths,
+URLs, databases, logs, Host capabilities or tokens. Reports contain fixed stage
+codes, byte counts, hash equality and exit-code checks, not raw runtime data.
+Connection actions have fixed individual stage codes. An ambiguous control
+records only numeric match/unique-selector counts and control-type counts.
+Upload/picker and download actions have fixed individual substages. Ambiguous
+picker matches additionally record only numeric counts for the standard common
+dialog filename/accept automation identifiers; they never choose the first
+candidate, retain identifiers/paths or export picker contents.
+Live progress can update one selector's metadata during an inspection. Only
+that fixed metadata-conflict error triggers a fresh whole-tree read, with at
+most three inspections. Inconsistent trees and partial output are discarded;
+they are never merged. A third conflict and every other error remain failures.
+All target selection and actions still require a fresh metadata-consistent tree.
+The picker accept action requires the freshly inspected exact owned picker HWND,
+an enabled visible Button with the original Open label and standard `IDOK=1`
+automation identifier. Other Open-labelled shell/navigation buttons are ignored;
+zero or multiple accept identities fail before invoking anything.
+`connect-failure.png` is allowed only when the isolated synthetic App fails on
+its connection/browser-ready surface; the same owned-window/foreground guards
+apply. It may show the synthetic name and local loopback address, never a picker,
+foreign window or a raw UIA tree. Failure capture never turns a failed run into a
+pass; a rejected capture records only a numeric saved/not-saved observation.
+`connect-ready.png` captures the same isolated synthetic connection page after
+NoAuth/HTTP consent and revealing the submit button, before connecting. The two
+`transfer-center-*.png` captures require the real completed/conflict statuses
+after all original transfer/conflict checks plus Save As byte verification. All use the same owned-App guards.
+`upload-result-failure.png` is confined to the synthetic owned App's upload-result
+surface, with fixed known-status presence flags. The original expected-status
+failure remains a failure even if capture or diagnostic close succeeds.
+
+`download-save-as-confirm.png` requires the actual two-phase native editor's
+confirmed source, new local name and exact Active target. The completed capture
+requires the real completed status and same target. The action opens the
+standard context flyout through focused `shift+f10`, then chooses the fresh,
+unique enabled Save As menu item. No remote rename or full destination path is
+submitted to the product; it receives only a different local filename.
+The menu-only action first inspects that exact selector with pinned winapp
+`ui inspect --ancestors`. Its sole `windows[].hwnd` must have the same owned
+App PID and belong to the main HWND's owner family, and its target's selector
+and metadata must still match. Invocation is then scoped to this preverified
+popup HWND and must report that same handle and `invoke`. The usual main-window
+action guard remains unchanged. Missing/ambiguous context, changed metadata,
+foreign ownership or a mismatched result fails before proceeding to the editor.
+`download-save-as-menu-failure.png` is allowed only at the fixed row-selection,
+context-key or menu-choice failure phases, using the same exact owned-main
+capture guards. Invoke mismatch diagnostics contain only fixed window-owner
+and known-action boolean flags, never handles, selectors or UIA data. Their
+original strict HWND/action acceptance condition remains unchanged.
+`saveAsUiVerified` is true only after the complete journey and normal exit.
+
+Manual file checksum UI was removed from product scope. This journey has no
+checksum menu/dialog action, screenshot or dedicated source acceptance gate.
+Reports retain `checksumUiVerified=false` for existing consumers and explicitly
+set `checksumUiExclusionReason=product_scope_removed`, including on a passed
+transfer run. The popup helper accepts only the fixed Save As menu label.
+The independent SHA256 byte-integrity checks for upload, download, Save As and
+conflict preservation remain mandatory and do not verify a manual checksum UI.
+
+No file is recursively or wildcard-deleted. Unique synthetic input, private
+server/App state and the exact downloaded file are left on the disposable runner
+for its normal teardown; unrelated Downloads entries are neither inspected nor
+modified. A failed environment preflight is reported as environment-blocked,
+not as a passing transfer. A passed offline source test does not establish that
+PowerShell parsed or the native journey ran; those are separate CI gates.

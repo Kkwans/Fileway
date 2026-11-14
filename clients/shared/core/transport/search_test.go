@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -116,7 +117,7 @@ func TestSearchDistinguishesSummaryAndTransportFailures(t *testing.T) {
 				w.Header().Set("Content-Type", "application/x-ndjson")
 				fmt.Fprint(w, tc.body)
 			})
-			id, err := b.StartSearch(context.Background(), owner, "/", "", "film", "current")
+			id, err := b.StartSearch(context.Background(), owner, "/", "", "film", "recursive")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -254,5 +255,88 @@ func TestSearchRenewAndHTTPPermissionState(t *testing.T) {
 	batch = nextSearchBatch(t, b, owner, id)
 	if !batch.Done || batch.State != "failed" || batch.HTTPStatus != 403 || strings.Contains(batch.Failure, "private server details") {
 		t.Fatal(batch)
+	}
+}
+
+func TestSearchWireIdentityIsBoundToBaseAndScope(t *testing.T) {
+	for _, tc := range []struct {
+		name, base, scope, relative, wire string
+		verified, valid                   bool
+	}{
+		{"opaque-child", "/%FF", "current", "item�.bin", "/%ff/item%FE.bin", true, true},
+		{"other-opaque-child-same-display", "/%FF", "current", "item�.bin", "/%FF/item%FF.bin", true, true},
+		{"percent-plus", "/%FF", "current", "literal%2F+.bin", "/%ff/literal%252F%2B.bin", true, true},
+		{"recursive", "/base", "recursive", "sub/child.bin", "/base/sub/child.bin", true, true},
+		{"current-nested", "/base", "current", "sub/child.bin", "/base/sub/child.bin", true, false},
+		{"foreign-base", "/base", "current", "child.bin", "/other/child.bin", true, false},
+		{"base-prefix-alias", "/base", "current", "child.bin", "/base-other/child.bin", true, false},
+		{"case-is-identity", "/base", "current", "child.bin", "/Base/child.bin", true, false},
+		{"display-contradicts-wire", "/base", "current", "child.bin", "/base/other.bin", true, false},
+		{"encoded-slash", "/base", "current", "child.bin", "/base/child%2F.bin", true, false},
+		{"encoded-traversal", "/base", "current", "child.bin", "/base/%2E%2E/child.bin", true, false},
+		{"nul", "/base", "current", "child.bin", "/base/child%00.bin", true, false},
+		{"unverified-wire", "/base", "current", "child.bin", "/base/child.bin", false, false},
+		{"verified-without-wire", "/base", "current", "child.bin", "", true, false},
+		{"legacy-utf8", "/base", "current", "literal%2F+.bin", "", false, true},
+		{"legacy-opaque-display", "/base", "current", "item�.bin", "", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base, err := searchWireIdentity(tc.base)
+			if err != nil {
+				t.Fatal(err)
+			}
+			parts := strings.Split(tc.relative, "/")
+			stream := searchStream{base: base, scope: tc.scope}
+			item := SearchItem{Path: tc.relative, Name: parts[len(parts)-1], WirePath: tc.wire, PathVerified: tc.verified}
+			if got := stream.validItem(item); got != tc.valid {
+				t.Fatalf("validItem()=%v, want %v", got, tc.valid)
+			}
+		})
+	}
+}
+
+func TestSearchAdditiveWireSurvivesPollingAndLegacyDecoding(t *testing.T) {
+	const body = `{"type":"result","item":{"path":"item�.bin","name":"item�.bin","size":12,"wirePath":"/%FF/item%FE.bin","pathVerified":true}}` + "\n" + `{"type":"summary","reason":"completed","count":1}`
+	b, owner := searchFixture(t, func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/x-ndjson")
+		_, _ = io.WriteString(w, body)
+	})
+	id, err := b.StartSearch(context.Background(), owner, "", "/%ff", "item", "current")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var items []SearchItem
+	for {
+		batch := nextSearchBatch(t, b, owner, id)
+		items = append(items, batch.Items...)
+		if batch.Done {
+			if batch.State != "finished" || batch.Count != 1 {
+				t.Fatal(batch)
+			}
+			break
+		}
+	}
+	if len(items) != 1 || !items[0].PathVerified || items[0].WirePath != "/%FF/item%FE.bin" {
+		t.Fatal("wire metadata was lost by the shared DTO", items)
+	}
+	encoded, err := json.Marshal(items[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var legacy struct {
+		Path string `json:"path"`
+		Name string `json:"name"`
+		Size int64  `json:"size"`
+	}
+	if json.Unmarshal(encoded, &legacy) != nil || legacy.Path != "item�.bin" || legacy.Name != "item�.bin" || legacy.Size != 12 {
+		t.Fatal("additive fields changed the old search decoder shape")
+	}
+}
+
+func TestSearchRejectsInvalidBaseBeforeContactingSource(t *testing.T) {
+	for _, wire := range []string{"/base/%2F", "/base/%00", "/base/%2E%2E", "/base//child", "/base/"} {
+		if _, err := SearchEndpoint("", wire, "item", "current"); err == nil {
+			t.Fatalf("accepted invalid search base %q", wire)
+		}
 	}
 }

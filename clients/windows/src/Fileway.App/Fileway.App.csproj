@@ -1,0 +1,126 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.22000.0</TargetPlatformMinVersion>
+    <RootNamespace>Fileway.App</RootNamespace>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon Condition="Exists('Assets\AppIcon.ico')">Assets\AppIcon.ico</ApplicationIcon>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <PublishProfile Condition="Exists('Properties\PublishProfiles\win-$(Platform).pubxml')">win-$(Platform).pubxml</PublishProfile>
+    <UseWinUI>true</UseWinUI>
+    <WinUISDKReferences>false</WinUISDKReferences>
+    <WindowsPackageType>None</WindowsPackageType>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <SelfContained>true</SelfContained>
+    <WindowsAppSdkBootstrapInitialize>false</WindowsAppSdkBootstrapInitialize>
+    <WindowsAppSDKDeploymentManagerInitialize>false</WindowsAppSDKDeploymentManagerInitialize>
+    <EnableMsixTooling>false</EnableMsixTooling>
+    <EnableWinAppRunSupport>false</EnableWinAppRunSupport>
+    <AppxPackageSigningEnabled>false</AppxPackageSigningEnabled>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <Version>0.9.0</Version>
+    <AssemblyVersion>0.1.0.0</AssemblyVersion>
+    <FileVersion>0.9.0.0</FileVersion>
+    <FilewayMediaRuntimeRoot Condition="'$(FilewayMediaRuntimeRoot)' == ''">$(FilewayArtifactsRoot)\media-runtime\x64</FilewayMediaRuntimeRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="Assets\SplashScreen.scale-200.png" />
+    <Content Include="Assets\LockScreenLogo.scale-200.png" />
+    <Content Include="Assets\Square150x150Logo.scale-200.png" />
+    <Content Include="Assets\Square44x44Logo.scale-200.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-24_altform-unplated.png" />
+    <Content Include="Assets\Square44x44Logo.targetsize-48_altform-lightunplated.png" />
+    <Content Include="Assets\StoreLogo.png" />
+    <Content Include="Assets\AppIcon.ico" />
+    <Content Include="Assets\Lucide\**\*" />
+    <Content Include="Assets\CodePreview\**\*" />
+    <Content Include="Assets\Wide310x150Logo.scale-200.png" />
+    <Content Update="Assets\**\*" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Manifest Include="$(ApplicationManifest)" />
+  </ItemGroup>
+
+  <!--
+    Defining the "Msix" ProjectCapability here allows the Single-project MSIX Packaging
+    Tools extension to be activated for this project even if the Windows App SDK Nuget
+    package has not yet been restored.
+  -->
+  <ItemGroup Condition="'$(DisableMsixProjectCapabilityAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+    <ProjectCapability Include="Msix"/>
+  </ItemGroup>
+
+  <!--
+    Microsoft.Windows.SDK.BuildTools.WinApp adds first-class support for
+    `dotnet run` on packaged WinUI apps: it hooks the .NET CLI Run target to
+    register a debug identity via the winapp CLI and launch the app with
+    package identity (AUMID).
+    Set <EnableWinAppRunSupport>false</EnableWinAppRunSupport> in a
+    <PropertyGroup> above to opt out.
+  -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.9169" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.5.1" />
+    <PackageReference Include="WinUIEx" Version="2.9.3" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.WinApp" Version="0.7.1" />
+    <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.4.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Fileway.Core\Fileway.Core.csproj" />
+    <ProjectReference Include="..\Fileway.Infrastructure\Fileway.Infrastructure.csproj" />
+    <ProjectReference Include="..\Fileway.Playback\Fileway.Playback.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="$(FilewayArtifactsRoot)\host\$(Configuration)\fileway-host.exe" Link="fileway-host.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(FilewayArtifactsRoot)\host\$(Configuration)\host-build.json" Link="host-build.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(FilewayArtifactsRoot)\server\$(Configuration)\fileway-server.exe" Link="fileway-server.exe" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(FilewayArtifactsRoot)\server\$(Configuration)\server-build.json" Link="server-build.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(FilewayMediaRuntimeRoot)\*.dll" Link="media\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(FilewayMediaRuntimeRoot)\runtime-lock.json" Link="media\runtime-lock.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(FilewayMediaRuntimeRoot)\runtime-lock.json')" />
+    <None Include="$(FilewayMediaRuntimeRoot)\binary-provenance.json" Link="media\binary-provenance.json" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(FilewayMediaRuntimeRoot)\binary-provenance.json')" />
+    <None Include="$(FilewayMediaRuntimeRoot)\licenses\**\*" Link="media\licenses\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(FilewayArtifactsRoot)\code-preview\ace\*.js" Link="Assets\CodePreview\ace\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(FilewayArtifactsRoot)\code-preview\ace\LICENSE" Link="licenses\Ace-BSD-3-Clause.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(FilewayArtifactsRoot)\code-preview\ace\LICENSE')" />
+    <None Include="$(FilewayArtifactsRoot)\markdown-editor-work\dist\**\*" Exclude="$(FilewayArtifactsRoot)\markdown-editor-work\dist\MarkdownEditor-LICENSE.md" Link="Assets\MarkdownEditor\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="$(FilewayArtifactsRoot)\markdown-editor-work\dist\MarkdownEditor-LICENSE.md" Link="licenses\MarkdownEditor-LICENSE.md" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('$(FilewayArtifactsRoot)\markdown-editor-work\dist\MarkdownEditor-LICENSE.md')" />
+    <None Include="..\..\licenses\**\*" Link="licenses\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\LICENSE" Link="licenses\Fileway-GPL-3.0.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <Target Name="ValidateFilewayGoBinaries" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
+    <Error Condition="!Exists('$(FilewayArtifactsRoot)\host\$(Configuration)\fileway-host.exe')" Text="Build the matching Go Host first with eng/Build-Windows.ps1 or eng/Build-GoHost.ps1." />
+    <Error Condition="!Exists('$(FilewayArtifactsRoot)\host\$(Configuration)\host-build.json')" Text="The Go Host build provenance manifest is missing." />
+    <Error Condition="!Exists('$(FilewayArtifactsRoot)\server\$(Configuration)\fileway-server.exe')" Text="Build the bundled Go server first with eng/Build-Windows.ps1 or eng/Build-GoServer.ps1." />
+    <Error Condition="!Exists('$(FilewayArtifactsRoot)\server\$(Configuration)\server-build.json')" Text="The bundled Go server provenance manifest is missing." />
+  </Target>
+
+  <Target Name="CollectFilewayXamlPublishResources" BeforeTargets="ComputeFilesToPublish">
+    <Error Condition="!Exists('$(TargetDir)$(AssemblyName).pri')" Text="Build the native application before publishing its resource index." />
+    <ItemGroup>
+      <FilewayXamlPublishResource Include="$(TargetDir)**\*.xbf;$(TargetDir)$(AssemblyName).pri" />
+      <ResolvedFileToPublish Include="@(FilewayXamlPublishResource)" RelativePath="%(RecursiveDir)%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
+
+  <!--
+    Defining the "HasPackageAndPublishMenuAddedByProject" property here allows the Solution
+    Explorer "Package and Publish" context menu entry to be enabled for this project even if
+    the Windows App SDK Nuget package has not yet been restored.
+  -->
+  <PropertyGroup Condition="'$(DisableHasPackageAndPublishMenuAddedByProject)'!='true' and '$(EnableMsixTooling)'=='true'">
+    <HasPackageAndPublishMenu>true</HasPackageAndPublishMenu>
+  </PropertyGroup>
+
+  <!-- Publish Properties -->
+  <PropertyGroup>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <PublishTrimmed>false</PublishTrimmed>
+  </PropertyGroup>
+</Project>

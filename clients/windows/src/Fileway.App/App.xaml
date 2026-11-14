@@ -1,0 +1,105 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Application x:Class="Fileway.App.App" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:local="using:Fileway.App" xmlns:ui="using:Fileway.App.Controls">
+  <Application.Resources>
+    <ResourceDictionary>
+      <ResourceDictionary.MergedDictionaries>
+        <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls" />
+        <ResourceDictionary Source="ms-appx:///Styles/Design.xaml" />
+        <!-- Other merged dictionaries here -->
+      </ResourceDictionary.MergedDictionaries>
+      <DataTemplate x:Key="FilewayChoiceLabelTemplate">
+        <TextBlock Text="{Binding}" TextTrimming="CharacterEllipsis" HorizontalAlignment="Center" VerticalAlignment="Center" Padding="8,6" ToolTipService.ToolTip="{Binding}" />
+      </DataTemplate>
+      <Style x:Key="FilewayChoiceBoxStyle" TargetType="ComboBox">
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Padding" Value="12,6" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="BorderBrush" Value="{ThemeResource ControlStrokeColorDefaultBrush}" />
+        <Setter Property="Background" Value="{ThemeResource ControlFillColorSecondaryBrush}" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="MinHeight" Value="36" />
+      </Style>
+      <Style x:Key="FilewaySearchBoxStyle" TargetType="AutoSuggestBox">
+        <Setter Property="TextBoxStyle" Value="{StaticResource FwSearchTextBoxStyle}" />
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Height" Value="40" />
+        <Setter Property="MinHeight" Value="40" />
+      </Style>
+      <Style x:Key="FilewaySelectorButtonStyle" TargetType="DropDownButton">
+        <Setter Property="CornerRadius" Value="10" />
+        <Setter Property="Height" Value="36" />
+        <Setter Property="Padding" Value="12,0" />
+        <Setter Property="Background" Value="{ThemeResource ControlFillColorSecondaryBrush}" />
+        <Setter Property="BorderBrush" Value="{ThemeResource FwStrokeBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Foreground" Value="{ThemeResource FwTextPrimaryBrush}" />
+        <Setter Property="FontSize" Value="14" />
+        <Setter Property="HorizontalContentAlignment" Value="Left" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
+        <Setter Property="UseSystemFocusVisuals" Value="False" />
+        <Setter Property="Template">
+          <Setter.Value>
+            <ControlTemplate TargetType="DropDownButton">
+              <Grid x:Name="Root" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
+                    BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{TemplateBinding CornerRadius}">
+                <VisualStateManager.VisualStateGroups>
+                  <VisualStateGroup x:Name="CommonStates">
+                    <VisualState x:Name="Normal" />
+                    <VisualState x:Name="PointerOver">
+                      <Storyboard>
+                        <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                          <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource ControlFillColorTertiaryBrush}" />
+                        </ObjectAnimationUsingKeyFrames>
+                      </Storyboard>
+                    </VisualState>
+                    <VisualState x:Name="Pressed">
+                      <Storyboard>
+                        <ObjectAnimationUsingKeyFrames Storyboard.TargetName="Root" Storyboard.TargetProperty="Background">
+                          <DiscreteObjectKeyFrame KeyTime="0" Value="{ThemeResource SubtleFillColorTertiaryBrush}" />
+                        </ObjectAnimationUsingKeyFrames>
+                      </Storyboard>
+                    </VisualState>
+                    <VisualState x:Name="Disabled">
+                      <Storyboard>
+                        <DoubleAnimation Storyboard.TargetName="Root" Storyboard.TargetProperty="Opacity" To="0.4" Duration="0:0:0.12" />
+                      </Storyboard>
+                    </VisualState>
+                  </VisualStateGroup>
+                  <VisualStateGroup x:Name="FocusStates">
+                    <VisualState x:Name="Unfocused" />
+                    <VisualState x:Name="PointerFocused" />
+                    <VisualState x:Name="Focused">
+                      <Storyboard>
+                        <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRingHalo" Storyboard.TargetProperty="Visibility">
+                          <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                        </ObjectAnimationUsingKeyFrames>
+                        <ObjectAnimationUsingKeyFrames Storyboard.TargetName="FocusRing" Storyboard.TargetProperty="Visibility">
+                          <DiscreteObjectKeyFrame KeyTime="0" Value="Visible" />
+                        </ObjectAnimationUsingKeyFrames>
+                      </Storyboard>
+                    </VisualState>
+                  </VisualStateGroup>
+                </VisualStateManager.VisualStateGroups>
+                <Grid Padding="{TemplateBinding Padding}">
+                  <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                  <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                                    HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                    VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                    AutomationProperties.AccessibilityView="Raw" />
+                  <ui:LucideIcon Grid.Column="1" IconName="caret-down" Width="12" Height="12" Margin="8,0,0,0"
+                                 VerticalAlignment="Center" Foreground="{ThemeResource FwTextSecondaryBrush}" />
+                </Grid>
+                <Border x:Name="FocusRingHalo" BorderThickness="2" BorderBrush="{ThemeResource FwCanvasBrush}"
+                        CornerRadius="{TemplateBinding CornerRadius}" Visibility="Collapsed" IsHitTestVisible="False" />
+                <Border x:Name="FocusRing" BorderThickness="2" BorderBrush="{ThemeResource FwTextPrimaryBrush}"
+                        CornerRadius="{TemplateBinding CornerRadius}" Margin="2" Visibility="Collapsed" IsHitTestVisible="False" />
+              </Grid>
+            </ControlTemplate>
+          </Setter.Value>
+        </Setter>
+      </Style>
+                  <Style TargetType="ComboBox" BasedOn="{StaticResource FilewayChoiceBoxStyle}"/>
+            <Style TargetType="ComboBoxItem"><Setter Property="HorizontalContentAlignment" Value="Left"/><Setter Property="VerticalContentAlignment" Value="Center"/><Setter Property="MinHeight" Value="36"/><Setter Property="Padding" Value="10,6"/><Setter Property="CornerRadius" Value="6"/></Style><!-- Other app resources here -->
+    </ResourceDictionary>
+  </Application.Resources>
+</Application>

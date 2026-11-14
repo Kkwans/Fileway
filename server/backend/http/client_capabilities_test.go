@@ -35,7 +35,7 @@ func TestClientCapabilitiesAuthenticatedMemberSeesOnlyNonSecretPolicy(t *testing
 		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &result) != nil {
 			t.Fatalf("capabilities status=%d body=%s", response.Code, response.Body.String())
 		}
-		if len(result) != 11 || result["authMethod"] != "json" || result["enableExec"] != enabled || result["minimumPasswordLength"] != float64(12) || result["conditionalTextSave"] != true || result["resourceWireOperations"] != true || result["mediaPlaybackVersion"] != float64(1) || result["sdrCompatibility"] != true || result["sourceSubtitles"] != true || result["subtitleAttachments"] != true || result["sourcePGSStreaming"] != float64(1) || result["sourceASSStreaming"] != float64(1) {
+		if len(result) != 13 || result["authMethod"] != "json" || result["enableExec"] != enabled || result["minimumPasswordLength"] != float64(12) || result["conditionalTextSave"] != true || result["conditionalDownloadV1"] != true || result["resourceWireOperations"] != true || result["searchWirePathV1"] != true || result["mediaPlaybackVersion"] != float64(1) || result["sdrCompatibility"] != true || result["sourceSubtitles"] != true || result["subtitleAttachments"] != true || result["sourcePGSStreaming"] != float64(1) || result["sourceASSStreaming"] != float64(1) {
 			t.Fatalf("unexpected capability shape: %#v", result)
 		}
 		for _, secret := range []string{"private-shell-path", "private-command", "/private-users", "password", "key", "scope", "rules"} {
