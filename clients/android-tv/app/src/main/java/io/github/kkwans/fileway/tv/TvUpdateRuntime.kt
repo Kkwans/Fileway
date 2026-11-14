@@ -4,8 +4,14 @@ import android.app.Activity
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
+import android.content.ContentValues
+import android.content.pm.PackageManager
 import android.content.pm.PackageInstaller
 import android.net.Uri
+import android.os.Build
+import android.os.Environment
+import android.media.MediaScannerConnection
+import android.provider.MediaStore
 import android.provider.Settings
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
@@ -31,10 +37,14 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import java.util.UUID
+import java.io.IOException
+import java.io.File
+import java.io.OutputStream
+import java.nio.file.Files
 
 internal enum class TvUpdatePhase {
     DISCONNECTED, IDLE, CHECKING, UNSUPPORTED, AVAILABLE, EMPTY, PREPARING, DOWNLOADING,
-    VERIFYING, READY, INSTALLING, WAITING_INSTALL, INSTALLED, ERROR,
+    VERIFYING, READY, EXPORTING, INSTALLING, WAITING_INSTALL, INSTALLED, ERROR,
 }
 
 internal data class TvUpdateState(
@@ -44,9 +54,10 @@ internal data class TvUpdateState(
     val received: Long = 0,
     val total: Long? = null,
     val message: String? = null,
+    val savedInDownloads: Boolean = false,
 ) {
     val transferring: Boolean get() = phase in setOf(TvUpdatePhase.PREPARING, TvUpdatePhase.DOWNLOADING, TvUpdatePhase.VERIFYING)
-    val busy: Boolean get() = transferring || phase == TvUpdatePhase.CHECKING || phase == TvUpdatePhase.INSTALLING
+    val busy: Boolean get() = transferring || phase in setOf(TvUpdatePhase.CHECKING, TvUpdatePhase.EXPORTING, TvUpdatePhase.INSTALLING)
 }
 
 internal class TvUpdateRuntime(private val context: Context, signerPin: String = TV_UPDATE_SIGNER) {
@@ -62,6 +73,7 @@ internal class TvUpdateRuntime(private val context: Context, signerPin: String =
     private var operationJob: Job? = null
     private val installPromptFence = TvUpdateInstallPromptFence<Source>()
     private var confirmation: Pair<TvUpdateInstaller.Attempt, Intent>? = null
+    private var exportRequest: Pair<Source, TvUpdateOffer>? = null
 
     private class Source(val session: SessionContext) {
         val device = session.api.identity.deviceSessionId
@@ -100,6 +112,7 @@ internal class TvUpdateRuntime(private val context: Context, signerPin: String =
         val previous = source ?: return
         if (session != null && previous.session !== session) return
         source = null
+        exportRequest = null
         operationJob?.cancel()
         operationJob = null
         cancelTransfer()
@@ -161,7 +174,7 @@ internal class TvUpdateRuntime(private val context: Context, signerPin: String =
         val active = Transfer(owner, offer)
         transfer = active
         mutable.value = before.copy(phase = TvUpdatePhase.PREPARING, selected = offer,
-            received = 0, total = null, message = null)
+            received = 0, total = null, message = null, savedInDownloads = false)
         try {
             TvUpdateTransfer.start(context, active.token, offer.manifest.size)
             operationJob = scope.launch {
@@ -226,10 +239,25 @@ internal class TvUpdateRuntime(private val context: Context, signerPin: String =
             }
             ensureCurrent(active)
             mutable.update { it.copy(phase = TvUpdatePhase.VERIFYING) }
-            payload.verify(owner.owner, offer)
+            val apk = payload.verify(owner.owner, offer)
+            val saved = if (Build.VERSION.SDK_INT >= 29 ||
+                context.checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED) {
+                try {
+                    withContext(Dispatchers.IO) {
+                        check(current(owner))
+                        savePublicDownload(apk, downloadName(offer))
+                    }
+                    true
+                } catch (failure: Exception) {
+                    if (failure is CancellationException) throw failure
+                    false
+                }
+            } else false
+            ensureCurrent(active)
+            mutable.update { it.copy(phase = TvUpdatePhase.READY, received = 0, total = null, savedInDownloads = saved,
+                message = if (saved) "安装包已保存到 Download/Fileway。"
+                else "安装包已通过校验，可保存到 Download/Fileway 或另存。") }
         }
-        ensureCurrent(active)
-        mutable.update { it.copy(phase = TvUpdatePhase.READY, received = 0, total = null) }
     }
 
     private suspend fun ensureCurrent(active: Transfer) {
@@ -275,9 +303,10 @@ internal class TvUpdateRuntime(private val context: Context, signerPin: String =
                 activity.startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:${context.packageName}")))
                 mutable.update { it.copy(message = "请在系统设置中允许栖卷安装应用，返回后再次选择安装") }
             } catch (_: ActivityNotFoundException) {
-                mutable.update { it.copy(message = "此设备没有安装来源设置，已保留下载") }
+                mutable.update { it.copy(message = if (it.savedInDownloads) "投影仪未提供授权页面。请在文件管理器打开 Download/Fileway 中的 APK。"
+                    else "投影仪未提供授权页面。请保存 APK，再用系统文件管理器安装。") }
             } catch (_: SecurityException) {
-                mutable.update { it.copy(message = "系统策略限制安装来源授权，已保留下载") }
+                mutable.update { it.copy(message = "系统限制栖卷发起安装。可导出 APK，交给系统文件管理器。") }
             }
             return
         }
@@ -307,6 +336,120 @@ internal class TvUpdateRuntime(private val context: Context, signerPin: String =
                 report(owner, failure, keepReady = true)
             }
         }
+    }
+
+    /** The picker grants access to the user's destination; the saved APK stays private. */
+    fun exportDestination(): String? {
+        val owner = source?.takeIf(::current) ?: return null
+        val snapshot = state.value
+        val offer = snapshot.selected ?: return null
+        if (snapshot.phase != TvUpdatePhase.READY || exportRequest != null) return null
+        exportRequest = owner to offer
+        return downloadName(offer)
+    }
+
+    fun exportPickerUnavailable() {
+        exportRequest = null
+        mutable.update { it.copy(message = "此设备没有文件保存选择器。请从 Fileway 发布页下载同版本，用 U 盘或 NAS 文件管理器安装。") }
+    }
+
+    fun saveToDownloads() {
+        if (exportDestination() != null) exportDownloaded(null, toDownloads = true)
+    }
+
+    fun exportDownloaded(destination: Uri?, toDownloads: Boolean = false) {
+        val (owner, offer) = exportRequest ?: return
+        exportRequest = null
+        if ((destination == null && !toDownloads) || !current(owner) || state.value.phase != TvUpdatePhase.READY ||
+            state.value.selected != offer) return
+        mutable.update { it.copy(phase = TvUpdatePhase.EXPORTING, message = null) }
+        operationJob = scope.launch {
+            try {
+                storage.withLock {
+                    val apk = payload.verify(owner.owner, offer)
+                    withContext(Dispatchers.IO) {
+                        check(current(owner))
+                        if (toDownloads) savePublicDownload(apk, downloadName(offer))
+                        else writeExport(apk, requireNotNull(destination))
+                    }
+                }
+                if (current(owner)) mutable.update {
+                    it.copy(phase = TvUpdatePhase.READY, savedInDownloads = toDownloads || it.savedInDownloads,
+                        message = if (toDownloads) "APK 已保存到 Download/Fileway。请在文件管理器中打开安装。"
+                    else "APK 已保存到所选位置。请在文件管理器中打开安装。")
+                }
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                if (!current(owner)) return@launch
+                if (failure is TvUpdateError && failure.recheck) report(owner, failure, keepReady = false)
+                else mutable.update {
+                    it.copy(phase = TvUpdatePhase.READY, message = "未能导出 APK，原下载仍在，请选择其他位置重试。")
+                }
+            }
+        }
+    }
+
+    private fun downloadName(offer: TvUpdateOffer) = "Fileway-TV-${offer.manifest.versionName}.apk"
+
+    private suspend fun savePublicDownload(apk: File, name: String) {
+        if (Build.VERSION.SDK_INT < 29) {
+            saveLegacyDownload(apk, name)
+            return
+        }
+        val resolver = context.contentResolver
+        val downloads = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val entry = resolver.insert(downloads, ContentValues().apply {
+            put(MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Fileway/")
+            put(MediaStore.MediaColumns.MIME_TYPE, "application/vnd.android.package-archive")
+            put(MediaStore.MediaColumns.IS_PENDING, 1)
+        }) ?: throw IOException("无法创建下载文件")
+        try {
+            writeExport(apk, entry)
+            currentCoroutineContext().ensureActive()
+            if (resolver.update(entry, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null) != 1)
+                throw IOException("无法完成下载文件")
+        } catch (failure: Exception) {
+            runCatching { resolver.delete(entry, null, null) }
+            throw failure
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private suspend fun saveLegacyDownload(apk: File, name: String) {
+        val directory = File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "Fileway")
+        if (!directory.isDirectory && !directory.mkdirs()) throw IOException("下载目录不可用")
+        val staging = File.createTempFile(".fileway-", ".part", directory)
+        try {
+            staging.outputStream().use { copyApk(apk, it) }
+            currentCoroutineContext().ensureActive()
+            val target = File(directory, name)
+            Files.move(staging.toPath(), target.toPath())
+            MediaScannerConnection.scanFile(context, arrayOf(target.absolutePath), arrayOf("application/vnd.android.package-archive"), null)
+        } finally {
+            if (staging.exists()) staging.delete()
+        }
+    }
+
+    private suspend fun writeExport(apk: File, destination: Uri) {
+        val output = context.contentResolver.openOutputStream(destination, "w") ?: throw IOException("无法写入目标文件")
+        output.use { copyApk(apk, it) }
+    }
+
+    private suspend fun copyApk(apk: File, output: OutputStream) {
+        apk.inputStream().use { input ->
+            val buffer = ByteArray(64 * 1024)
+            while (true) {
+                currentCoroutineContext().ensureActive()
+                val count = input.read(buffer)
+                if (count < 0) break
+                output.write(buffer, 0, count)
+            }
+        }
+    }
+
+    fun publicDownloadDenied() {
+        mutable.update { it.copy(message = "未获准写入下载目录。可选择另存位置，原下载已保留。") }
     }
 
     fun installerResult(intent: Intent) {

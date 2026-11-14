@@ -1,7 +1,12 @@
 package io.github.kkwans.fileway.tv
 
+import android.Manifest
+import android.content.pm.PackageManager
 import android.view.KeyEvent
+import android.os.Build
 import androidx.activity.compose.LocalActivity
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.scrollBy
@@ -49,6 +54,19 @@ internal fun TvUpdateScreen(model: TvModel, onBack: () -> Unit) {
     val state by model.updates.state.collectAsStateWithLifecycle()
     val interactive = LocalTvInteractive.current
     val activity = LocalActivity.current
+    val saveApk = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/vnd.android.package-archive"),
+        { destination -> model.updates.exportDownloaded(destination) },
+    )
+    var pendingDownload by remember { mutableStateOf<TvUpdateOffer?>(null) }
+    val downloadPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        val offer = pendingDownload
+        pendingDownload = null
+        if (offer != null) model.updates.download(offer)
+        else if (granted) model.updates.saveToDownloads() else model.updates.publicDownloadDenied()
+    }
+    fun publicStorageGranted() = Build.VERSION.SDK_INT >= 29 ||
+        activity?.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
     val checkFocus = remember { FocusRequester() }
     var notes by remember { mutableStateOf<TvUpdateManifest?>(null) }
     var returnToNotes by remember { mutableStateOf<FocusRequester?>(null) }
@@ -83,6 +101,7 @@ internal fun TvUpdateScreen(model: TvModel, onBack: () -> Unit) {
                     state.transferring -> "取消下载"
                     state.phase == TvUpdatePhase.WAITING_INSTALL -> "结束等待"
                     state.phase == TvUpdatePhase.CHECKING -> "正在检查…"
+                    state.phase == TvUpdatePhase.EXPORTING -> "正在导出…"
                     state.phase == TvUpdatePhase.INSTALLING -> "正在准备安装…"
                     state.phase == TvUpdatePhase.DISCONNECTED -> "重新连接"
                     else -> "检查更新"
@@ -110,6 +129,7 @@ internal fun TvUpdateScreen(model: TvModel, onBack: () -> Unit) {
                     selected && state.phase == TvUpdatePhase.READY -> "安装更新"
                     selected && state.phase == TvUpdatePhase.WAITING_INSTALL -> "重新发起安装"
                     selected && state.phase == TvUpdatePhase.INSTALLING -> "正在准备安装…"
+                    selected && state.phase == TvUpdatePhase.EXPORTING -> "正在导出…"
                     selected && state.phase == TvUpdatePhase.ERROR -> "重试下载"
                     else -> "下载此版本"
                 }
@@ -127,9 +147,27 @@ internal fun TvUpdateScreen(model: TvModel, onBack: () -> Unit) {
                                 selected && state.transferring -> model.updates.cancelDownload()
                                 selected && state.phase in setOf(TvUpdatePhase.READY, TvUpdatePhase.WAITING_INSTALL) ->
                                     activity?.let(model.updates::install)
-                                !state.busy && state.phase != TvUpdatePhase.WAITING_INSTALL -> model.updates.download(offer)
+                                !state.busy && state.phase != TvUpdatePhase.WAITING_INSTALL -> {
+                                    if (publicStorageGranted()) model.updates.download(offer)
+                                    else if (pendingDownload == null) {
+                                        pendingDownload = offer
+                                        downloadPermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                                    }
+                                }
                             }
-                        }, enabled = selected || !state.busy && state.phase != TvUpdatePhase.WAITING_INSTALL)
+                        }, enabled = selected && state.transferring || !state.busy && (selected || state.phase != TvUpdatePhase.WAITING_INSTALL))
+                        if (selected && state.phase == TvUpdatePhase.READY && !state.savedInDownloads) TvButton("保存到下载", {
+                            if (publicStorageGranted()) {
+                                model.updates.saveToDownloads()
+                            } else downloadPermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                        })
+                        if (selected && state.phase == TvUpdatePhase.READY) TvButton("另存 APK", {
+                            model.updates.exportDestination()?.let { name ->
+                                try { saveApk.launch(name) }
+                                catch (_: android.content.ActivityNotFoundException) { model.updates.exportPickerUnavailable() }
+                                catch (_: SecurityException) { model.updates.exportPickerUnavailable() }
+                            }
+                        })
                         if (manifest.notes.isNotBlank()) TvButton("发布说明", { notes = manifest },
                             Modifier.focusRequester(notesFocus))
                     }
@@ -169,6 +207,7 @@ private fun TvUpdateStatus(state: TvUpdateState) {
         TvUpdatePhase.DOWNLOADING -> "正在下载到电视"
         TvUpdatePhase.VERIFYING -> "正在校验安装包".takeIf { waiting }
         TvUpdatePhase.READY -> "安装包已通过校验，等待安装"
+        TvUpdatePhase.EXPORTING -> "正在导出已下载的 APK"
         TvUpdatePhase.INSTALLING -> "正在为系统安装准备文件".takeIf { waiting }
         else -> null
     }
