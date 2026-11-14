@@ -163,7 +163,7 @@ func TestCatalogHTTPRealOfflineJourneyAndSourceFiltering(t *testing.T) {
 		"show/Season 1/Show.S01E01.720p.mkv": "copy",
 		"show/Season 1/Show.S01E02E03.mkv":   "combined",
 		"film.mkv":                           "movie",
-		"film.nfo":                           `<movie><title>Visible movie</title><uniqueid type="tmdb">123</uniqueid></movie>`,
+		"film.nfo":                           `<movie><title>Visible movie</title><uniqueid type="tmdb">123</uniqueid><thumb aspect="poster">poster.png</thumb><fanart><thumb>landscape.png</thumb></fanart></movie>`,
 		"unmatched.mkv":                      "unmatched",
 	} {
 		catalogFixtureWrite(t, f, name, content)
@@ -187,6 +187,12 @@ func TestCatalogHTTPRealOfflineJourneyAndSourceFiltering(t *testing.T) {
 	}
 	if home.State != "ready" || len(home.Libraries) != 1 || home.Hero == nil || len(home.Hero.Items) != 2 || home.Capabilities["watchState"] {
 		t.Fatalf("unexpected home: %+v", home)
+	}
+	for _, card := range home.Hero.Items {
+		if card.Title == "Visible movie" && (card.Artwork == nil || card.Artwork.Role != "poster" ||
+			card.Backdrop == nil || card.Backdrop.Role != "backdrop" || card.Backdrop.AssetID == card.Artwork.AssetID) {
+			t.Fatal("movie card did not keep the authorized poster and landscape separate")
+		}
 	}
 	unsupported := false
 	for _, row := range home.Rows {

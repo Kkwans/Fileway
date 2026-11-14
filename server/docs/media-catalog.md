@@ -86,6 +86,10 @@ locator, credential or provider request.
 
 ## Series and playback
 
+Each catalog card can carry an authorized poster in `artwork` and a separate
+landscape image in `backdrop`. Both are optional; their URLs use the existing
+authenticated artwork endpoint and its source authorization.
+
 - `GET /libraries/{id}/items/{series}/seasons` returns authorized seasons in
   local order, including season 0 as specials.
 - `GET /libraries/{id}/items/{series}/episodes?seasonId=...` returns an

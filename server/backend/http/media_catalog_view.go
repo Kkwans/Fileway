@@ -447,6 +447,7 @@ type catalogCard struct {
 	Year                     *int                  `json:"year"`
 	DisplayMode              string                `json:"displayMode"`
 	Artwork                  *catalogArtwork       `json:"artwork"`
+	Backdrop                 *catalogArtwork       `json:"backdrop,omitempty"`
 	PrimaryRating            *catalogRating        `json:"primaryRating"`
 	Duration                 *catalogDuration      `json:"duration"`
 	Episodes                 *catalogEpisodeCounts `json:"episodes"`
@@ -614,7 +615,16 @@ func (v *catalogView) projectCard(ctx context.Context, library *medialibrary.Lib
 		card.MatchState = c.MatchState
 	}
 	for _, art := range detail.Artwork {
-		if art.Role != "poster" || art.Status != "declared" {
+		var target **catalogArtwork
+		switch art.Role {
+		case "poster":
+			target = &card.Artwork
+		case "backdrop":
+			target = &card.Backdrop
+		default:
+			continue
+		}
+		if *target != nil || art.Status != "declared" {
 			continue
 		}
 		allowed, err := metadataInputAllowed(ctx, v.d, library, c.ID, &access.mediaItemAccess, art.InputID)
@@ -622,8 +632,10 @@ func (v *catalogView) projectCard(ctx context.Context, library *medialibrary.Lib
 			return catalogCard{}, err
 		}
 		if allowed {
-			card.Artwork = &catalogArtwork{AssetID: art.ID, Revision: c.Revision, Role: art.Role, Endpoint: "/api/media-library/v1/libraries/" + library.ID + "/items/" + c.ID + "/artwork/" + art.ID}
-			break
+			*target = &catalogArtwork{AssetID: art.ID, Revision: c.Revision, Role: art.Role, Endpoint: "/api/media-library/v1/libraries/" + library.ID + "/items/" + c.ID + "/artwork/" + art.ID}
+			if card.Artwork != nil && card.Backdrop != nil {
+				break
+			}
 		}
 	}
 	best := 99
