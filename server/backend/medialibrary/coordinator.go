@@ -220,6 +220,12 @@ func (c *ScanCoordinator) EnqueueScanByBindingID(ctx context.Context, actor uint
 	})
 }
 
+func (c *ScanCoordinator) EnqueueScanBatch(ctx context.Context, actor uint, libraryID, operationID string, rulesRevision int64, sources []ScanBatchSource) ([]ScanJob, error) {
+	return coordinatedCall(ctx, c, func(ctx context.Context, store *Store) ([]ScanJob, error) {
+		return store.EnqueueScanBatch(ctx, actor, libraryID, operationID, rulesRevision, sources)
+	})
+}
+
 func (c *ScanCoordinator) CancelScanWithOperation(ctx context.Context, actor uint, jobID string, expectedGeneration int64, operationID string) (*ScanJob, error) {
 	return coordinatedCall(ctx, c, func(ctx context.Context, store *Store) (*ScanJob, error) {
 		return store.CancelScanWithOperation(ctx, actor, jobID, expectedGeneration, operationID)

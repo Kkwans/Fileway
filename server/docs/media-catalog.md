@@ -17,6 +17,18 @@ grant. Clients must continue to handle authorization and availability errors
 from individual catalog requests, and must not interpret a failed capability
 request as a successful response from an older server.
 
+## Scanning multiple folders
+
+A library can bind multiple Fileway server folders. `POST /libraries/{id}/scan-batches`
+takes an `operationId`, `rulesRevision` from `/scan-support`, and `sources`
+containing 1–60 selected `{bindingId, expectedRevision}` entries. It queues
+all selected roots together and returns 202 with `items`, one job per binding.
+An already running job for the same binding and revision is reused. Each job
+has its own progress, cancellation, and retry. Retrying the batch with the
+same operation ID and sources returns the original receipt, even if the job
+has completed. The batch uses the existing local scan rules, including
+recursive enumeration and read-only NFO import.
+
 ## Explicit personal state
 
 `GET /libraries/{id}/items/{itemId}/user-state` returns the current actor's

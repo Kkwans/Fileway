@@ -21,6 +21,7 @@ type scanScheduler interface {
 	Ready(context.Context) error
 	Wake()
 	EnqueueScanByBindingID(context.Context, uint, string, string, int64, string, int64) (*medialibrary.ScanJob, error)
+	EnqueueScanBatch(context.Context, uint, string, string, int64, []medialibrary.ScanBatchSource) ([]medialibrary.ScanJob, error)
 	CancelScanWithOperation(context.Context, uint, string, int64, string) (*medialibrary.ScanJob, error)
 	RetryScanWithOperation(context.Context, uint, string, int64, string) (*medialibrary.ScanJob, error)
 }
@@ -45,6 +46,7 @@ type mediaScanCancelBody struct {
 type mediaScanSummary struct {
 	ID            string `json:"id"`
 	LibraryID     string `json:"libraryId"`
+	BindingID     string `json:"bindingId,omitempty"`
 	Status        string `json:"status"`
 	ErrorCode     string `json:"errorCode,omitempty"`
 	Generation    int64  `json:"generation"`
@@ -84,7 +86,7 @@ func mediaScanSupportHandler(scheduler scanScheduler) handleFunc {
 // Do not expose source locators, native object keys, configuration references,
 // or a checkpoint's LastObjectKey through a task response.
 func scanSummary(job *medialibrary.ScanJob) mediaScanSummary {
-	return mediaScanSummary{ID: job.ID, LibraryID: job.LibraryID, Status: job.Status, ErrorCode: job.ErrorCode, Generation: job.Generation, Attempt: job.Attempt,
+	return mediaScanSummary{ID: job.ID, LibraryID: job.LibraryID, BindingID: job.Binding.BindingID, Status: job.Status, ErrorCode: job.ErrorCode, Generation: job.Generation, Attempt: job.Attempt,
 		RulesRevision: job.RulesRevision, Phase: job.Checkpoint.Phase, Processed: job.Checkpoint.Processed, CreatedAt: job.CreatedAt, UpdatedAt: job.UpdatedAt}
 }
 
@@ -153,6 +155,57 @@ func mediaScanCreateHandler(scheduler scanScheduler) handleFunc {
 		}
 		scheduler.Wake()
 		return renderJSONStatus(w, scanSummary(job), http.StatusAccepted)
+	})
+}
+
+func mediaScanBatchHandler(scheduler scanScheduler) handleFunc {
+	return mediaScanManagement(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
+		if scheduler == nil || scheduler.Ready(r.Context()) != nil {
+			return http.StatusServiceUnavailable, fmt.Errorf("扫描服务暂不可用")
+		}
+		var body struct {
+			OperationID   string                         `json:"operationId"`
+			RulesRevision int64                          `json:"rulesRevision"`
+			Sources       []medialibrary.ScanBatchSource `json:"sources"`
+		}
+		if decodeMediaScanBody(w, r, &body) != nil || !validScanID(body.OperationID) || body.RulesRevision != mediascan.LocalRulesRevision || len(body.Sources) == 0 || len(body.Sources) > medialibrary.MaxScanBatchSources {
+			return mediaScanError(medialibrary.ErrInvalid)
+		}
+		library, err := itemLibrary(r, d)
+		if err != nil {
+			return mediaScanError(err)
+		}
+		if library.Role != medialibrary.RoleOwner {
+			return mediaScanError(medialibrary.ErrForbidden)
+		}
+		ctx := r.Context()
+		for _, source := range body.Sources {
+			if !validScanID(source.BindingID) || source.ExpectedRevision < 1 {
+				return mediaScanError(medialibrary.ErrInvalid)
+			}
+			binding, err := d.store.MediaLibrary.GetLibrarySourceByID(ctx, d.user.ID, source.BindingID)
+			if err != nil {
+				return mediaScanError(err)
+			}
+			if binding.LibraryID != library.ID {
+				return mediaScanError(medialibrary.ErrNotFound)
+			}
+			if _, err := mediascan.CheckBinding(ctx, d.store.MediaLibrary, d.user.ID, binding.Ref(), mediaScanResolver(d)); err != nil {
+				return mediaScanError(err)
+			}
+		}
+		jobs, err := scheduler.EnqueueScanBatch(ctx, d.user.ID, library.ID, body.OperationID, body.RulesRevision, body.Sources)
+		if err != nil {
+			return mediaScanError(err)
+		}
+		scheduler.Wake()
+		items := make([]mediaScanSummary, 0, len(jobs))
+		for i := range jobs {
+			items = append(items, scanSummary(&jobs[i]))
+		}
+		return renderJSONStatus(w, struct {
+			Items []mediaScanSummary `json:"items"`
+		}{items}, http.StatusAccepted)
 	})
 }
 

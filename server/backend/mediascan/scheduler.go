@@ -123,6 +123,13 @@ func (s *Scheduler) EnqueueScanByBindingID(ctx context.Context, actor uint, libr
 	return s.coord.EnqueueScanByBindingID(ctx, actor, libraryID, bindingID, expectedRevision, operationID, rulesRevision)
 }
 
+func (s *Scheduler) EnqueueScanBatch(ctx context.Context, actor uint, libraryID, operationID string, rulesRevision int64, sources []medialibrary.ScanBatchSource) ([]medialibrary.ScanJob, error) {
+	if err := s.Ready(ctx); err != nil {
+		return nil, err
+	}
+	return s.coord.EnqueueScanBatch(ctx, actor, libraryID, operationID, rulesRevision, sources)
+}
+
 func (s *Scheduler) CancelScanWithOperation(ctx context.Context, actor uint, jobID string, expectedGeneration int64, operationID string) (*medialibrary.ScanJob, error) {
 	if err := s.Ready(ctx); err != nil {
 		return nil, err

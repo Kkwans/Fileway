@@ -135,6 +135,47 @@ func (f *mediaScanHTTPFixture) libraryAndSource(t *testing.T) (mediaLibrarySumma
 	return library, source
 }
 
+func TestMediaScanBatchQueuesSelectedFoldersAndReplays(t *testing.T) {
+	f := newMediaScanHTTPFixture(t)
+	library, first := f.libraryAndSource(t)
+	if err := os.Mkdir(filepath.Join(f.root, "other"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	base := "/api/media-library/v1/libraries/" + library.ID
+	created := f.call(t, f.owner.ID, http.MethodPost, base+"/sources/local", map[string]any{
+		"operationId": "second-batch-source", "expectedRevision": first.LibraryRevision, "wireRoot": "/other",
+	})
+	var second mediaLibrarySourceSummary
+	if created.Code != http.StatusCreated || json.Unmarshal(created.Body.Bytes(), &second) != nil {
+		t.Fatalf("second source: %d %s", created.Code, created.Body)
+	}
+	sources := []medialibrary.ScanBatchSource{{BindingID: first.ID, ExpectedRevision: first.Revision}, {BindingID: second.ID, ExpectedRevision: second.Revision + 1}}
+	body := map[string]any{"operationId": "scan-two-folders", "rulesRevision": mediascan.LocalRulesRevision, "sources": sources}
+	if response := f.call(t, f.owner.ID, http.MethodPost, base+"/scan-batches", body); response.Code != http.StatusConflict {
+		t.Fatalf("stale batch: %d %s", response.Code, response.Body)
+	}
+	sources[1].ExpectedRevision = second.Revision
+	if response := f.call(t, f.viewer.ID, http.MethodPost, base+"/scan-batches", body); response.Code != http.StatusNotFound {
+		t.Fatalf("unowned batch: %d", response.Code)
+	}
+	response := f.call(t, f.owner.ID, http.MethodPost, base+"/scan-batches", body)
+	var result struct{ Items []mediaScanSummary }
+	if response.Code != http.StatusAccepted || json.Unmarshal(response.Body.Bytes(), &result) != nil || len(result.Items) != 2 {
+		t.Fatalf("batch: %d %s", response.Code, response.Body)
+	}
+	sources[0], sources[1] = sources[1], sources[0]
+	replay := f.call(t, f.owner.ID, http.MethodPost, base+"/scan-batches", body)
+	if replay.Code != http.StatusAccepted || replay.Body.String() != response.Body.String() {
+		t.Fatalf("batch replay after reordering: %d %s", replay.Code, replay.Body)
+	}
+	for _, job := range result.Items {
+		if job.BindingID != first.ID && job.BindingID != second.ID {
+			t.Fatalf("unknown folder in receipt: %q", job.BindingID)
+		}
+		f.waitJob(t, library.ID, job.ID, "completed")
+	}
+}
+
 func (f *mediaScanHTTPFixture) waitJob(t *testing.T, libraryID, jobID string, accepted ...string) mediaScanSummary {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Second)

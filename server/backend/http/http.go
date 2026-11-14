@@ -169,6 +169,7 @@ func NewHandler(
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/metadata", monkey(mediaMetadataChangeHandler(false), "")).Methods("PATCH")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/metadata/undo", monkey(mediaMetadataChangeHandler(true), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/scans", monkey(mediaScanCreateHandler(mediaScans), "")).Methods("POST")
+	api.Handle("/media-library/v1/libraries/{id}/scan-batches", monkey(mediaScanBatchHandler(mediaScans), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/scans/{scanId}", monkey(mediaScanManagement(mediaScanGetHandler), "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries/{id}/scans/{scanId}/cancel", monkey(mediaScanCancelHandler(mediaScans), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/scans/{scanId}/retry", monkey(mediaScanRetryHandler(mediaScans), "")).Methods("POST")
