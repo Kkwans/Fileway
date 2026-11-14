@@ -168,11 +168,24 @@ func TestPlaybackMappingRevisionFencesMoveAndABA(t *testing.T) {
 	if _, err := store.ResolvePlayback(ctx, 7, library.ID, file.ItemID, variant.EditionID, variant.VariantID, binding.ID); !errors.Is(err, ErrNotFound) {
 		t.Fatal(err)
 	}
+	// Moving an edition does not by itself authorize the destination item.
+	if _, err := store.ResolvePlayback(ctx, 7, library.ID, other.ID, variant.EditionID, variant.VariantID, binding.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatal("destination accessible before mapping", err)
+	}
+	if _, err := store.db.Exec(`UPDATE file_item_mapping SET item_id=?,mapping_revision=mapping_revision+1 WHERE variant_id=? AND active=1`, other.ID, variant.VariantID); err != nil {
+		t.Fatal(err)
+	}
 	otherAccess, err := store.ResolvePlayback(ctx, 7, library.ID, other.ID, variant.EditionID, variant.VariantID, binding.ID)
 	if err != nil || otherAccess.EditionMappingRevision != 2 {
 		t.Fatal(otherAccess, err)
 	}
 	if _, err := store.db.Exec("UPDATE edition SET item_id=? WHERE id=?", file.ItemID, variant.EditionID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ResolvePlayback(ctx, 7, library.ID, file.ItemID, variant.EditionID, variant.VariantID, binding.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatal("ABA restored access before mapping", err)
+	}
+	if _, err := store.db.Exec(`UPDATE file_item_mapping SET item_id=?,mapping_revision=mapping_revision+1 WHERE variant_id=? AND active=1`, file.ItemID, variant.VariantID); err != nil {
 		t.Fatal(err)
 	}
 	back, err = store.ResolvePlayback(ctx, 7, library.ID, file.ItemID, variant.EditionID, variant.VariantID, binding.ID)
@@ -194,6 +207,17 @@ func TestPlaybackEvidenceFiltersOldProofAndListsBindings(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.ObserveSourceFile(ctx, 7, other.Ref(), FileObservation{ObjectKey: existing.ObjectKey, Locator: []byte("/videos/other/one.mkv"), SourceVersion: existing.SourceVersion, SizeBytes: existing.SizeBytes, ExpectedRevision: existing.Revision}); err != nil {
+		t.Fatal(err)
+	}
+	before, err := store.ListPlaybackAccess(ctx, 7, library.ID, file.ItemID, variant.EditionID, variant.VariantID, "", 10)
+	if err != nil || len(before.Items) != 1 || before.Items[0].BindingID != binding.ID {
+		t.Fatal("observation unexpectedly created a second mapping", before, err)
+	}
+	item, err := store.GetCatalogItem(ctx, 7, library.ID, file.ItemID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AttachCatalogFile(ctx, 7, library.ID, file.ItemID, item.Revision, file.SourceFileID); err != nil {
 		t.Fatal(err)
 	}
 	page, err := store.ListPlaybackAccess(ctx, 7, library.ID, file.ItemID, variant.EditionID, variant.VariantID, "", 1)

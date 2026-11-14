@@ -147,12 +147,33 @@ func (store *Store) AttachCatalogFile(ctx context.Context, actor uint, libraryID
 	err := store.WithTx(ctx, func(tx *sql.Tx) error {
 		var err error
 		link, err = attachCatalogFileTx(ctx, tx, actor, libraryID, itemID, expectedRevision, sourceFileID)
-		return err
+		if err != nil {
+			return err
+		}
+		return attachManualBindingMappingsTx(ctx, tx, link)
 	})
 	if err != nil {
 		return nil, err
 	}
 	return link, nil
+}
+
+// Manual attachment applies to this source file's currently verified binding
+// observations only. It does not authorize historical or future epochs.
+func attachManualBindingMappingsTx(ctx context.Context, tx *sql.Tx, link *CatalogFileLink) error {
+	_, err := tx.ExecContext(ctx, `INSERT INTO file_item_mapping(id,library_id,source_file_id,item_id,variant_id,binding_id,binding_epoch,role,confirmed_by)
+SELECT 'map_'||lower(hex(randomblob(16))),lf.library_id,lf.source_file_id,?,?,ls.binding_id,lf.binding_epoch,'single','manual'
+FROM library_file lf JOIN library_source ls ON ls.library_id=lf.library_id AND ls.source_id=lf.source_id AND ls.root_locator=lf.root_locator
+WHERE lf.library_id=? AND lf.source_file_id=? AND lf.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1
+ON CONFLICT DO NOTHING`, link.ItemID, link.VariantID, link.LibraryID, link.SourceFileID)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE file_item_mapping AS m SET confirmed_by='manual',mapping_revision=mapping_revision+CASE WHEN confirmed_by!='manual' THEN 1 ELSE 0 END
+WHERE m.library_id=? AND m.item_id=? AND m.variant_id=? AND m.active=1 AND EXISTS(
+SELECT 1 FROM library_file lf JOIN library_source ls ON ls.library_id=lf.library_id AND ls.source_id=lf.source_id AND ls.root_locator=lf.root_locator
+WHERE lf.library_id=m.library_id AND lf.source_file_id=m.source_file_id AND ls.binding_id=m.binding_id AND lf.binding_epoch=m.binding_epoch AND ls.proof_epoch=m.binding_epoch AND ls.active_proof_version=1)`, link.LibraryID, link.ItemID, link.VariantID)
+	return err
 }
 
 // attachCatalogFileTx preserves the same library and revision checks for scans
@@ -233,6 +254,7 @@ COALESCE((SELECT CASE WHEN f.explicit_clear=1 THEN '' ELSE json_extract(f.value_
 (SELECT count(DISTINCT v.source_file_id) FROM edition e JOIN variant v ON v.edition_id = e.id AND v.library_id = e.library_id
  JOIN library_file lf ON lf.library_id = v.library_id AND lf.source_file_id = v.source_file_id
  JOIN library_source ls ON ls.library_id=lf.library_id AND ls.source_id=lf.source_id AND ls.root_locator=lf.root_locator AND lf.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1
+ JOIN file_item_mapping fm ON fm.library_id=v.library_id AND fm.variant_id=v.id AND fm.item_id=e.item_id AND fm.source_file_id=v.source_file_id AND fm.binding_id=ls.binding_id AND fm.binding_epoch=ls.proof_epoch AND fm.active=1 AND (i.kind!='episode' OR fm.confirmed_by='manual' OR fm.evidence_id IS NULL OR EXISTS(SELECT 1 FROM identification_evidence ie WHERE ie.id=fm.evidence_id AND ie.match_state!='needs_review'))
  WHERE e.library_id = i.library_id AND e.item_id = i.id)
 FROM library_item i JOIN library l ON l.id = i.library_id
 LEFT JOIN library_member m ON m.library_id = l.id AND m.user_id = ? AND m.revoked_at IS NULL`
@@ -265,6 +287,7 @@ AND (? = '' OR i.kind = ?) AND (? = '' OR i.parent_id = ?)
 AND (? = '' OR EXISTS (SELECT 1 FROM edition fe JOIN variant fv ON fv.edition_id = fe.id AND fv.library_id = fe.library_id
 JOIN library_file lf ON lf.library_id = fv.library_id AND lf.source_file_id = fv.source_file_id
 JOIN library_source ls ON ls.library_id=lf.library_id AND ls.source_id=lf.source_id AND ls.root_locator=lf.root_locator AND lf.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1
+JOIN file_item_mapping fm ON fm.library_id=fv.library_id AND fm.variant_id=fv.id AND fm.item_id=fe.item_id AND fm.source_file_id=fv.source_file_id AND fm.binding_id=ls.binding_id AND fm.binding_epoch=ls.proof_epoch AND fm.active=1 AND (i.kind!='episode' OR fm.confirmed_by='manual' OR fm.evidence_id IS NULL OR EXISTS(SELECT 1 FROM identification_evidence ie WHERE ie.id=fm.evidence_id AND ie.match_state!='needs_review'))
 WHERE fe.library_id = i.library_id AND fe.item_id = i.id AND fv.source_file_id = ?))
 ORDER BY i.id LIMIT ?`, actor, libraryID, actor, options.AfterID, options.Kind, options.Kind, options.ParentID, options.ParentID, options.SourceFileID, options.SourceFileID, options.Limit+1)
 	if err != nil {

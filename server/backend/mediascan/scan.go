@@ -66,6 +66,8 @@ type Observation struct {
 	InitialTitle            string
 	NFO                     *medialibrary.MetadataObservation
 	NFOStatus               NFOStatus
+	DirectoryContext        medialibrary.DirectoryContextRef
+	ParsedName              *mediametadata.ParsedName
 }
 
 // Sink must validate the binding and generation at commit time. Observe must
@@ -113,7 +115,7 @@ func ScanLocal(ctx context.Context, actor uint, binding *medialibrary.LibrarySou
 		return result, err
 	}
 	state := walker{source: source, binding: binding.Ref(), actor: actor, sink: sink, options: options, result: &result}
-	err = state.directory(ctx, "", 0)
+	err = state.directory(ctx, "", 0, medialibrary.DirectoryContextRef{})
 	return result, err
 }
 
@@ -139,7 +141,7 @@ type walker struct {
 	result  *Result
 }
 
-func (w *walker) directory(ctx context.Context, locator string, depth int) (resultErr error) {
+func (w *walker) directory(ctx context.Context, locator string, depth int, parent medialibrary.DirectoryContextRef) (resultErr error) {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
@@ -161,6 +163,22 @@ func (w *walker) directory(ctx context.Context, locator string, depth int) (resu
 	}
 	if initial != nil && files.IsPrivateMediaFile(initial) {
 		return fs.ErrPermission
+	}
+	current := parent
+	if sink, ok := w.sink.(ContextSink); ok {
+		observation, err := w.readDirectoryContext(ctx, locator, parent)
+		if err != nil {
+			return err
+		}
+		// Verify the original enumeration handle as well as the separate
+		// context pass before publishing its revision.
+		if err := w.checkDirectory(ctx, locator, directory, initial, stamp); err != nil {
+			return err
+		}
+		current, err = sink.ObserveDirectory(ctx, observation)
+		if err != nil {
+			return err
+		}
 	}
 	w.result.Directories++
 	for {
@@ -187,12 +205,12 @@ func (w *walker) directory(ctx context.Context, locator string, depth int) (resu
 			}
 			child := appendLocator(locator, name)
 			if entry.IsDir() {
-				if err := w.directory(ctx, child, depth+1); err != nil {
+				if err := w.directory(ctx, child, depth+1, current); err != nil {
 					return err
 				}
 			} else if entry.Type().IsRegular() && videoName(name) {
 				w.result.Discovered++
-				if err := w.video(ctx, child, name); err != nil {
+				if err := w.videoInContext(ctx, child, name, current); err != nil {
 					return err
 				}
 			}
@@ -237,7 +255,11 @@ func (w *walker) checkDirectory(ctx context.Context, locator string, held *files
 	return ctx.Err()
 }
 
-func (w *walker) video(ctx context.Context, locator, name string) (resultErr error) {
+func (w *walker) video(ctx context.Context, locator, name string) error {
+	return w.videoInContext(ctx, locator, name, medialibrary.DirectoryContextRef{})
+}
+
+func (w *walker) videoInContext(ctx context.Context, locator, name string, directory medialibrary.DirectoryContextRef) (resultErr error) {
 	file, err := w.source.Open(ctx, locator, false)
 	if err != nil {
 		return err
@@ -298,10 +320,12 @@ func (w *walker) video(ctx context.Context, locator, name string) (resultErr err
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	parsedName := mediametadata.ParseName(name)
 	observation := Observation{
 		OwnerUserID: w.actor, Binding: w.binding, ObjectKey: key, Identity: identity,
 		Locator: abs, ExpectedRevision: expected.FileRevision, ExpectedLocatorRevision: expected.LocatorRevision, SourceVersion: fmt.Sprintf("v1:%d:%d", initial.Size(), initial.ModTime().UnixNano()),
 		SizeBytes: initial.Size(), InitialTitle: displayTitle(name), NFO: nfo, NFOStatus: nfoStatus,
+		DirectoryContext: directory, ParsedName: &parsedName,
 	}
 	observation.Binding.RootLocator = append([]byte(nil), w.binding.RootLocator...)
 	if err := w.sink.Observe(ctx, observation); err != nil {

@@ -166,7 +166,16 @@ func nfoIssue(ctx context.Context, tx *sql.Tx, libraryID, itemID string, obs Met
 		return "unsupported_kind", nil
 	}
 	if item.Kind == mediametadata.TVShow || item.Kind == mediametadata.Season {
-		return "context_required", nil
+		// Directory metadata is only projected after the scan transaction has
+		// established the corresponding typed container; it is never applied
+		// to a nearby video simply because a sidecar was found.
+		var kind string
+		if err := tx.QueryRowContext(ctx, `SELECT kind FROM library_item WHERE library_id=? AND id=?`, libraryID, itemID).Scan(&kind); err != nil {
+			return "", err
+		}
+		if item.Kind == mediametadata.TVShow && kind != "series" || item.Kind == mediametadata.Season && kind != "season" {
+			return "context_required", nil
+		}
 	}
 	if explicitIDConflict(item.ExternalIDs) {
 		return "external_id_conflict", nil
@@ -273,7 +282,10 @@ func nfoIssue(ctx context.Context, tx *sql.Tx, libraryID, itemID string, obs Met
 	// Multiple independent NFOs for an already populated item must be reviewed
 	// instead of allowing traversal order to choose the winning source.
 	var other int
-	err = tx.QueryRowContext(ctx, `SELECT count(*) FROM item_field f JOIN metadata_input mi ON mi.id=f.input_id JOIN library_source ls ON ls.binding_id=mi.binding_id WHERE f.library_id=? AND f.item_id=? AND f.source='nfo' AND f.source_key!=? AND mi.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0`, libraryID, itemID, obs.SourceKey).Scan(&other)
+	// Case variants of a directory sidecar may coexist with identical bytes;
+	// they are the same evidence, even if the chosen spelling changes later.
+	allowIdenticalDirectorySidecar := item.Kind == mediametadata.TVShow || item.Kind == mediametadata.Season
+	err = tx.QueryRowContext(ctx, `SELECT count(*) FROM item_field f JOIN metadata_input mi ON mi.id=f.input_id JOIN library_source ls ON ls.binding_id=mi.binding_id WHERE f.library_id=? AND f.item_id=? AND f.source='nfo' AND f.source_key!=? AND mi.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0 AND (?=0 OR mi.digest!=?)`, libraryID, itemID, obs.SourceKey, allowIdenticalDirectorySidecar, obs.Digest).Scan(&other)
 	if err != nil {
 		return "", err
 	}

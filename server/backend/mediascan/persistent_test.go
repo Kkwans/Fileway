@@ -387,7 +387,8 @@ func TestPersistentScanFinishesAfterDurableCheckpointAdvances(t *testing.T) {
 		t.Fatalf("injected failure: %v", err)
 	}
 	job, err := f.store.GetScan(t.Context(), 7, lease.JobID)
-	if err != nil || !injected || job.Status != "failed" || job.Checkpoint.Sequence != 2 {
+	// The root directory context has its own atomic checkpoint before files.
+	if err != nil || !injected || job.Status != "failed" || job.Checkpoint.Sequence != 3 {
 		t.Fatalf("advanced checkpoint left lease running: injected=%t job=%+v err=%v", injected, job, err)
 	}
 }

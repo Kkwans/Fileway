@@ -175,6 +175,12 @@ func (c *ScanCoordinator) CommitScanObservation(ctx context.Context, actor uint,
 	})
 }
 
+func (c *ScanCoordinator) CommitScanContext(ctx context.Context, actor uint, lease ScanLease, input DirectoryContextObservation, checkpoint ScanCheckpoint) (*DirectoryContextRef, error) {
+	return coordinatedCall(ctx, c, func(ctx context.Context, store *Store) (*DirectoryContextRef, error) {
+		return store.CommitScanContext(ctx, actor, lease, input, checkpoint)
+	})
+}
+
 func (c *ScanCoordinator) CompleteScanEnumeration(ctx context.Context, actor uint, lease ScanLease, sequence int64) error {
 	_, err := coordinatedCall(ctx, c, func(ctx context.Context, store *Store) (struct{}, error) {
 		return struct{}{}, store.CompleteScanEnumeration(ctx, actor, lease, sequence)

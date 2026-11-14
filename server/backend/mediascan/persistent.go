@@ -15,7 +15,7 @@ import (
 // LocalRulesRevision identifies the scanner's extension, naming and sidecar
 // rules. Change it whenever those rules change; a claimed job must never be
 // resumed under a different rule set while retaining its old revision label.
-const LocalRulesRevision int64 = 2
+const LocalRulesRevision int64 = 3
 
 var ErrScanRulesUnavailable = errors.New("media scan rules revision is unavailable")
 
@@ -227,6 +227,17 @@ func (s *persistentSink) LookupRevision(ctx context.Context, key []byte) (medial
 	return s.coord.GetObservationRevision(ctx, s.actor, s.lease.Binding, key)
 }
 
+func (s *persistentSink) ObserveDirectory(ctx context.Context, input medialibrary.DirectoryContextObservation) (medialibrary.DirectoryContextRef, error) {
+	next := *s.checkpoint
+	next.Sequence++
+	ref, err := s.coord.CommitScanContext(ctx, s.actor, s.lease, input, next)
+	if err != nil {
+		return medialibrary.DirectoryContextRef{}, err
+	}
+	*s.checkpoint = next
+	return *ref, nil
+}
+
 func (s *persistentSink) Observe(ctx context.Context, observation Observation) error {
 	if observation.OwnerUserID != s.actor || observation.Binding.BindingID != s.lease.Binding.BindingID || observation.Binding.ProofEpoch != s.lease.Binding.ProofEpoch || observation.Binding.LibraryID != s.lease.Binding.LibraryID || observation.Binding.SourceID != s.lease.Binding.SourceID ||
 		observation.Binding.BindingRevision != s.lease.Binding.BindingRevision || observation.Binding.AuthorizationRevision != s.lease.Binding.AuthorizationRevision ||
@@ -241,6 +252,7 @@ func (s *persistentSink) Observe(ctx context.Context, observation Observation) e
 	_, err := s.coord.CommitScanObservation(ctx, s.actor, s.lease, medialibrary.ScanObservation{
 		ObjectKey: observation.ObjectKey, Identity: string(observation.Identity), Locator: observation.Locator,
 		ExpectedRevision: observation.ExpectedRevision, ExpectedLocatorRevision: observation.ExpectedLocatorRevision, SourceVersion: observation.SourceVersion, SizeBytes: observation.SizeBytes, InitialTitle: observation.InitialTitle, NFOStatus: string(observation.NFOStatus), NFO: observation.NFO,
+		DirectoryContext: observation.DirectoryContext, ParsedName: observation.ParsedName,
 	}, next)
 	if err == nil {
 		*s.checkpoint = next

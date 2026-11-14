@@ -78,6 +78,8 @@ JOIN source s ON s.id = lf.source_id JOIN source_file f ON f.id = lf.source_file
 LEFT JOIN library_member m ON m.library_id = l.id AND m.user_id = ? AND m.revoked_at IS NULL
 WHERE lf.library_id = ? AND `+libraryVisibility+` AND l.archived_at IS NULL AND s.owner_user_id = l.owner_user_id AND s.kind = 'local' AND lf.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1
 AND EXISTS (SELECT 1 FROM edition e JOIN variant v ON v.library_id = e.library_id AND v.edition_id = e.id
+JOIN library_item mapped ON mapped.library_id=e.library_id AND mapped.id=e.item_id
+JOIN file_item_mapping fm ON fm.library_id=v.library_id AND fm.variant_id=v.id AND fm.item_id=e.item_id AND fm.source_file_id=v.source_file_id AND fm.binding_id=ls.binding_id AND fm.binding_epoch=ls.proof_epoch AND fm.active=1 AND (mapped.kind!='episode' OR fm.confirmed_by='manual' OR fm.evidence_id IS NULL OR EXISTS(SELECT 1 FROM identification_evidence ie WHERE ie.id=fm.evidence_id AND ie.match_state!='needs_review'))
 WHERE e.library_id = lf.library_id AND e.item_id = ? AND v.source_file_id = lf.source_file_id)
 AND (ls.binding_id || ':' || lf.source_file_id) > ? ORDER BY cursor LIMIT ?`, viewer, libraryID, viewer, itemID, afterID, limit+1)
 	if err != nil {

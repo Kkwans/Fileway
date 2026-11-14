@@ -77,6 +77,8 @@ type ScanObservation struct {
 	InitialTitle            string
 	NFOStatus               string
 	NFO                     *MetadataObservation
+	DirectoryContext        DirectoryContextRef
+	ParsedName              *mediametadata.ParsedName
 }
 
 // MetadataObservation is source evidence from a safely opened sidecar. Its
@@ -644,27 +646,77 @@ WHEN scan_nfo_status.status IN ('invalid', 'unavailable', 'changed') AND exclude
 ELSE excluded.status END`, r.ID, r.Generation, file.ID, input.NFOStatus); err != nil {
 			return err
 		}
-		var itemID string
-		err = tx.QueryRowContext(ctx, `SELECT e.item_id FROM variant v JOIN edition e ON e.id = v.edition_id AND e.library_id = v.library_id
-WHERE v.library_id = ? AND v.source_file_id = ? ORDER BY e.item_id, v.id LIMIT 1`, r.LibraryID, file.ID).Scan(&itemID)
-		if errors.Is(err, sql.ErrNoRows) {
-			item, err := createCatalogItemTx(ctx, tx, actor, r.LibraryID, NewCatalogItem{Kind: "video", Title: input.InitialTitle, initialSource: "filename", initialBinding: &r.Binding})
+		decision, err := identifyScanFileTx(ctx, tx, actor, r, file.ID, input, sameGeneration)
+		if err != nil {
+			return err
+		}
+		itemID := decision.ItemID
+		if !decision.Handled {
+			mappings, err := scanFileMappingsTx(ctx, tx, r.Binding, file.ID)
 			if err != nil {
 				return err
 			}
-			if _, err := attachCatalogFileTx(ctx, tx, actor, r.LibraryID, item.ID, item.Revision, file.ID); err != nil {
-				return err
+			if decision.Resolution.State == "needs_review" {
+				for index := range mappings {
+					mapping := &mappings[index]
+					if mapping.Kind == "video" && mapping.SupersededBy != "" && !mapping.Manual {
+						if _, err := tx.ExecContext(ctx, `UPDATE item_structure SET superseded_by=NULL,structure_revision=structure_revision+1 WHERE library_id=? AND item_id=? AND superseded_by=?`, r.LibraryID, mapping.ItemID, mapping.SupersededBy); err != nil {
+							return err
+						}
+						mapping.SupersededBy = ""
+					}
+				}
 			}
-			itemID = item.ID
-		} else if err != nil {
-			return err
-		}
-		if err := applyFilenameObservationTx(ctx, tx, actor, r.Binding, itemID, input.InitialTitle); err != nil {
-			return err
-		}
-		if input.NFO != nil {
-			if err := applyNFOObservationTx(ctx, tx, actor, r.Binding, itemID, *input.NFO); err != nil {
-				return err
+			var visible []scanMapping
+			for _, mapping := range mappings {
+				if mapping.SupersededBy == "" && (decision.Resolution.State != "needs_review" || mapping.Kind != "episode" || mapping.Manual) {
+					visible = append(visible, mapping)
+				}
+			}
+			if len(visible) == 0 && (len(mappings) == 0 || decision.Resolution.State == "needs_review") {
+				if len(mappings) == 0 && input.Identity == "native" && decision.Resolution.State != "needs_review" {
+					itemID, err = recoverFilenameVideoTx(ctx, tx, r.LibraryID, file.ID)
+					if err != nil {
+						return err
+					}
+				}
+				if itemID == "" {
+					item, err := createCatalogItemTx(ctx, tx, actor, r.LibraryID, NewCatalogItem{Kind: "video", Title: input.InitialTitle, initialSource: "filename", initialBinding: &r.Binding})
+					if err != nil {
+						return err
+					}
+					itemID = item.ID
+				}
+				if err := attachScanMappingTx(ctx, tx, actor, r.Binding, itemID, file.ID, decision.EvidenceID, "single"); err != nil {
+					return err
+				}
+			} else if len(visible) == 1 {
+				itemID = visible[0].ItemID
+			}
+			// Multiple existing episode links are retained without selecting one
+			// as the work identity when current evidence is incomplete.
+			if itemID != "" {
+				if decision.Resolution.State == "needs_review" {
+					issue := "structure_conflict"
+					if len(decision.Resolution.Issues) > 0 {
+						issue = decision.Resolution.Issues[0]
+					}
+					if _, err := tx.ExecContext(ctx, `UPDATE item_structure SET match_state='needs_review',issue_code=? WHERE library_id=? AND item_id=? AND item_id IN (SELECT id FROM library_item WHERE kind='video')`, issue, r.LibraryID, itemID); err != nil {
+						return err
+					}
+				}
+				if err := applyFilenameObservationTx(ctx, tx, actor, r.Binding, itemID, input.InitialTitle); err != nil {
+					return err
+				}
+				if input.NFO != nil {
+					observation := *input.NFO
+					if decision.Resolution.State == "needs_review" {
+						observation.AssociationAmbiguous = true
+					}
+					if err := applyNFOObservationTx(ctx, tx, actor, r.Binding, itemID, observation); err != nil {
+						return err
+					}
+				}
 			}
 		}
 		result = &ScanCommit{SourceFileID: file.ID, ItemID: itemID, FileRevision: file.Revision, IdentityEpoch: file.IdentityEpoch, LocatorRevision: file.LocatorRevision}

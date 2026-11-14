@@ -208,10 +208,20 @@ raw evidence and paths remain private. Fields retain their values,
 source, lock, explicit-clear state and revision. Ratings retain provider,
 metric, scale and count semantics. Artwork contains only an opaque declaration
 ID, role and status: its original path or URL is never a client fetch target.
-The current implementation discovers same-name NFOs and `movie.nfo`; an
-ambiguous directory-level association is retained as a candidate rather than
-automatically applied. Independent `tvshow.nfo` and `season.nfo` directory
-inputs and series hierarchy matching remain pending.
+Scanning consumes same-name NFOs, `movie.nfo`, directory `tvshow.nfo` and
+`season.nfo` context plus filename evidence. The catalog stores series, seasons,
+episodes and binding/epoch-specific file mappings. Duplicate encodings do not
+create extra logical episodes; combined files have no invented cut points.
+Ambiguous or conflicting identification remains reviewable with an unmatched
+playback entry. Damaged context does not by itself replace an established identity.
+
+The structure store provides bounded season/episode/mapping queries. HTTP
+projection for containers still requires descendant-source authorization; the
+current direct-file detail route alone does not establish a complete series
+browsing journey. Online provider configuration and metadata jobs are also pending.
+Schema 9 preserves existing item IDs for proven first-epoch associations;
+historical relationships whose binding epoch cannot be established remain stored
+as recovery candidates rather than silently inheriting a new source proof.
 
 Credits, ratings, artwork, external IDs and candidates each contain at most 20
 authorized entries in the initial detail. Their respective optional cursors are

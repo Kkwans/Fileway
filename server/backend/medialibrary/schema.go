@@ -512,3 +512,166 @@ OR (OLD.state='offline' AND OLD.resume_state='revalidating' AND NEW.state='avail
 OR NOT EXISTS(SELECT 1 FROM library_source ls WHERE ls.binding_id=NEW.binding_id AND ls.active_proof_version=2 AND ls.proof_epoch=NEW.proof_epoch)
 BEGIN SELECT RAISE(ABORT, 'stale domain update'); END;
 `
+
+// v9 adds local scan context, ordering and explicit file-to-item mappings.
+const schemaV9 = `
+-- Additive C1.1 structure state. Existing item, edition, variant and binding
+-- identifiers are preserved; paths remain private opaque bytes.
+CREATE TABLE item_structure (
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    series_id TEXT,
+    season_id TEXT,
+    superseded_by TEXT,
+    match_state TEXT NOT NULL DEFAULT 'unmatched' CHECK(match_state IN ('unmatched','local_confirmed','provider_confirmed','needs_review')),
+    issue_code TEXT NOT NULL DEFAULT '',
+    structure_revision INTEGER NOT NULL DEFAULT 1 CHECK(structure_revision > 0),
+    first_added_at INTEGER NOT NULL CHECK(first_added_at >= 0),
+    series_updated_at INTEGER CHECK(series_updated_at >= first_added_at),
+    PRIMARY KEY(library_id,item_id),
+    FOREIGN KEY(library_id,item_id) REFERENCES library_item(library_id,id),
+    FOREIGN KEY(library_id,series_id) REFERENCES library_item(library_id,id),
+    FOREIGN KEY(library_id,season_id) REFERENCES library_item(library_id,id),
+    FOREIGN KEY(library_id,superseded_by) REFERENCES library_item(library_id,id),
+    CHECK(superseded_by IS NULL OR superseded_by!=item_id)
+) STRICT;
+INSERT INTO item_structure(library_id,item_id,first_added_at)
+SELECT library_id,id,created_at FROM library_item;
+CREATE TRIGGER item_structure_create AFTER INSERT ON library_item
+BEGIN
+  INSERT INTO item_structure(library_id,item_id,first_added_at) VALUES(NEW.library_id,NEW.id,NEW.created_at);
+END;
+
+CREATE TABLE directory_context (
+    id TEXT PRIMARY KEY NOT NULL CHECK(length(id)>0),
+    library_id TEXT NOT NULL,
+    binding_id TEXT NOT NULL REFERENCES library_source(binding_id),
+    binding_epoch INTEGER NOT NULL CHECK(binding_epoch>0),
+    directory_locator BLOB NOT NULL CHECK(length(directory_locator)>0),
+    parent_context_id TEXT REFERENCES directory_context(id),
+    parent_revision INTEGER NOT NULL DEFAULT 0 CHECK(parent_revision>=0),
+    series_id TEXT,
+    season_id TEXT,
+    season_number INTEGER CHECK(season_number BETWEEN 0 AND 999),
+    series_problem TEXT NOT NULL DEFAULT '' CHECK(series_problem IN ('','unavailable','conflict')),
+    season_problem TEXT NOT NULL DEFAULT '' CHECK(season_problem IN ('','unavailable','conflict')),
+    local_series_id TEXT,
+    local_season_id TEXT,
+    tv_status TEXT NOT NULL CHECK(tv_status IN ('missing','parsed','invalid','unavailable','changed','conflict','needs_review')),
+    season_status TEXT NOT NULL CHECK(season_status IN ('missing','parsed','invalid','unavailable','changed','conflict','orphan','needs_review')),
+    tv_key BLOB, tv_digest BLOB, tv_parser INTEGER NOT NULL DEFAULT 0 CHECK(tv_parser>=0),
+    season_key BLOB, season_digest BLOB, season_parser INTEGER NOT NULL DEFAULT 0 CHECK(season_parser>=0),
+    tv_evidence_json TEXT CHECK(tv_evidence_json IS NULL OR json_valid(tv_evidence_json)),
+    season_evidence_json TEXT CHECK(season_evidence_json IS NULL OR json_valid(season_evidence_json)),
+    rules_revision INTEGER NOT NULL CHECK(rules_revision>0),
+    revision INTEGER NOT NULL CHECK(revision>0),
+    UNIQUE(binding_id,binding_epoch,directory_locator),
+    FOREIGN KEY(library_id,series_id) REFERENCES library_item(library_id,id),
+    FOREIGN KEY(library_id,season_id) REFERENCES library_item(library_id,id),
+    FOREIGN KEY(library_id,local_series_id) REFERENCES library_item(library_id,id),
+    FOREIGN KEY(library_id,local_season_id) REFERENCES library_item(library_id,id),
+    CHECK((tv_key IS NULL)=(tv_digest IS NULL)),
+    CHECK((tv_digest IS NULL AND tv_parser=0) OR (length(tv_digest)=32 AND tv_parser>0)),
+    CHECK((season_key IS NULL)=(season_digest IS NULL)),
+    CHECK((season_digest IS NULL AND season_parser=0) OR (length(season_digest)=32 AND season_parser>0)),
+    CHECK((parent_context_id IS NULL)=(parent_revision=0))
+) STRICT;
+CREATE INDEX directory_context_parent ON directory_context(parent_context_id);
+
+CREATE TABLE episode_order (
+    id TEXT PRIMARY KEY NOT NULL CHECK(length(id)>0),
+    library_id TEXT NOT NULL,
+    series_id TEXT NOT NULL,
+    scheme TEXT NOT NULL CHECK(scheme IN ('local','aired','absolute','dvd','provider_group')),
+    revision INTEGER NOT NULL DEFAULT 1 CHECK(revision>0),
+    UNIQUE(library_id,id),
+    FOREIGN KEY(library_id,series_id) REFERENCES library_item(library_id,id)
+) STRICT;
+CREATE UNIQUE INDEX episode_order_standard ON episode_order(library_id,series_id,scheme) WHERE scheme IN ('local','aired','absolute','dvd');
+CREATE TABLE season_position (
+    library_id TEXT NOT NULL,
+    order_id TEXT NOT NULL,
+    season_id TEXT NOT NULL,
+    season_number INTEGER NOT NULL CHECK(season_number BETWEEN 0 AND 999),
+    PRIMARY KEY(library_id,order_id,season_number),
+    UNIQUE(library_id,order_id,season_id),
+    FOREIGN KEY(library_id,order_id) REFERENCES episode_order(library_id,id),
+    FOREIGN KEY(library_id,season_id) REFERENCES library_item(library_id,id)
+) STRICT;
+CREATE TABLE episode_position (
+    library_id TEXT NOT NULL,
+    order_id TEXT NOT NULL,
+    season_number INTEGER NOT NULL CHECK(season_number BETWEEN 0 AND 999),
+    episode_number INTEGER NOT NULL CHECK(episode_number BETWEEN 0 AND 9999),
+    episode_id TEXT NOT NULL,
+    PRIMARY KEY(library_id,order_id,season_number,episode_number),
+    UNIQUE(library_id,order_id,episode_id),
+    FOREIGN KEY(library_id,order_id,season_number) REFERENCES season_position(library_id,order_id,season_number),
+    FOREIGN KEY(library_id,episode_id) REFERENCES library_item(library_id,id)
+) STRICT;
+
+CREATE TABLE identification_evidence (
+    id TEXT PRIMARY KEY NOT NULL CHECK(length(id)>0),
+    library_id TEXT NOT NULL,
+    source_file_id TEXT NOT NULL REFERENCES source_file(id),
+    binding_id TEXT NOT NULL REFERENCES library_source(binding_id),
+    binding_epoch INTEGER NOT NULL CHECK(binding_epoch>0),
+    context_id TEXT REFERENCES directory_context(id),
+    context_revision INTEGER NOT NULL DEFAULT 0 CHECK(context_revision>=0),
+    parser_revision INTEGER NOT NULL CHECK(parser_revision>0),
+    evidence_json TEXT NOT NULL CHECK(json_valid(evidence_json) AND length(evidence_json)<=65536),
+    match_state TEXT NOT NULL CHECK(match_state IN ('unmatched','local_confirmed','needs_review')),
+    issue_json TEXT NOT NULL CHECK(json_valid(issue_json)),
+    revision INTEGER NOT NULL DEFAULT 1 CHECK(revision>0),
+    UNIQUE(library_id,source_file_id,binding_id,binding_epoch),
+    CHECK((context_id IS NULL)=(context_revision=0))
+) STRICT;
+CREATE TABLE file_item_mapping (
+    id TEXT PRIMARY KEY NOT NULL CHECK(length(id)>0),
+    library_id TEXT NOT NULL,
+    source_file_id TEXT NOT NULL REFERENCES source_file(id),
+    item_id TEXT NOT NULL,
+    variant_id TEXT NOT NULL REFERENCES variant(id),
+    binding_id TEXT REFERENCES library_source(binding_id),
+    binding_epoch INTEGER NOT NULL CHECK(binding_epoch>=0),
+    role TEXT NOT NULL CHECK(role IN ('single','combined','part')),
+    part_position INTEGER CHECK(part_position>0),
+    start_ms INTEGER CHECK(start_ms>=0),
+    end_ms INTEGER CHECK(end_ms>=0),
+    evidence_id TEXT REFERENCES identification_evidence(id),
+    confirmed_by TEXT NOT NULL CHECK(confirmed_by IN ('legacy','local','manual')),
+    active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+    mapping_revision INTEGER NOT NULL DEFAULT 1 CHECK(mapping_revision>0),
+    FOREIGN KEY(library_id,item_id) REFERENCES library_item(library_id,id),
+    CHECK(start_ms IS NULL OR end_ms IS NULL OR end_ms>start_ms),
+    CHECK(binding_id IS NOT NULL OR binding_epoch=0)
+) STRICT;
+CREATE UNIQUE INDEX file_item_mapping_active ON file_item_mapping(library_id,variant_id,COALESCE(binding_id,''),binding_epoch) WHERE active=1;
+CREATE INDEX file_item_mapping_item ON file_item_mapping(library_id,item_id,active,source_file_id);
+CREATE TRIGGER file_item_mapping_validate_insert BEFORE INSERT ON file_item_mapping
+WHEN NOT EXISTS(SELECT 1 FROM variant v JOIN edition e ON e.id=v.edition_id AND e.library_id=v.library_id WHERE v.id=NEW.variant_id AND v.library_id=NEW.library_id AND v.source_file_id=NEW.source_file_id AND e.item_id=NEW.item_id)
+OR (NEW.binding_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM library_source ls WHERE ls.binding_id=NEW.binding_id AND ls.library_id=NEW.library_id))
+OR (NEW.evidence_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM identification_evidence ie WHERE ie.id=NEW.evidence_id AND ie.library_id=NEW.library_id AND ie.source_file_id=NEW.source_file_id AND ie.binding_id=NEW.binding_id AND ie.binding_epoch=NEW.binding_epoch))
+BEGIN SELECT RAISE(ABORT,'invalid file item mapping'); END;
+CREATE TRIGGER file_item_mapping_validate_update BEFORE UPDATE ON file_item_mapping
+WHEN NOT EXISTS(SELECT 1 FROM variant v JOIN edition e ON e.id=v.edition_id AND e.library_id=v.library_id WHERE v.id=NEW.variant_id AND v.library_id=NEW.library_id AND v.source_file_id=NEW.source_file_id AND e.item_id=NEW.item_id)
+OR (NEW.binding_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM library_source ls WHERE ls.binding_id=NEW.binding_id AND ls.library_id=NEW.library_id))
+OR (NEW.evidence_id IS NOT NULL AND NOT EXISTS(SELECT 1 FROM identification_evidence ie WHERE ie.id=NEW.evidence_id AND ie.library_id=NEW.library_id AND ie.source_file_id=NEW.source_file_id AND ie.binding_id=NEW.binding_id AND ie.binding_epoch=NEW.binding_epoch))
+BEGIN SELECT RAISE(ABORT,'invalid file item mapping'); END;
+-- A first, still-current v1 proof has no prior proven binding epoch. A native
+-- or scan-scoped path object already observed in that epoch can keep its
+-- existing association; both the LF and current binding must be at epoch 1.
+-- Epochs after an explicit rebind cannot prove when an older variant was
+-- attached, so do not turn their current LF value into historical evidence.
+INSERT INTO file_item_mapping(id,library_id,source_file_id,item_id,variant_id,binding_id,binding_epoch,role,confirmed_by)
+SELECT 'map_'||lower(hex(randomblob(16))),v.library_id,v.source_file_id,e.item_id,v.id,ls.binding_id,1,'single','legacy'
+FROM variant v JOIN edition e ON e.id=v.edition_id AND e.library_id=v.library_id
+JOIN source_file sf ON sf.id=v.source_file_id AND sf.identity_kind IN ('native','path_unverified')
+JOIN library_file lf ON lf.library_id=v.library_id AND lf.source_file_id=v.source_file_id AND lf.binding_epoch=1
+JOIN library_source ls ON ls.library_id=lf.library_id AND ls.source_id=lf.source_id AND ls.root_locator=lf.root_locator AND ls.proof_epoch=1 AND ls.active_proof_version=1;
+-- Every old link remains as unbound evidence, including ambiguous links from
+-- later proof epochs and older unverified identities, pending confirmation.
+INSERT INTO file_item_mapping(id,library_id,source_file_id,item_id,variant_id,binding_id,binding_epoch,role,confirmed_by)
+SELECT 'map_'||lower(hex(randomblob(16))),v.library_id,v.source_file_id,e.item_id,v.id,NULL,0,'single','legacy'
+FROM variant v JOIN edition e ON e.id=v.edition_id AND e.library_id=v.library_id;
+`
