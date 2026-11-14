@@ -238,6 +238,61 @@ class MediaCatalogBrowseContractTest {
         }
     }
 
+    @Test fun personalStateRetryUsesTheOriginalOperationAndReadsFreshState() = runBlocking<Unit> {
+        val profile = ServerProfile(name = "fixture", address = "https://example.invalid")
+        val endpoint = "/api/media-library/v1/libraries/lib_1/items/movie_1/user-state"
+        var sent: String? = null
+        var attempts = 0
+        fun state(favorite: Boolean, revision: Long) = JSONObject().put("favorite", favorite)
+            .put("manualWatched", JSONObject.NULL).put("revision", revision).put("watchResetRevision", 0)
+        val session = bound(profile) { command ->
+            when (command.getString("op")) {
+                "open" -> "catalog-state"
+                "token" -> token()
+                "request" -> {
+                    assertEquals(endpoint, command.getString("endpoint"))
+                    if (command.getString("method") == "GET") reply(200, state(false, 2))
+                    else {
+                        assertEquals("PATCH", command.getString("method"))
+                        val body = command.getJSONObject("body")
+                        assertTrue(body.getBoolean("favorite"))
+                        assertEquals(0L, body.getLong("expectedRevision"))
+                        if (attempts++ == 0) {
+                            sent = body.getString("operationId")
+                            reply(503, JSONObject().put("code", "write_outcome_unknown"))
+                        } else {
+                            assertEquals(sent, body.getString("operationId"))
+                            reply(200, state(true, 1))
+                        }
+                    }
+                }
+                else -> error("Unknown fixture command")
+            }
+        }
+        val context = isolatedContext()
+        val first = MediaWriteJournal.open(context)
+        val repo = MediaLibraryRepository(session, { true }, first)
+        val ref = repo.catalogRef("lib_1", "movie_1")
+        val operation = repo.newOperation()
+        val failed = repo.updateUserState(operation, ref, 0, favorite = true) as MediaWriteResult.Failure
+        assertTrue(failed.error.mutationMayHaveCommitted)
+        first.close()
+        val reopened = MediaWriteJournal.open(context)
+        try {
+            val restored = MediaLibraryRepository(session, { true }, reopened)
+            val item = restored.catalogRef("lib_1", "movie_1")
+            assertEquals(operation, restored.pendingUserStateOperation(item))
+            assertNull(restored.pendingUserStateOperation(restored.catalogRef("lib_1", "other_item")))
+            val receipt = (restored.retryOperation(operation) as MediaWriteResult.Success).value as MediaCatalogUserState
+            assertTrue(receipt.favorite)
+            val fresh = (restored.getUserState(item) as MediaReadResult.Success).value
+            assertFalse(fresh.favorite)
+            assertEquals(2L, fresh.revision)
+            restored.forgetResolvedOperation(operation)
+            assertTrue(reopened.records(restored.scope.account).isEmpty())
+        } finally { reopened.close() }
+    }
+
     @Test fun unknownStatesScopeAndCursorFailuresDoNotBecomeEmptySuccess() = runBlocking<Unit> {
         var responseMode = "partial"
         val profile = ServerProfile(name = "fixture", address = "https://example.invalid")

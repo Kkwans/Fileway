@@ -24,7 +24,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             item(key = "title") {
                 MediaHeading("片源与版本", actionLabel = "关闭", onAction = onDismiss)
-                Text("不同剪辑分别保留进度；同一剪辑下可选择其他来源。", style = MaterialTheme.typography.bodySmall,
+                Text("选择有权限访问的片源开始播放。", style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             state.problem?.let { problem -> item(key = "problem") {
@@ -49,6 +49,10 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
                             modifier = Modifier.heightIn(min = 48.dp)) { Text(source.recoveryLabel) }
                     }
                 }
+            }
+            if (state.hasMore && !state.loading) item(key = "more") {
+                TextButton(onClick = { onAction(PhoneMediaAction.LoadMore("sources")) },
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("加载更多") }
             }
         }
     }

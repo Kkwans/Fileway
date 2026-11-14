@@ -77,6 +77,9 @@ data class ClientState(
 )
 private data class PlaybackBinding(val context: SessionContext, val file: ResourceRef, val identity: String, val writer: PlaybackWriter)
 private data class TemporaryMediaBinding(val context: SessionContext, val file: ResourceRef, val asset: PreviewLease)
+private data class CatalogMediaBinding(
+    val connection: CatalogPlaybackLease, val renewal: Job,
+)
 private sealed interface DecoderSubtitleSource {
     val key: String
     val name: String
@@ -126,6 +129,21 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     private var foreground = false
     private var context: SessionContext? = null
     fun tvAuthorizationContext(): SessionContext? = context
+    private val catalogRepositoryLock = Mutex()
+    private var catalogJournal: MediaWriteJournal? = null
+    private var catalogRepository: Pair<SessionContext, MediaLibraryRepository>? = null
+    private var catalogClosed = false
+
+    internal suspend fun mediaLibraryRepository(bound: SessionContext): MediaLibraryRepository =
+        catalogRepositoryLock.withLock {
+            if (catalogClosed || !sessionCurrent(bound)) throw CancellationException("影视库会话已切换")
+            catalogRepository?.takeIf { it.first === bound }?.let { return@withLock it.second }
+            val journal = catalogJournal ?: withContext(NonCancellable) {
+                MediaWriteJournal.open(getApplication<Application>()).also { catalogJournal = it }
+            }
+            if (catalogClosed || !sessionCurrent(bound)) throw CancellationException("影视库会话已切换")
+            MediaLibraryRepository(bound, ::sessionCurrent, journal).also { catalogRepository = bound to it }
+        }
     internal suspend fun prepareTvHandoff(file:ResourceRef,sourceScope:String):PhoneTvHandoff {
         val bound=context?:error("请先连接服务器")
         check(sourceScope==bound.api.id){"手机服务器已变化，请重新选择文件"}
@@ -525,7 +543,76 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         if (sourceScope != bound.api.id || state.scope != bound.owner) return
         archiveEntry.open(state.file ?: return, state.listing ?: return, entry, sourceScope)
     }
-    fun isTemporaryContent(file: ResourceRef): Boolean = temporaryMedia?.let { it.file.mediaKey == file.mediaKey } == true
+    private var catalogPlayback: CatalogMediaBinding? = null
+    private var catalogSelection: Pair<MediaLibraryRepository, MediaCatalogVariant>? = null
+
+    fun isTemporaryContent(file: ResourceRef): Boolean =
+        temporaryMedia?.file?.mediaKey == file.mediaKey || isCatalogContent(file)
+
+    internal fun isCatalogContent(file: ResourceRef): Boolean =
+        catalogSelection != null && mutable.value.selected?.mediaKey == file.mediaKey
+
+    internal fun openCatalogVideo(repository: MediaLibraryRepository, selected: MediaCatalogVariant) {
+        val bound = context ?: return
+        if (catalogRepository?.first !== bound || catalogRepository?.second !== repository ||
+            selected.ref.scope != repository.scope) return
+        operation?.cancel()
+        val request = ++mediaRequest
+        pendingMediaOpen = null
+        pendingOpenFromPlayer = false
+        documents.close()
+        endPlayback()
+        // Player chrome needs display metadata. These IDs are never resolved as
+        // file paths or used to create a file-history record.
+        val display = ResourceRef("", "/@catalog/${selected.ref.libraryId}/${selected.variantId}",
+            selected.displayName, false, selected.contentType, selected.size)
+        catalogSelection = repository to selected
+        mutable.value = mutable.value.copy(selected = display, image = null, mediaQueue = null,
+            busy = true, stage = "正在打开片源", error = null, progressStatus = null)
+        operation = viewModelScope.launch {
+            var acquired: CatalogPlaybackLease? = null
+            try {
+                mediaClosing?.join()
+                val resolved = when (val result = repository.resolvePlayback(selected)) {
+                    is MediaReadResult.Success -> result.value
+                    is MediaReadResult.Failure -> {
+                        if (sessionCurrent(bound) && mediaRequest == request) {
+                            mutable.value = mutable.value.copy(busy = false, stage = "",
+                                error = if (result.error.mutationMayHaveCommitted) "未收到片源确认，请重试"
+                                else "片源暂不可用，请重试或选择其他片源")
+                        }
+                        return@launch
+                    }
+                }
+                val connection = repository.openPlaybackLease(resolved)
+                acquired = connection
+                currentCoroutineContext().ensureActive()
+                if (!sessionCurrent(bound) || mediaRequest != request) return@launch
+                player.open(connection.url, 0, autoplay = foreground,
+                    videoDecodePolicy = playbackPreferences.videoDecodePolicy.value)
+                val renewal = launch {
+                    try { connection.maintain() }
+                    catch (error: Exception) {
+                        if (error is CancellationException) throw error
+                        if (sessionCurrent(bound) && mediaRequest == request) {
+                            mutable.value = mutable.value.copy(notice = "片源连接未能续期，若无法继续播放请重试")
+                        }
+                    }
+                }
+                catalogPlayback = CatalogMediaBinding(connection, renewal)
+                acquired = null
+                mutable.value = mutable.value.copy(busy = false, stage = "")
+            } catch (error: Exception) {
+                if (error is CancellationException) throw error
+                if (sessionCurrent(bound) && mediaRequest == request) {
+                    mutable.value = mutable.value.copy(busy = false, stage = "",
+                        error = "无法打开片源，请重试或选择其他片源")
+                }
+            } finally {
+                acquired?.release()
+            }
+        }
+    }
     fun closeTemporaryContent() {
         val previous = temporaryMedia ?: return
         temporaryMedia = null
@@ -683,6 +770,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     fun previousMedia() { mutable.value.mediaQueue?.let { navigateMedia(it.index - 1) } }
     fun nextMedia() { mutable.value.mediaQueue?.let { navigateMedia(it.index + 1) } }
     fun retryPlayback() {
+        catalogSelection?.let { (repo, item) -> openCatalogVideo(repo, item); return }
         val file = mutable.value.selected ?: return
         openQueued(file, mutable.value.mediaQueue)
     }
@@ -1588,6 +1676,10 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         binding.writer.submit(value)
     }
     private fun endPlayback() {
+        val catalog = catalogPlayback
+        catalogPlayback = null
+        catalogSelection = null
+        catalog?.renewal?.cancel()
         closeTemporaryContent()
         saveProgress()
         val oldLocal = localPlayback; localPlayback = null
@@ -1603,7 +1695,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         val subtitles = subtitleLeases.toList(); subtitleLeases.clear(); subtitleSources.clear()
         val oldLease = lease; lease = ""
         val previous = mediaClosing
-        if (old != null || oldLocal != null || oldLease.isNotEmpty()) mediaClosing = cleanup.launch {
+        if (old != null || oldLocal != null || oldLease.isNotEmpty() || catalog != null) mediaClosing = cleanup.launch {
             previous?.join()
             try { stored?.await(); if (oldLocal != null) localStored?.join() }
             catch (error: Exception) {
@@ -1612,7 +1704,10 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
             } finally {
                 withContext(Dispatchers.Main) { player.stop() }
                 try { if (oldLease.isNotEmpty()) NativeTransport.call(JSONObject().put("op", "revoke").put("url", oldLease)) }
-                finally { subtitles.forEach { runCatching { it.release() } }; old?.writer?.close() }
+                finally {
+                    try { catalog?.connection?.release() }
+                    finally { subtitles.forEach { runCatching { it.release() } }; old?.writer?.close() }
+                }
             }
         } else player.stop()
     }
@@ -1654,6 +1749,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         }
     }
     private fun closeSession() {
+        catalogRepository = null
         sessionSyncJob?.cancel(); sessionSyncJob = null; sessionSyncBound = null
         sessionRecoveryJob?.cancel(); sessionRecoveryJob = null; sessionRecoveryBound = null
         sessionFlushJob?.cancel(); sessionFlushJob = null
@@ -1907,5 +2003,9 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         if (old != null) disconnect()
         networkJob = viewModelScope.launch { try { closing?.join(); mediaClosing?.join(); old?.let { store.deactivate(it.account, it.owner) }; if (logout) embeddedNetwork.logout() else embeddedNetwork.stop(); networkMutable.value = embeddedNetwork.status(); observeNetwork() } catch (error: Exception) { if (error !is CancellationException) networkMutable.value = networkMutable.value.copy(state = "Error", error = "无法断开内嵌网络，请重试") } }
     }
-    override fun onCleared() { operation?.cancel(); networkJob?.cancel(); networkPollJob?.cancel(); sessionSyncJob?.cancel(); sessionRecoveryJob?.cancel(); sessionFlushJob?.cancel(); closeSession(); cache.close(); player.checkpoint = null; player.release(); super.onCleared() }
+    override fun onCleared() {
+        catalogClosed = true
+        cleanup.launch { catalogRepositoryLock.withLock { catalogJournal?.close(); catalogJournal = null } }
+        operation?.cancel(); networkJob?.cancel(); networkPollJob?.cancel(); sessionSyncJob?.cancel(); sessionRecoveryJob?.cancel(); sessionFlushJob?.cancel(); closeSession(); cache.close(); player.checkpoint = null; player.release(); super.onCleared()
+    }
 }

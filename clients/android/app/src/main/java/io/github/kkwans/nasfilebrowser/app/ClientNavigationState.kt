@@ -2,14 +2,15 @@ package io.github.kkwans.nasfilebrowser.app
 
 /** Typed views over ClientState's existing route fields; no second current destination. */
 enum class ClientMainDestination(val route: String, val label: String) {
-    FILES("files", "文件"), RECENT("recent", "最近"), LIBRARY("library", "资料"), TASKS("taskcenter", "任务"), MY("settings", "我的");
+    FILES("files", "文件"), RECENT("recent", "最近"), MEDIA("media", "影视"), LIBRARY("library", "资料"), TASKS("taskcenter", "任务");
 }
 
 enum class ClientDestination(val route: String, val main: ClientMainDestination? = null) {
     FILES("files", ClientMainDestination.FILES), RECENT("recent", ClientMainDestination.RECENT),
+    MEDIA("media", ClientMainDestination.MEDIA),
     LIBRARY("library", ClientMainDestination.LIBRARY), DOWNLOADS("downloads", ClientMainDestination.TASKS),
     UPLOADS("uploads", ClientMainDestination.TASKS), TASKS("tasks", ClientMainDestination.TASKS),
-    HISTORY("history", ClientMainDestination.TASKS), CACHE_IMAGES("cache-images"), SETTINGS("settings", ClientMainDestination.MY), ACCOUNT("account"),
+    HISTORY("history", ClientMainDestination.TASKS), CACHE_IMAGES("cache-images"), SETTINGS("settings"), ACCOUNT("account"),
     ADMIN_USERS("admin-users"), SERVER_SETTINGS("server-settings"), UPDATES("updates"), ABOUT("about"),
     SHELL("shell"), SEARCH("search", ClientMainDestination.FILES);
 
@@ -23,7 +24,7 @@ val ClientState.destination: ClientDestination
     get() = if (searchDisplayed) ClientDestination.SEARCH else ClientDestination.forRoute(tab, taskCenterSection) ?: ClientDestination.FILES
 
 internal fun ClientDestination.allowed(connected: Boolean, admin: Boolean, execute: Boolean): Boolean = when (this) {
-    ClientDestination.ACCOUNT, ClientDestination.LIBRARY, ClientDestination.SEARCH -> connected
+    ClientDestination.ACCOUNT, ClientDestination.MEDIA, ClientDestination.LIBRARY, ClientDestination.SEARCH -> connected
     ClientDestination.ADMIN_USERS, ClientDestination.SERVER_SETTINGS -> connected && admin
     ClientDestination.SHELL -> connected && execute
     else -> true

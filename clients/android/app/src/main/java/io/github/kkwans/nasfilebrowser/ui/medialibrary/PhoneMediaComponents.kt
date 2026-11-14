@@ -8,35 +8,63 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
+import coil3.request.CachePolicy
+import coil3.request.ImageRequest
 import io.github.kkwans.nasfilebrowser.R
+import io.github.kkwans.nasfilebrowser.app.SessionContext
+import io.github.kkwans.nasfilebrowser.data.MediaLibraryRepository
+import io.github.kkwans.nasfilebrowser.data.PreviewLease
 import io.github.kkwans.nasfilebrowser.ui.FilewayIcon
 import io.github.kkwans.nasfilebrowser.ui.FilewayIconButton
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusBanner
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusKind
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.CancellationException
+
+internal data class MediaArtworkBinding(val session: SessionContext, val repository: MediaLibraryRepository)
+internal val LocalMediaArtworkBinding = staticCompositionLocalOf<MediaArtworkBinding?> { null }
 
 /** Shares the project's 350ms delayed centered ring and placeholder geometry. Requests and
  * loader are supplied by the authorized image pipeline, never built from provider URLs here. */
 @Composable internal fun MediaImage(artwork: MediaArtwork?, loader: ImageLoader, modifier: Modifier,
     description: String? = null, person: Boolean = false) {
-    var loaded by remember(artwork?.request) { mutableStateOf(false) }
-    var failed by remember(artwork?.request) { mutableStateOf(false) }
-    var showLoading by remember(artwork?.request) { mutableStateOf(false) }
-    LaunchedEffect(artwork?.request, loaded, failed) {
+    val binding = LocalMediaArtworkBinding.current
+    val context = LocalContext.current
+    var leasedRequest by remember(artwork?.catalog, binding) { mutableStateOf<ImageRequest?>(null) }
+    LaunchedEffect(artwork?.catalog, binding) {
+        val asset = artwork?.catalog ?: return@LaunchedEffect
+        val owner = binding ?: return@LaunchedEffect
+        var lease: PreviewLease? = null
+        try {
+            lease = owner.session.api.assetLease(owner.repository.artworkEndpoint(asset))
+            leasedRequest = ImageRequest.Builder(context).data(lease.url)
+                .memoryCachePolicy(CachePolicy.DISABLED).diskCachePolicy(CachePolicy.DISABLED).build()
+            awaitCancellation()
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { /* Keep the ordinary artwork placeholder. */ }
+        finally { leasedRequest = null; runCatching { lease?.release() } }
+    }
+    val request = artwork?.request ?: leasedRequest
+    var loaded by remember(request) { mutableStateOf(false) }
+    var failed by remember(request) { mutableStateOf(false) }
+    var showLoading by remember(request) { mutableStateOf(false) }
+    LaunchedEffect(request, loaded, failed) {
         showLoading = false
-        if (artwork?.request != null && !loaded && !failed) { delay(350); showLoading = true }
+        if (request != null && !loaded && !failed) { delay(350); showLoading = true }
     }
     Box(modifier.clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceContainer),
         contentAlignment = Alignment.Center) {
         if (!loaded) FilewayIcon(if (person) R.drawable.ic_person else R.drawable.ic_video, null,
             Modifier.size(if (showLoading) 18.dp else 32.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (showLoading) .22f else .4f))
-        artwork?.request?.let { request ->
+        request?.let {
             AsyncImage(model = request, imageLoader = loader, contentDescription = description,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
                 onSuccess = { loaded = true; failed = false }, onError = { failed = true })

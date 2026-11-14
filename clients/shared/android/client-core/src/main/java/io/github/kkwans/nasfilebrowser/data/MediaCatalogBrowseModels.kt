@@ -99,6 +99,9 @@ data class MediaCatalogRating(
     val audience: String?, val count: Long?, val countKind: String?, val countPrecision: String?,
 )
 data class MediaCatalogDuration(val seconds: Double, val basis: String, val editionId: String?)
+data class MediaCatalogUserState(
+    val favorite: Boolean, val manualWatched: Boolean?, val revision: Long, val watchResetRevision: Long,
+)
 data class MediaCatalogEpisodeCounts(
     val collected: Long?, val available: Long?, val specials: Long?, val unmappedFileCount: Long?,
     val total: Long?, val totalBasis: String?, val orderId: String?, val state: MediaCatalogCountState,
@@ -115,6 +118,7 @@ data class MediaCatalogCard(
     val metadataState: MediaCatalogMetadataState, val firstAddedAt: Long, val seriesUpdatedAt: Long?,
     val size: Long?, val extension: String?, val actions: MediaCatalogActions,
     val backdrop: MediaCatalogArtwork? = null,
+    val userState: MediaCatalogUserState? = null,
 ) { override fun toString(): String = "MediaCatalogCard(redacted)" }
 data class MediaCatalogPage<T>(
     val items: List<T>, val nextCursor: MediaCatalogCursor?, val hasMore: Boolean,
@@ -177,6 +181,10 @@ class MediaCatalogPlaybackResolution internal constructor(
 private fun JSONObject.textValue(key: String): String = get(key) as? String ?: error("影视目录响应格式无效")
 private fun JSONObject.optionalTextValue(key: String): String? = if (!has(key) || isNull(key)) null else textValue(key)
 private fun JSONObject.booleanValue(key: String): Boolean = get(key) as? Boolean ?: error("影视目录响应格式无效")
+internal fun parseMediaCatalogUserState(row: JSONObject): MediaCatalogUserState = MediaCatalogUserState(
+    row.booleanValue("favorite"), if (row.isNull("manualWatched")) null else row.booleanValue("manualWatched"),
+    row.integerValue("revision"), row.integerValue("watchResetRevision"),
+)
 private fun JSONObject.integerValue(key: String, min: Long = 0): Long {
     val value = (get(key) as? Number)?.toString()?.toLongOrNull()
     require(value != null && value >= min) { "影视目录响应格式无效" }
@@ -304,6 +312,7 @@ internal fun parseCatalogCard(row: JSONObject, scope: MediaSessionScope, deviceS
     val artwork = if (!row.has("artwork") || row.isNull("artwork")) null else parseArtwork(row.getJSONObject("artwork"), ref)
     val backdrop = if (!row.has("backdrop") || row.isNull("backdrop")) null else
         parseArtwork(row.getJSONObject("backdrop"), ref).also { require(it.role == "backdrop") }
+    val userState = row.optJSONObject("userState")?.let(::parseMediaCatalogUserState)
     val rating = if (!row.has("primaryRating") || row.isNull("primaryRating")) null else row.getJSONObject("primaryRating").let {
         val scale = it.decimalValue("scale"); require(scale > 0)
         MediaCatalogRating(it.textValue("provider"), ratingMetric(it.textValue("metric")), it.decimalValue("value"), scale,
@@ -322,7 +331,7 @@ internal fun parseCatalogCard(row: JSONObject, scope: MediaSessionScope, deviceS
     return MediaCatalogCard(ref, row.integerValue("revision", 1), kind, row.getJSONArray("contentCategories").catalogStrings(128), state,
         row.textValue("title"), row.optionalTextValue("originalTitle"), row.optionalIntegerValue("year"), mode, artwork, rating, duration,
         counts, availability, metadata, row.integerValue("firstAddedAt"), row.optionalIntegerValue("seriesUpdatedAt"),
-        row.optionalIntegerValue("size"), row.optionalTextValue("extension"), actions, backdrop)
+        row.optionalIntegerValue("size"), row.optionalTextValue("extension"), actions, backdrop, userState)
 }
 
 private fun rowQueryKey(id: MediaCatalogRowId): String = "/api/media-library/v1/home/rows/${id.wire}"

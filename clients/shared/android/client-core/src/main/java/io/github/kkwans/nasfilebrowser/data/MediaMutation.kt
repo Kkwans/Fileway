@@ -4,7 +4,7 @@ import org.json.JSONObject
 
 internal enum class MediaMutationKind {
     CREATE_LIBRARY, UPDATE_LIBRARY, ARCHIVE_LIBRARY, RESTORE_LIBRARY, GRANT_MEMBER, REVOKE_MEMBER,
-    CREATE_SOURCE, START_SCAN, CANCEL_SCAN, RETRY_SCAN, ATTEST_SOURCE, PATCH_METADATA, UNDO_METADATA,
+    CREATE_SOURCE, START_SCAN, CANCEL_SCAN, RETRY_SCAN, ATTEST_SOURCE, PATCH_METADATA, UNDO_METADATA, PATCH_USER_STATE,
 }
 
 internal fun requireMediaRouteId(value: String) {
@@ -42,12 +42,21 @@ internal class MediaMutationRequest(
             MediaMutationKind.CANCEL_SCAN, MediaMutationKind.RETRY_SCAN -> setOf("operationId", "expectedGeneration")
             MediaMutationKind.PATCH_METADATA -> setOf("operationId", "expectedRevision", "fields")
             MediaMutationKind.UNDO_METADATA -> setOf("operationId", "expectedRevision", "targetRevision")
+            MediaMutationKind.PATCH_USER_STATE -> buildSet {
+                add("operationId")
+                add("expectedRevision")
+                listOf("favorite", "manualWatched").filter(input::has).forEach {
+                    require(input.get(it) is Boolean)
+                    add(it)
+                }
+                require(size > 2)
+            }
         }
         input.exactKeys(keys)
         // Normal JNI commands are capped at 1 MiB; leave headroom for the envelope.
         val maxBody = if (kind == MediaMutationKind.PATCH_METADATA) 768 * 1024 else 8192
         require(input.strictString("operationId") == operation.id && json.toByteArray(Charsets.UTF_8).size <= maxBody)
-        if ("expectedRevision" in keys) input.strictLong("expectedRevision")
+        if ("expectedRevision" in keys) input.strictLong("expectedRevision", if (kind == MediaMutationKind.PATCH_USER_STATE) 0 else 1)
         if ("expectedGeneration" in keys) input.strictLong("expectedGeneration")
         if ("targetRevision" in keys) input.strictLong("targetRevision")
         if ("rulesRevision" in keys) input.strictLong("rulesRevision")
@@ -63,7 +72,7 @@ internal class MediaMutationRequest(
         if (kind in setOf(MediaMutationKind.CANCEL_SCAN, MediaMutationKind.RETRY_SCAN)) requireMediaRouteId(requireNotNull(scanId)) else require(scanId == null)
         if (kind in setOf(MediaMutationKind.GRANT_MEMBER, MediaMutationKind.REVOKE_MEMBER)) require(userId != null && userId in 1..0xffff_ffffL) else require(userId == null)
         if (kind == MediaMutationKind.ATTEST_SOURCE) requireMediaRouteId(requireNotNull(bindingId)) else require(bindingId == null)
-        if (kind in setOf(MediaMutationKind.PATCH_METADATA, MediaMutationKind.UNDO_METADATA)) requireMediaRouteId(requireNotNull(itemId)) else require(itemId == null)
+        if (kind in setOf(MediaMutationKind.PATCH_METADATA, MediaMutationKind.UNDO_METADATA, MediaMutationKind.PATCH_USER_STATE)) requireMediaRouteId(requireNotNull(itemId)) else require(itemId == null)
     }
 
     fun body(): JSONObject = JSONObject(json)
@@ -71,7 +80,7 @@ internal class MediaMutationRequest(
         libraryId == other.libraryId && scanId == other.scanId && userId == other.userId && bindingId == other.bindingId && itemId == other.itemId && json == other.json
 
     val method: String get() = when (kind) {
-        MediaMutationKind.UPDATE_LIBRARY, MediaMutationKind.PATCH_METADATA -> "PATCH"
+        MediaMutationKind.UPDATE_LIBRARY, MediaMutationKind.PATCH_METADATA, MediaMutationKind.PATCH_USER_STATE -> "PATCH"
         MediaMutationKind.GRANT_MEMBER -> "PUT"
         MediaMutationKind.REVOKE_MEMBER -> "DELETE"
         else -> "POST"
@@ -89,6 +98,7 @@ internal class MediaMutationRequest(
             MediaMutationKind.ATTEST_SOURCE -> "$library/sources/$bindingId/attest"
             MediaMutationKind.PATCH_METADATA -> "$library/items/$itemId/metadata"
             MediaMutationKind.UNDO_METADATA -> "$library/items/$itemId/metadata/undo"
+            MediaMutationKind.PATCH_USER_STATE -> "$library/items/$itemId/user-state"
             MediaMutationKind.START_SCAN -> "$library/scans"
             MediaMutationKind.CANCEL_SCAN -> "$library/scans/$scanId/cancel"
             MediaMutationKind.RETRY_SCAN -> "$library/scans/$scanId/retry"
@@ -104,6 +114,7 @@ internal class MediaMutationRequest(
             require(it.libraryId == libraryId && (bindingId == null || it.id == bindingId))
         }
         MediaMutationKind.PATCH_METADATA, MediaMutationKind.UNDO_METADATA -> parseMediaMetadataReceipt(row).also { require(it.itemId == itemId) }
+        MediaMutationKind.PATCH_USER_STATE -> parseMediaCatalogUserState(row)
         MediaMutationKind.START_SCAN, MediaMutationKind.CANCEL_SCAN, MediaMutationKind.RETRY_SCAN -> parseMediaScan(row).also {
             require(it.libraryId == libraryId)
             if (kind == MediaMutationKind.CANCEL_SCAN) require(it.id == scanId)

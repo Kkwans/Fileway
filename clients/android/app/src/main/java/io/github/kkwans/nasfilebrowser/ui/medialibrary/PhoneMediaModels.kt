@@ -1,11 +1,12 @@
 package io.github.kkwans.nasfilebrowser.ui.medialibrary
 
 import coil3.request.ImageRequest
+import io.github.kkwans.nasfilebrowser.data.MediaCatalogArtwork
 
 /** Presentation only. IDs are opaque; adapters own authorization, formatting and wire versions.
  * Image requests must already be authorized and scoped to account/instance/asset revision.
  * Never put credentials, upstream URLs or private paths into display strings. */
-internal data class MediaArtwork(val request: ImageRequest?)
+internal data class MediaArtwork(val request: ImageRequest? = null, val catalog: MediaCatalogArtwork? = null)
 internal data class MediaProblem(val title: String, val message: String, val recoveryLabel: String? = null)
 internal data class MediaSection<T>(val entries: List<T> = emptyList(), val loading: Boolean = false,
     val problem: MediaProblem? = null, val hasMore: Boolean = false)
@@ -37,9 +38,12 @@ internal data class PhoneMediaDetailState(val scopeKey: String, val id: String, 
     val backdrop: MediaArtwork? = null, val ratings: List<MediaRating> = emptyList(), val overview: String? = null,
     val playLabel: String = "播放", val canPlay: Boolean = false, val canHandoff: Boolean = false,
     val canChangeUserState: Boolean = false, val canReviewMatch: Boolean = false,
+    val userStateRevision: Long? = null, val userStateBusy: Boolean = false, val userStateProblem: MediaProblem? = null,
     val favorite: Boolean = false, val watched: Boolean = false, val busy: Boolean = false,
-    val sourceCount: Int = 0, val sourceSummary: String? = null, val playProblem: MediaProblem? = null,
+    val sourceCount: Int? = null, val sourceSummary: String? = null, val playProblem: MediaProblem? = null,
+    val canSelectSources: Boolean = false,
     val credits: MediaSection<MediaCredit> = MediaSection(), val seasons: List<MediaSeason> = emptyList(),
+    val seasonsLoading: Boolean = false, val seasonsHasMore: Boolean = false, val seasonsProblem: MediaProblem? = null,
     val selectedSeason: String? = null, val episodes: MediaSection<MediaEpisode> = MediaSection(),
     val episodeSummary: String? = null, val loading: Boolean = false, val problem: MediaProblem? = null)
 
@@ -48,7 +52,7 @@ internal data class MediaSourceOption(val id: String, val editionId: String, val
     val available: Boolean, val unavailableReason: String? = null, val recoveryLabel: String? = null)
 internal data class PhoneMediaSourcesState(val itemId: String, val revision: String,
     val entries: List<MediaSourceOption>, val selectedId: String? = null, val loading: Boolean = false,
-    val busy: Boolean = false, val problem: MediaProblem? = null)
+    val busy: Boolean = false, val problem: MediaProblem? = null, val hasMore: Boolean = false)
 
 internal data class MediaMatchCandidate(val id: String, val title: String, val metadata: String,
     val externalIds: String, val evidence: String? = null, val poster: MediaArtwork? = null)
@@ -94,8 +98,8 @@ internal sealed interface PhoneMediaAction {
     data class Sources(val id: String, val kind: MediaTargetKind = MediaTargetKind.ITEM) : PhoneMediaAction
     data class SelectSource(val id: String, val expectedRevision: String) : PhoneMediaAction
     data class RecoverSource(val id: String) : PhoneMediaAction
-    data class Favorite(val id: String, val value: Boolean, val expectedRevision: String) : PhoneMediaAction
-    data class Watched(val id: String, val value: Boolean, val expectedRevision: String) : PhoneMediaAction
+    data class Favorite(val id: String, val value: Boolean, val expectedRevision: Long?) : PhoneMediaAction
+    data class Watched(val id: String, val value: Boolean, val expectedRevision: Long?) : PhoneMediaAction
     data class OpenPerson(val id: String) : PhoneMediaAction
     data class AllCredits(val id: String) : PhoneMediaAction
     data class SelectSeason(val id: String) : PhoneMediaAction

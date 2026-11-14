@@ -338,7 +338,50 @@ class MediaLibraryRepository(
     /** Explicit user action only. The saved operation, endpoint and parameters are reused verbatim. */
     suspend fun retryOperation(operation: MediaOperation): MediaWriteResult<Any> {
         require(operation.account == scope.account) { "操作不属于当前账号或服务器" }
-        return write(journal.replay(operation))
+        val request = journal.replay(operation)
+        if (request.kind == MediaMutationKind.PATCH_USER_STATE) checkCatalogCredential()
+        return write(request)
+    }
+
+    suspend fun getUserState(ref: MediaCatalogRef): MediaReadResult<MediaCatalogUserState> {
+        ref.requireBound(scope, catalogDeviceSession)
+        return catalogRead(null) {
+            parseMediaCatalogUserState(context.api.request("GET", "${itemEndpoint(ref.libraryId, ref.itemId)}/user-state"))
+        }
+    }
+
+    suspend fun updateUserState(operation: MediaOperation, ref: MediaCatalogRef, expectedRevision: Long,
+        favorite: Boolean? = null, manualWatched: Boolean? = null,
+    ): MediaWriteResult<MediaCatalogUserState> {
+        ref.requireBound(scope, catalogDeviceSession)
+        checkCatalogCredential()
+        return typedWrite(mutation(operation, MediaMutationKind.PATCH_USER_STATE, ref.libraryId, itemId = ref.itemId,
+            body = revisionBody(operation, expectedRevision).apply {
+                favorite?.let { put("favorite", it) }
+                manualWatched?.let { put("manualWatched", it) }
+            }))
+    }
+
+    suspend fun pendingUserStateOperation(ref: MediaCatalogRef): MediaOperation? {
+        ref.requireBound(scope, catalogDeviceSession)
+        checkCurrent()
+        checkCatalogCredential()
+        return journal.firstUnresolved(scope.account, setOf(MediaMutationKind.PATCH_USER_STATE), ref.libraryId, ref.itemId)
+    }
+
+    /** Library setup resumes an unresolved write only after explicit user confirmation. */
+    suspend fun pendingSetupOperation(): MediaOperation? {
+        checkCurrent()
+        return journal.firstUnresolved(scope.account, setOf(
+            MediaMutationKind.CREATE_LIBRARY, MediaMutationKind.CREATE_SOURCE,
+            MediaMutationKind.START_SCAN, MediaMutationKind.CANCEL_SCAN, MediaMutationKind.RETRY_SCAN,
+        ))
+    }
+
+    suspend fun forgetResolvedOperation(operation: MediaOperation) {
+        checkCurrent()
+        require(operation.account == scope.account)
+        journal.forget(operation)
     }
 
     @Suppress("UNCHECKED_CAST")
@@ -465,5 +508,7 @@ private fun receipt(request: MediaMutationRequest, value: Any): MediaWriteReceip
     is MediaScan -> MediaWriteReceipt(value.libraryId, scanId = value.id.also(::requireMediaRouteId), scanGeneration = value.generation)
     is MediaMetadataReceipt -> MediaWriteReceipt(requireNotNull(request.libraryId), revision = value.revision,
         itemId = value.itemId, metadataRevision = value.metadataRevision)
+    is MediaCatalogUserState -> MediaWriteReceipt(requireNotNull(request.libraryId),
+        revision = value.revision.takeIf { it > 0 }, itemId = request.itemId)
     else -> error("媒体库回执类型无效")
 }

@@ -130,6 +130,15 @@ class MediaWriteJournal private constructor(private val file: AtomicFile, privat
         return entries[operation]?.request ?: error("找不到待确认操作")
     }
 
+    @Synchronized internal fun firstUnresolved(
+        account: MediaAccountScope, kinds: Set<MediaMutationKind>, libraryId: String? = null, itemId: String? = null,
+    ): MediaOperation? =
+        entries.values.firstOrNull {
+            !it.inFlight && it.request.operation.account == account && it.request.kind in kinds &&
+                (libraryId == null || it.request.libraryId == libraryId) && (itemId == null || it.request.itemId == itemId) &&
+                (it.state == MediaWriteState.UNKNOWN || it.state == MediaWriteState.ACKNOWLEDGED_INVALID_RESPONSE)
+        }?.request?.operation
+
     /** Called synchronously as soon as the 2xx response is observed. */
     @Synchronized internal fun accepted(operation: MediaOperation, receipt: MediaWriteReceipt?, failure: MediaFailure?) {
         val entry = checkNotNull(entries[operation])

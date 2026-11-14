@@ -12,7 +12,8 @@ class ClientNavigationStateTest {
         assertEquals(ClientDestination.UPLOADS, ClientDestination.forRoute("taskcenter", TaskCenterSection.UPLOADS))
         assertEquals(ClientDestination.HISTORY, ClientDestination.forRoute("taskcenter", TaskCenterSection.HISTORY))
         assertNull(ClientDestination.forRoute("unexpected-route"))
-        assertEquals(ClientMainDestination.MY, ClientDestination.SETTINGS.main)
+        assertEquals(ClientMainDestination.MEDIA, ClientDestination.MEDIA.main)
+        assertEquals(null, ClientDestination.SETTINGS.main)
         assertEquals(5, ClientMainDestination.entries.size)
     }
 

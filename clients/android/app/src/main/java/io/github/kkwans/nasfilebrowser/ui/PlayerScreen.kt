@@ -148,7 +148,9 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     var subtitleOffsetError by remember(file) { mutableStateOf<String?>(null) }
     val context = LocalContext.current
     val download = downloads.items.firstOrNull { it.id == file.downloadId }
+    val catalog = model.isCatalogContent(file)
     val playbackSourceLabel = when {
+        catalog -> "影视库原画"
         file.downloadId.isEmpty() -> "服务器原文件"
         download == null -> "本机下载 · 下载状态待确认"
         download.complete -> "本机下载 · 离线读取"
@@ -895,7 +897,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                     VideoDecodePolicy.AUTO -> "解码故障时尝试可用的软件解码器"
                                     VideoDecodePolicy.HARDWARE -> "不自动回退到软件解码"
                                     VideoDecodePolicy.SOFTWARE -> "使用设备提供的软件视频解码器"
-                                }, state.videoDecodePolicy == policy, enabled = !changingDecoder && !client.busy) {
+                                }, state.videoDecodePolicy == policy, enabled = !catalog && !changingDecoder && !client.busy) {
                                     if (state.videoDecodePolicy != policy) {
                                         changingDecoder = true
                                         uiScope.launch {
@@ -907,13 +909,13 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                     }
                                 }
                             }
-                            Text(if (changingDecoder) "正在切换解码器…" else "切换将保留进度并重新打开视频，后续视频沿用此策略。",
+                            Text(if (catalog) "此片源使用打开时的解码策略。" else if (changingDecoder) "正在切换解码器…" else "切换将保留进度并重新打开视频，后续视频沿用此策略。",
                                 Modifier.padding(horizontal = 24.dp), style = FilewayTheme.text.metadata, color = FilewayTheme.status.mediaSecondary)
                         }
                         PlayerSheet.SOURCE -> LazyColumn(contentPadding = PaddingValues(horizontal = 24.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             item { SourceField("文件", file.name) }
                             item { SourceField("读取来源", playbackSourceLabel) }
-                            item { SourceField("路径", file.path) }
+                            if (!catalog) item { SourceField("路径", file.path) }
                             if (file.downloadId.isEmpty() && !model.isTemporaryContent(file)) item {
                                 FilewayOutlinedButton({ sheet = null; model.openContainingDirectory(file) }, Modifier.fillMaxWidth(),
                                     enabled = client.connected && !client.busy) {

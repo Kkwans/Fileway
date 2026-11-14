@@ -40,7 +40,7 @@ internal fun rememberPlayerArtwork(model: ClientModel, file: ResourceRef): Playe
     var accent by remember(cacheKey) { mutableStateOf(mediaAccentCache.get(cacheKey)) }
 
     LaunchedEffect(cacheKey) {
-        if (accent != null) return@LaunchedEffect
+        if (accent != null || model.isCatalogContent(file)) return@LaunchedEffect
         try {
             val loaded = loadMediaAccent(model, file, context, cacheKey)
             if (loaded != null) {

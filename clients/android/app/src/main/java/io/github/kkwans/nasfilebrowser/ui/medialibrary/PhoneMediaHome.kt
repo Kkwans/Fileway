@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.platform.LocalContext
@@ -31,11 +32,12 @@ import coil3.ImageLoader
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayEmptyState
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMenuItem
+import io.github.kkwans.fileway.design.R as Art
 
 /** Embedded tab: parent owns status/navigation-bar insets; do not apply them twice. */
 @Composable internal fun PhoneMediaHome(state: PhoneMediaHomeState, imageLoader: ImageLoader,
     onAction: (PhoneMediaAction) -> Unit, modifier: Modifier = Modifier,
-    gridState: LazyGridState = rememberLazyGridState()) {
+    gridState: LazyGridState = rememberLazyGridState(), onDrawer: (() -> Unit)? = null) {
     key(state.scopeKey) {
         var continueMenuOpen by remember { mutableStateOf(false) }
         BoxWithConstraints(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -45,8 +47,8 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMenuItem
                 horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 item(key = "heading", span = { GridItemSpan(maxLineSpan) }) {
                     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (onDrawer != null) MediaIconAction(Art.drawable.fileway_ic_menu, "打开导航菜单", onDrawer)
                         Text("影视", Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.headlineMedium)
-                        MediaIconAction(R.drawable.ic_search, "搜索影视", { onAction(PhoneMediaAction.Search) })
                         if (state.canManage) MediaIconAction(R.drawable.ic_settings, "管理媒体库",
                             { onAction(PhoneMediaAction.ManageLibraries) })
                     }
@@ -55,7 +57,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMenuItem
                     MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("home")) })
                 } }
                 if (!state.libraryExists && state.problem == null) item(key = "first-library", span = { GridItemSpan(maxLineSpan) }) {
-                    FilewayEmptyState(R.drawable.ic_library, "让收藏成为你的私人影院", "添加已有影视目录，整理影片、剧集与观看进度。原文件保持不变。",
+                    FilewayEmptyState(R.drawable.ic_library, "还没有媒体库", "媒体库创建后，影视会显示在这里。",
                         if (state.canManage) "创建媒体库" else null,
                         if (state.canManage) ({ onAction(PhoneMediaAction.CreateLibrary) }) else null)
                 }
@@ -95,8 +97,6 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMenuItem
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(state.catalogTitle, Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleLarge)
-                            MediaIconAction(R.drawable.ic_filter, "筛选影视", { onAction(PhoneMediaAction.Filters) })
-                            MediaIconAction(R.drawable.ic_sort, "排序影视", { onAction(PhoneMediaAction.Sort) })
                         }
                         state.filterSummary?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -109,9 +109,8 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMenuItem
                     item(key = "catalog-empty", span = { GridItemSpan(maxLineSpan) }) {
                         FilewayEmptyState(R.drawable.ic_video, "这里还没有影视", if (state.filterSummary != null)
                             "试试调整筛选条件。" else "扫描完成后，已收录的作品会出现在这里。",
-                            if (state.filterSummary != null) "调整筛选" else if (state.canManage) "查看媒体库" else null,
-                            if (state.filterSummary != null) ({ onAction(PhoneMediaAction.Filters) })
-                            else if (state.canManage) ({ onAction(PhoneMediaAction.ManageLibraries) }) else null)
+                            if (state.canManage) "查看媒体库" else null,
+                            if (state.canManage) ({ onAction(PhoneMediaAction.ManageLibraries) }) else null)
                     }
                 }
                 gridItems(state.catalog.entries, key = { "poster/${it.id}" }) { item ->
@@ -169,13 +168,23 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMenuItem
             }) { index ->
             val entry = entries[index]
             Card(onClick = { onAction(PhoneMediaAction.OpenItem(entry.id)) }, shape = MaterialTheme.shapes.medium) {
-                Box(Modifier.fillMaxWidth().heightIn(min = 240.dp).aspectRatio(16f / 9f)) {
-                    MediaImage(entry.backdrop, loader, Modifier.fillMaxSize())
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .85f)))))
+                Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+                    .clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceContainer)) {
+                    if (entry.backdrop != null) {
+                        MediaImage(entry.backdrop, loader, Modifier.fillMaxSize())
+                        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .85f)))))
+                    } else if (entry.poster != null) {
+                        MediaImage(entry.poster, loader, Modifier.align(Alignment.CenterEnd).fillMaxHeight()
+                            .aspectRatio(2f / 3f).padding(12.dp))
+                        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(
+                            listOf(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.colorScheme.surfaceContainer.copy(alpha = .85f), Color.Transparent))))
+                    }
+                    val titleColor = if (entry.backdrop != null) Color.White else MaterialTheme.colorScheme.onSurface
+                    val subtitleColor = if (entry.backdrop != null) Color.White.copy(alpha = .85f) else MaterialTheme.colorScheme.onSurfaceVariant
                     Column(Modifier.align(Alignment.BottomStart).padding(16.dp)) {
-                        Text(entry.title, color = Color.White, style = MaterialTheme.typography.headlineSmall,
+                        Text(entry.title, color = titleColor, style = MaterialTheme.typography.headlineSmall,
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(entry.subtitle, color = Color.White.copy(alpha = .85f), style = MaterialTheme.typography.bodySmall,
+                        Text(entry.subtitle, color = subtitleColor, style = MaterialTheme.typography.bodySmall,
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                 }

@@ -38,6 +38,12 @@ import io.github.kkwans.nasfilebrowser.app.clientPageStateKey
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.data.PlaybackSnapshot
 import io.github.kkwans.nasfilebrowser.data.ProgressSync
+import io.github.kkwans.nasfilebrowser.data.MediaLibraryRepository
+import io.github.kkwans.nasfilebrowser.ui.medialibrary.PhoneMediaRoute
+import io.github.kkwans.nasfilebrowser.ui.medialibrary.MediaLoading
+import io.github.kkwans.nasfilebrowser.ui.medialibrary.MediaProblem
+import io.github.kkwans.nasfilebrowser.ui.medialibrary.MediaProblemCard
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import java.util.Locale
@@ -210,6 +216,7 @@ import java.util.Locale
             when {
                 searchShown -> SearchScreen(model, state)
                 state.tab == "files" -> BrowserScreen(model, state)
+                state.tab == "media" -> MediaCatalogDestination(model)
                 state.tab == "cache-images" -> CacheGalleryScreen(model)
                 state.tab == "settings" -> SettingsScreen(model, state, onBack = ::requestBack)
                 state.tab == "about" -> SettingsScreen(model, state, openAbout = true, onBack = ::requestBack)
@@ -226,6 +233,32 @@ import java.util.Locale
         }
     }
     }
+    }
+}
+
+@Composable
+private fun MediaCatalogDestination(model: ClientModel) {
+    val session = model.tvAuthorizationContext() ?: return
+    val openDrawer = LocalFilewayDrawer.current
+    var attempt by remember(session) { mutableIntStateOf(0) }
+    val result by produceState<Result<MediaLibraryRepository>?>(null, session, attempt) {
+        value = null
+        value = try { Result.success(model.mediaLibraryRepository(session)) }
+        catch (canceled: CancellationException) { throw canceled }
+        catch (failure: Exception) { Result.failure(failure) }
+    }
+    val repository = result?.getOrNull()
+    if (repository != null) {
+        PhoneMediaRoute(session, repository, model.previewImageLoader, openDrawer) { variant ->
+            model.openCatalogVideo(repository, variant)
+        }
+    } else Column(Modifier.fillMaxSize().statusBarsPadding().consumeWindowInsets(WindowInsets.statusBars)) {
+        FilewayPageHeader("影视")
+        if (result == null) MediaLoading("正在打开影视中心")
+        else MediaProblemCard(
+            MediaProblem("影视中心暂时无法打开", "无法读取本机媒体库操作记录。", "重试"),
+            { attempt++ }, Modifier.padding(16.dp),
+        )
     }
 }
 

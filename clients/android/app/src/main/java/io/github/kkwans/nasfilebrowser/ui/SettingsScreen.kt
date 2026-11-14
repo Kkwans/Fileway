@@ -55,14 +55,14 @@ import kotlinx.coroutines.launch
     val navigationPulse = LocalFilewayNavigationPulse.current
     val labelStyle = MaterialTheme.typography.labelMedium
     val barHeight = 68.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    CompositionLocalProvider(LocalFilewayIconFamily provides FilewayIconFamily.LORDICON_OUTLINE, LocalRippleConfiguration provides null) {
+    CompositionLocalProvider(LocalFilewayIconFamily provides FilewayIconFamily.MATERIAL_ROUNDED, LocalRippleConfiguration provides null) {
     NavigationBar(containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp,
         modifier = Modifier.height(barHeight)) {
         listOf(Triple(ClientMainDestination.FILES, "文件", R.drawable.ic_nav_files_077),
             Triple(ClientMainDestination.RECENT, "最近", R.drawable.ic_nav_history_077),
+            Triple(ClientMainDestination.MEDIA, "影视", R.drawable.ic_video),
             Triple(ClientMainDestination.LIBRARY, "资料", R.drawable.ic_library),
-            Triple(ClientMainDestination.TASKS, "任务", R.drawable.ic_tasks),
-            Triple(ClientMainDestination.MY, "我的", R.drawable.ic_person)).forEach { (tab, label, icon) ->
+            Triple(ClientMainDestination.TASKS, "任务", R.drawable.ic_tasks)).forEach { (tab, label, icon) ->
             NavigationBarItem(selected = active == tab, onClick = { navigationPulse?.let { it.value = tab.name to (it.value.second + 1) }; model.navigateMain(tab) },
                 modifier = Modifier.semantics { contentDescription = "${label}导航" },
                 icon = { FilewayIcon(icon, null, Modifier.size(24.dp), eventKey = if (active == tab && navigationPulse?.value?.first == tab.name) navigationPulse.value.second else 0) }, label = { Text(label, style = labelStyle, maxLines = 1, overflow = TextOverflow.Ellipsis) },

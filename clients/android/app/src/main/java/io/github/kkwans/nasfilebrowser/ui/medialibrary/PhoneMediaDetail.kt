@@ -37,12 +37,9 @@ import io.github.kkwans.fileway.design.R as Art
         Column(modifier.fillMaxSize().background(background)) {
             FilewayTopAppBar("影视详情", leadingIcon = R.drawable.ic_arrow_back, leadingDescription = "返回",
                 onLeadingClick = { onAction(PhoneMediaAction.Back) }, actions = {
-                    if (state.canReviewMatch || state.canPlay) Box {
+                    if (state.canReviewMatch) Box {
                         MediaIconAction(R.drawable.ic_more_vert, "更多操作", { menu = true })
                         DropdownMenu(menu, { menu = false }) {
-                            if (state.canPlay) FilewayMenuItem("从头播放", {
-                                menu = false; onAction(PhoneMediaAction.Play(state.id, true))
-                            }, enabled = !state.busy)
                             if (state.canReviewMatch) FilewayMenuItem("纠正识别", {
                                 menu = false; onAction(PhoneMediaAction.ReviewMatch(state.id))
                             }, icon = R.drawable.ic_edit, enabled = !state.busy)
@@ -58,7 +55,7 @@ import io.github.kkwans.fileway.design.R as Art
                     } }
                     item(key = "hero") {
                         Column {
-                            if (state.backdrop?.request != null) Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
+                            if (state.backdrop != null) Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
                                 MediaImage(state.backdrop, imageLoader, Modifier.fillMaxSize())
                                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                                     0f to Color.Transparent, .55f to Color.Transparent, 1f to background)))
@@ -81,7 +78,7 @@ import io.github.kkwans.fileway.design.R as Art
                             items(state.ratings, key = { it.id }) { rating -> RatingCard(rating) }
                         }
                     }
-                    item(key = "play") {
+                    if (state.canSelectSources) item(key = "play") {
                         Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Button(onClick = { onAction(PhoneMediaAction.Play(state.id)) }, enabled = state.canPlay && !state.busy,
@@ -90,7 +87,7 @@ import io.github.kkwans.fileway.design.R as Art
                                     FilewayIcon(R.drawable.art_play, null, Modifier.size(22.dp)); Spacer(Modifier.width(8.dp))
                                     Text(state.playLabel)
                                 }
-                                FilledTonalButton(onClick = { onAction(PhoneMediaAction.Handoff(state.id)) },
+                                if (state.canHandoff) FilledTonalButton(onClick = { onAction(PhoneMediaAction.Handoff(state.id)) },
                                     enabled = state.canHandoff && !state.busy, modifier = Modifier.weight(1f).heightIn(min = 56.dp),
                                     shape = MaterialTheme.shapes.medium, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)) {
                                     FilewayIcon(Art.drawable.fileway_ic_cast, null, Modifier.size(22.dp)); Spacer(Modifier.width(8.dp))
@@ -103,14 +100,14 @@ import io.github.kkwans.fileway.design.R as Art
                                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                     }
-                    item(key = "sources") {
+                    if (state.canSelectSources) item(key = "sources") {
                         Surface(onClick = { onAction(PhoneMediaAction.Sources(state.id)) }, enabled = !state.busy,
                             modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(), shape = MaterialTheme.shapes.medium,
                             color = MaterialTheme.colorScheme.surfaceContainerLow) {
                             Row(Modifier.heightIn(min = 72.dp).padding(16.dp), verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text("片源与版本 · ${state.sourceCount}", style = MaterialTheme.typography.titleMedium)
+                                    Text(state.sourceCount?.let { "片源与版本 · $it" } ?: "片源与版本", style = MaterialTheme.typography.titleMedium)
                                     Text(state.sourceSummary ?: "查看可用片源", style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 }
@@ -120,20 +117,23 @@ import io.github.kkwans.fileway.design.R as Art
                     }
                     if (state.canChangeUserState) item(key = "user-state") {
                         Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { onAction(PhoneMediaAction.Favorite(state.id, !state.favorite, state.revision)) },
-                                enabled = !state.busy, modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                            OutlinedButton(onClick = { onAction(PhoneMediaAction.Favorite(state.id, !state.favorite, state.userStateRevision)) },
+                                enabled = !state.userStateBusy, modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                                     .semantics { selected = state.favorite }, shape = MaterialTheme.shapes.medium) {
                                 FilewayIcon(R.drawable.ic_bookmark, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp))
                                 Text(if (state.favorite) "已收藏" else "收藏")
                             }
-                            OutlinedButton(onClick = { onAction(PhoneMediaAction.Watched(state.id, !state.watched, state.revision)) },
-                                enabled = !state.busy, modifier = Modifier.weight(1f).heightIn(min = 48.dp)
+                            OutlinedButton(onClick = { onAction(PhoneMediaAction.Watched(state.id, !state.watched, state.userStateRevision)) },
+                                enabled = !state.userStateBusy, modifier = Modifier.weight(1f).heightIn(min = 48.dp)
                                     .semantics { selected = state.watched }, shape = MaterialTheme.shapes.medium) {
                                 FilewayIcon(R.drawable.ic_check, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp))
                                 Text(if (state.watched) "已看过" else "标记已看")
                             }
                         }
                     }
+                    state.userStateProblem?.let { issue -> item(key = "user-state-recovery") {
+                        MediaProblemCard(issue, { onAction(PhoneMediaAction.Retry("user-state")) }, Modifier.padding(horizontal = 16.dp))
+                    } }
                     item(key = "overview") {
                         Column(Modifier.padding(horizontal = 16.dp)) {
                             MediaHeading("剧情简介")
@@ -143,7 +143,7 @@ import io.github.kkwans.fileway.design.R as Art
                                 modifier = Modifier.heightIn(min = 48.dp)) { Text(if (expanded) "收起简介" else "展开简介") }
                         }
                     }
-                    if (state.seasons.isNotEmpty()) {
+                    if (state.seasons.isNotEmpty() || state.seasonsLoading || state.seasonsProblem != null) {
                         item(key = "seasons") {
                             Column(Modifier.padding(horizontal = 16.dp)) {
                                 MediaHeading("剧集", actionLabel = if (compact) "卡片视图" else "序号视图", onAction = { compact = !compact })
@@ -156,9 +156,8 @@ import io.github.kkwans.fileway.design.R as Art
                                             modifier = Modifier.heightIn(min = 48.dp))
                                     }
                                 }
-                                if (state.selectedSeason != null) TextButton(onClick = { jump = true }, modifier = Modifier.heightIn(min = 48.dp)) {
-                                    Text("跳转到指定集")
-                                }
+                                state.seasonsProblem?.let { MediaProblemCard(it, { onAction(PhoneMediaAction.Retry("seasons")) }) }
+                                MediaPaging("seasons", state.seasonsLoading, state.seasonsHasMore, onAction)
                             }
                         }
                         state.episodes.problem?.let { problem -> item(key = "episodes-error") {
@@ -197,7 +196,7 @@ import io.github.kkwans.fileway.design.R as Art
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                             LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 items(state.credits.entries, key = { it.id }) { credit ->
-                                    Card(onClick = { onAction(PhoneMediaAction.OpenPerson(credit.personId)) }, modifier = Modifier.width(104.dp),
+                                    Card(modifier = Modifier.width(104.dp),
                                         colors = CardDefaults.cardColors(containerColor = background)) {
                                         MediaImage(credit.portrait, imageLoader, Modifier.fillMaxWidth().aspectRatio(1f), person = true)
                                         Text(credit.name, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.titleSmall,
