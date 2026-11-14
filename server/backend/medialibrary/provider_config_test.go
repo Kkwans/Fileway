@@ -269,7 +269,7 @@ func TestProviderConcurrentRevisionAndSchemaMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	library := createLibrary(t, store, 7, "preserved")
-	if _, err = store.db.Exec(`DROP TABLE library_metadata_policy; DROP TABLE provider_grant; DROP TABLE provider_connection; DROP TABLE provider_credential; PRAGMA user_version=10`); err != nil {
+	if _, err = store.db.Exec(`DROP TABLE item_provider_match; DROP TABLE library_metadata_policy; DROP TABLE provider_grant; DROP TABLE provider_connection; DROP TABLE provider_credential; PRAGMA user_version=10`); err != nil {
 		t.Fatal(err)
 	}
 	if err = store.Close(); err != nil {
