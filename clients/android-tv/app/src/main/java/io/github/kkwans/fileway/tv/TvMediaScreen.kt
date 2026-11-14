@@ -138,7 +138,7 @@ private data class TvPlaybackIssue(val message: String, val page: TvPlayerPage? 
         if (paused) resumePending = true
         else if (!audio) controls = false
         exitPrompt = false
-        model.media.player.toggle()
+        model.media.togglePlayback()
         pulse++
     }
     val toggleLatest by rememberUpdatedState(::togglePlayback)

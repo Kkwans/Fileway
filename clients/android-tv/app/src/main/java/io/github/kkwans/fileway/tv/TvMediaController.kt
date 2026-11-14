@@ -89,6 +89,11 @@ class TvMediaController(
     private var binding: Binding? = null
     private var catalogSelection: Pair<MediaLibraryRepository, MediaCatalogVariant>? = null
     private var catalogLease: CatalogPlaybackLease? = null
+    private var catalogProgress: CatalogWatchReporter? = null
+
+    init {
+        player.checkpoint = { catalogProgress?.capture(player.state.value, immediate = true) }
+    }
     private data class Window(val lease: PreviewLease, val startMs: Long, val durationMs: Long,val id:String)
     private var window: Window? = null
     private sealed interface SubtitleIntent {
@@ -122,7 +127,7 @@ class TvMediaController(
     private var pendingNativeAudio: Int? = null
 
     fun open(file: ResourceRef, candidates: List<ResourceRef>) = openMedia(file,candidates,null)
-    internal fun openCatalog(repo: MediaLibraryRepository, item: MediaCatalogVariant) {
+    internal fun openCatalog(repo: MediaLibraryRepository, item: MediaCatalogVariant, fromStart: Boolean = false) {
         val owner = current() ?: return
         if (repo.scope != item.ref.scope || repo.scope.account.userId != owner.account.userId) return
         val expected = ++epoch
@@ -148,19 +153,29 @@ class TvMediaController(
                 lock.withLock {
                     disposeBinding()
                     if (!accepts(owner, expected)) return@withLock
-                    val resolved = (repo.resolvePlayback(item) as? MediaReadResult.Success)?.value
+                    val resolved = (repo.resolvePlayback(item, trackProgress = true, fromStart = fromStart) as? MediaReadResult.Success)?.value
                         ?: error("片源暂不可用")
                     val lease = repo.openPlaybackLease(resolved)
                     if (!accepts(owner, expected)) { lease.release(); return@withLock }
                     catalogLease = lease
-                    player.open(lease.url, videoDecodePolicy = playbackPreferences.videoDecodePolicy.value)
+                    player.open(lease.url, lease.startPositionMs, videoDecodePolicy = playbackPreferences.videoDecodePolicy.value)
+                    val progress = CatalogWatchReporter(lease, player.state.value.mediaGeneration)
+                    catalogProgress = progress
                     mutable.update { it.copy(busy = false) }
                     watcher = scope.launch {
-                        player.state.collect { snapshot ->
-                            if (accepts(owner, expected) && snapshot.durationMs > 0 &&
-                                mutable.value.sourceDurationMs != snapshot.durationMs) {
-                                mutable.update { it.copy(sourceDurationMs = snapshot.durationMs) }
+                        launch {
+                            lease.progressSyncFailed.collect { failed ->
+                                if (accepts(owner, expected)) mutable.update {
+                                    val message = "影视断点暂未同步"
+                                    if (failed || it.notice == message) it.copy(notice = message.takeIf { failed }) else it
+                                }
                             }
+                        }
+                        player.state.collect { snapshot ->
+                            if (!accepts(owner, expected)) return@collect
+                            progress.capture(snapshot)
+                            if (snapshot.durationMs > 0 && mutable.value.sourceDurationMs != snapshot.durationMs)
+                                mutable.update { it.copy(sourceDurationMs = snapshot.durationMs) }
                         }
                     }
                 }
@@ -1390,6 +1405,12 @@ class TvMediaController(
         }
     }
     fun pause() { saveProgress(); player.pause() }
+    fun togglePlayback() {
+        val selection = catalogSelection
+        if (selection != null && catalogLease != null && player.state.value.ended)
+            openCatalog(selection.first, selection.second, fromStart = true)
+        else player.toggle()
+    }
     suspend fun closeAndSave() {
         val expected = ++epoch
         catalogSelection = null
@@ -1402,6 +1423,8 @@ class TvMediaController(
 
     fun close() { scope.launch { closeAndSave() } }
     private suspend fun disposeBinding(closeUi:Boolean=false) {
+        catalogProgress?.capture(player.state.value, immediate = true)
+        catalogProgress = null
         saveProgress(); binding?.subtitleAssets?.close(); binding?.writer?.close(); binding = null; player.stop()
         // Restore browsing before waiting for lease/cache IO. The old surface
         // must not stay visible while its retired cache files are removed.
@@ -1413,5 +1436,13 @@ class TvMediaController(
         externalRefs.clear()
         localRefs.clear()
     }
-    fun release() { ++epoch; operation?.cancel(); subtitleJob?.cancel(); watcher?.cancel(); prefetch?.cancel(); binding?.subtitleAssets?.close(); player.release();cache.release(); CoroutineScope(Dispatchers.IO).launch { catalogLease?.release(); playbackLease?.release(); leases.forEach { it.release() }; binding?.writer?.close() } }
+    fun release() {
+        ++epoch
+        operation?.cancel(); subtitleJob?.cancel(); watcher?.cancel(); prefetch?.cancel()
+        catalogProgress?.capture(player.state.value, immediate = true)
+        catalogProgress = null
+        player.checkpoint = null
+        binding?.subtitleAssets?.close(); player.release(); cache.release()
+        CoroutineScope(Dispatchers.IO).launch { catalogLease?.release(); playbackLease?.release(); leases.forEach { it.release() }; binding?.writer?.close() }
+    }
 }

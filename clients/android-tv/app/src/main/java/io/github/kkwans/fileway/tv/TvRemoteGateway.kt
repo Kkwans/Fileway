@@ -223,7 +223,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
                 else->error("设置不支持")
             }
             "media.open","image.open"->when {p.has("cancelHandoff")->return handoff.cancel(command,p.getString("cancelHandoff"));p.has("handoff")->return handoff.open(command,p);else->model.open(find(p.getString("id")),files())}
-            "playback.play"->if(!player.state.value.playing)player.toggle()
+            "playback.play"->if(!player.playWhenReady)model.media.togglePlayback()
             "playback.pause"->player.pause()
             "playback.stop"->model.media.closeAndSave()
             "playback.seekTo"->{check(model.media.canSeek){"视频尚未准备好，请稍后调整进度"};model.media.seek(p.getLong("positionMs"))}

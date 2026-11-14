@@ -94,6 +94,10 @@ import io.github.kkwans.fileway.design.R as Art
                                     Text("在 TV 播放")
                                 }
                             }
+                            TextButton(onClick = { onAction(PhoneMediaAction.Play(state.id, fromStart = true)) },
+                                enabled = state.canPlay && !state.busy, modifier = Modifier.heightIn(min = 48.dp)) {
+                                Text("从头播放")
+                            }
                             if (state.busy) MediaLoading("正在处理")
                             state.playProblem?.let { MediaProblemCard(it, { onAction(PhoneMediaAction.Retry("playback")) }) }
                             if (!state.canPlay && state.playProblem == null && !state.loading) Text("暂无可播放片源",

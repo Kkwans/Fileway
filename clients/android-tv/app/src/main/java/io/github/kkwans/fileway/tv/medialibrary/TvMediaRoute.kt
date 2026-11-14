@@ -32,7 +32,7 @@ import java.util.Locale
     repository: MediaLibraryRepository,
     imageLoader: ImageLoader,
     onExit: () -> Unit,
-    onPlayback: (MediaCatalogVariant) -> Unit,
+    onPlayback: (MediaCatalogVariant, Boolean) -> Unit,
 ) {
     val interactive = LocalTvInteractive.current
     val health by session.api.sessionHealth.collectAsState()
@@ -69,6 +69,7 @@ import java.util.Locale
         var playerWasShown by remember { mutableStateOf(false) }
         var initialFocusRequested by remember { mutableStateOf(false) }
         var focusedDetail by remember { mutableStateOf<String?>(null) }
+        var startFromBeginning by remember { mutableStateOf(false) }
         val libraryId = library
         val itemId = item
         DisposableEffect(route) { onDispose(route::close) }
@@ -109,6 +110,10 @@ import java.util.Locale
         }
         fun restore(id: String?, origin: String?) { restoreId = id; restoreOrigin = origin }
         fun closeSources() { route.closeSources(); restore(lastAnchor, lastOrigin) }
+        fun openSources(ref: MediaCatalogRef, fromStart: Boolean = false) {
+            startFromBeginning = fromStart
+            route.openSources(ref)
+        }
         fun back() {
             when {
                 route.sourceRef != null -> closeSources()
@@ -193,10 +198,11 @@ import java.util.Locale
                             episodesLoading = route.episodesLoading, episodesError = route.episodesError,
                             loading = route.detailLoading, error = route.detailError), imageLoader, onBack = { back() },
                             modifier = Modifier.weight(1f),
-                            onPlay = if (playable && reference != null) ({ route.openSources(reference) }) else null,
-                            onSources = if (playable && reference != null) ({ route.openSources(reference) }) else null,
+                            onPlay = if (playable && reference != null) ({ openSources(reference) }) else null,
+                            onPlayFromStart = if (playable && reference != null) ({ openSources(reference, fromStart = true) }) else null,
+                            onSources = if (playable && reference != null) ({ openSources(reference) }) else null,
                             onSeason = { route.selectSeason(it) },
-                            onEpisode = { id -> route.episodes.firstOrNull { tvMediaKey(it.ref) == id }?.let { route.openSources(it.ref) } },
+                            onEpisode = { id -> route.episodes.firstOrNull { tvMediaKey(it.ref) == id }?.let { openSources(it.ref) } },
                             onMoreEpisodes = if (route.episodesCursor != null && !route.episodesLoading) ({ route.loadEpisodes(false) }) else null,
                             onRetry = route::loadDetail, onRetryEpisodes = { route.loadEpisodes(true) }, scrollState = detailScroll)
                     }
@@ -213,7 +219,7 @@ import java.util.Locale
                         loading = route.sourcesLoading, error = route.sourcesError), onDismiss = ::closeSources,
                         onConfirm = { edition, sourceId ->
                             route.variants.firstOrNull { it.editionId == edition && tvVariantKey(it) == sourceId }?.let {
-                                route.closeSources(); awaitingPlayer = true; playerWasShown = false; onPlayback(it)
+                                route.closeSources(); awaitingPlayer = true; playerWasShown = false; onPlayback(it, startFromBeginning)
                             }
                         }, onRetry = if (route.sourcesError != null) ({ route.loadSources(true) }) else null,
                         onMore = if (route.sourcesCursor != null) ({ route.loadSources(false) }) else null)

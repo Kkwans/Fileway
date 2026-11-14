@@ -61,7 +61,7 @@ data class PlayerState(
     val nativeSubtitleNeedsSource: Boolean = false,
     val decoderRecovery: String? = null,
     /** Engine confirmed this position; a requested/buffering seek is not a checkpoint. */
-    val canSavePosition: Boolean = false, val ended: Boolean = false,
+    val canSavePosition: Boolean = false, val ended: Boolean = false, val naturalEnd: Boolean = false,
     /** Renderer buffers delivered to the audio sink; not proof of audible output. */
     val audioRenderedBuffers: Int = 0, val audioSkippedBuffers: Int = 0,
     val subtitleFontNotice: String? = null,
@@ -226,6 +226,7 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
         viewport?.subtitles(subtitles)
         val decoderKinds = java.util.concurrent.ConcurrentHashMap<String, String>()
         val decoderRequests = java.util.concurrent.ConcurrentHashMap<String, Pair<Boolean, Boolean>>()
+        var playingFromPosition: Long? = null
         val recoverWithSoftware = java.util.concurrent.atomic.AtomicBoolean(false)
         var softwareDecoderReadyAt = Long.MAX_VALUE
         var recoveryCompleted = false
@@ -309,7 +310,12 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
         player.addListener(object : Player.Listener {
             override fun onEvents(player: Player, events: Player.Events) { if (current()) publish() }
             override fun onPositionDiscontinuity(oldPosition: Player.PositionInfo, newPosition: Player.PositionInfo, reason: Int) {
-                if (current() && seekTarget != null && reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT)
+                if (!current()) return
+                if (reason == Player.DISCONTINUITY_REASON_SEEK || reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT) {
+                    playingFromPosition = newPosition.positionMs.takeIf { player.isPlaying }
+                    mutable.value = mutable.value.copy(naturalEnd = false)
+                }
+                if (seekTarget != null && reason == Player.DISCONTINUITY_REASON_SEEK_ADJUSTMENT)
                     seekTarget = newPosition.positionMs.coerceAtLeast(0)
             }
             override fun onTracksChanged(tracks: Tracks) {
@@ -345,10 +351,16 @@ class NativePlayer(context: Context, private val resources: MediaResourcePolicy 
             }
             override fun onPlaybackStateChanged(playbackState: Int) {
                 if (!current() || playbackState != Player.STATE_ENDED) return
+                // A seek directly to the end also emits STATE_ENDED.
+                val playedToEnd = playingFromPosition?.let { player.currentPosition > it } == true
+                mutable.value = mutable.value.copy(naturalEnd = playedToEnd && seekTarget == null)
                 session.pause()
                 // Media3 retains playWhenReady at EOF. A later seek must preserve pause intent.
                 if (player.playWhenReady) player.pause()
                 else { publish(); checkpoint?.invoke() }
+            }
+            override fun onIsPlayingChanged(isPlaying: Boolean) {
+                if (current() && isPlaying) playingFromPosition = player.currentPosition
             }
             override fun onPlayerError(error: PlaybackException) {
                 if (!current()) return

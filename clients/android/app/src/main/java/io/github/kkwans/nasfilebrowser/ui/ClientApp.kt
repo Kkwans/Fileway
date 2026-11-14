@@ -249,8 +249,8 @@ private fun MediaCatalogDestination(model: ClientModel) {
     }
     val repository = result?.getOrNull()
     if (repository != null) {
-        PhoneMediaRoute(session, repository, model.previewImageLoader, openDrawer) { variant ->
-            model.openCatalogVideo(repository, variant)
+        PhoneMediaRoute(session, repository, model.previewImageLoader, openDrawer) { variant, fromStart ->
+            model.openCatalogVideo(repository, variant, fromStart)
         }
     } else Column(Modifier.fillMaxSize().statusBarsPadding().consumeWindowInsets(WindowInsets.statusBars)) {
         FilewayPageHeader("影视")

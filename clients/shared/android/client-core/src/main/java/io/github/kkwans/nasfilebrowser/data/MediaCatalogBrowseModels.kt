@@ -173,9 +173,20 @@ class MediaCatalogPlaybackResolution internal constructor(
     val displayName: String, val contentType: String, val size: Long, val durationSeconds: Double?,
     val resolution: String?, val rangeSupported: Boolean, val endpoint: MediaPlaybackEndpoint?, val expiresAt: Long,
     val sessionId: String?, val leaseId: String?, val leaseGeneration: Long?, val renewAfter: Long?,
-    val resumeMode: String?, val timelineToken: String?,
+    val resumeMode: String?, val timelineToken: String?, internal val watchProgress: CatalogWatchProgress?,
 ) {
     override fun toString(): String = "MediaCatalogPlaybackResolution(redacted)"
+}
+
+internal const val MAX_WATCH_MEDIA_MS = 30L * 24 * 60 * 60 * 1_000
+
+internal data class CatalogWatchProgress(val sequence: Long, val positionMs: Long, val durationMs: Long?, val completed: Boolean)
+
+internal fun parseCatalogWatchProgress(row: JSONObject): CatalogWatchProgress {
+    val position = row.integerValue("positionMs")
+    val duration = row.optionalIntegerValue("durationMs")
+    require(position <= MAX_WATCH_MEDIA_MS && (duration == null || duration in maxOf(1, position)..MAX_WATCH_MEDIA_MS))
+    return CatalogWatchProgress(row.integerValue("sequence"), position, duration, row.booleanValue("completed"))
 }
 
 private fun JSONObject.textValue(key: String): String = get(key) as? String ?: error("影视目录响应格式无效")
@@ -487,11 +498,16 @@ internal fun parseCatalogPlayback(row: JSONObject, variant: MediaCatalogVariant)
     if (leaseId != null && endpointText != null) require(endpointText == "/api/media-library/v1/streams/$leaseId/original")
     val expiresAt = row.integerValue("expiresAt", 1)
     val renewAfter = row.optionalIntegerValue("renewAfter")?.also { require(it <= expiresAt) }
+    val weakIdentity = row.booleanValue("weakIdentity")
+    val watchProgress = if (row.isNull("watchProgress")) null else {
+        require(!weakIdentity && sessionId != null && leaseId != null && endpoint != null)
+        parseCatalogWatchProgress(row.getJSONObject("watchProgress")).also { require(it.sequence == 0L) }
+    }
     return MediaCatalogPlaybackResolution(variant.ref, variant.editionId, variant.variantId, variant.sourceFileId,
-        row.integerValue("fileRevision", 1), row.integerValue("identityEpoch", 1), row.booleanValue("weakIdentity"),
+        row.integerValue("fileRevision", 1), row.integerValue("identityEpoch", 1), weakIdentity,
         row.booleanValue("canResumeAcrossOpen"), row.booleanValue("resumeRequiresSameRevision"), row.textValue("displayName"),
         row.textValue("contentType"), row.integerValue("size"), duration, row.optionalTextValue("resolution"),
         row.booleanValue("rangeSupported"), endpoint, expiresAt, sessionId,
         leaseId, leaseGeneration, renewAfter,
-        optionalSafeText(row, "resumeMode"), optionalSafeText(row, "timelineToken"))
+        optionalSafeText(row, "resumeMode"), optionalSafeText(row, "timelineToken"), watchProgress)
 }

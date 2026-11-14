@@ -10,6 +10,7 @@ import io.github.kkwans.nasfilebrowser.core.NativeTransport
 import io.github.kkwans.nasfilebrowser.core.EmbeddedNetwork
 import io.github.kkwans.nasfilebrowser.core.NetworkState
 import io.github.kkwans.nasfilebrowser.player.NativePlayer
+import io.github.kkwans.nasfilebrowser.player.CatalogWatchReporter
 import io.github.kkwans.nasfilebrowser.player.DecoderRestore
 import io.github.kkwans.nasfilebrowser.player.DecoderSubtitleMode
 import io.github.kkwans.nasfilebrowser.player.transferJson
@@ -78,7 +79,7 @@ data class ClientState(
 private data class PlaybackBinding(val context: SessionContext, val file: ResourceRef, val identity: String, val writer: PlaybackWriter)
 private data class TemporaryMediaBinding(val context: SessionContext, val file: ResourceRef, val asset: PreviewLease)
 private data class CatalogMediaBinding(
-    val connection: CatalogPlaybackLease, val renewal: Job,
+    val connection: CatalogPlaybackLease, val progress: CatalogWatchReporter, val maintenance: Job,
 )
 private sealed interface DecoderSubtitleSource {
     val key: String
@@ -314,6 +315,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             var recordedGeneration = -1L
             player.state.collect { value ->
+                catalogPlayback?.progress?.capture(value)
                 val binding = playback
                 val opened = value.firstFrameRendered || binding?.file?.mediaKind() == MediaKind.AUDIO && value.playing && value.positionMs > 0
                 if (opened && value.error == null && binding != null && value.mediaGeneration != recordedGeneration &&
@@ -552,7 +554,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     internal fun isCatalogContent(file: ResourceRef): Boolean =
         catalogSelection != null && mutable.value.selected?.mediaKey == file.mediaKey
 
-    internal fun openCatalogVideo(repository: MediaLibraryRepository, selected: MediaCatalogVariant) {
+    internal fun openCatalogVideo(repository: MediaLibraryRepository, selected: MediaCatalogVariant, fromStart: Boolean = false) {
         val bound = context ?: return
         if (catalogRepository?.first !== bound || catalogRepository?.second !== repository ||
             selected.ref.scope != repository.scope) return
@@ -573,7 +575,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
             var acquired: CatalogPlaybackLease? = null
             try {
                 mediaClosing?.join()
-                val resolved = when (val result = repository.resolvePlayback(selected)) {
+                val resolved = when (val result = repository.resolvePlayback(selected, trackProgress = true, fromStart = fromStart)) {
                     is MediaReadResult.Success -> result.value
                     is MediaReadResult.Failure -> {
                         if (sessionCurrent(bound) && mediaRequest == request) {
@@ -588,18 +590,27 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
                 acquired = connection
                 currentCoroutineContext().ensureActive()
                 if (!sessionCurrent(bound) || mediaRequest != request) return@launch
-                player.open(connection.url, 0, autoplay = foreground,
+                player.open(connection.url, connection.startPositionMs, autoplay = foreground,
                     videoDecodePolicy = playbackPreferences.videoDecodePolicy.value)
-                val renewal = launch {
-                    try { connection.maintain() }
-                    catch (error: Exception) {
+                val progress = CatalogWatchReporter(connection, player.state.value.mediaGeneration)
+                val maintenance = launch {
+                    launch {
+                        connection.progressSyncFailed.collect { failed ->
+                            if (sessionCurrent(bound) && mediaRequest == request) {
+                                val status = "影视断点暂未同步"
+                                if (failed || mutable.value.progressStatus == status)
+                                    mutable.value = mutable.value.copy(progressStatus = status.takeIf { failed })
+                            }
+                        }
+                    }
+                    try { connection.maintain() } catch (error: Exception) {
                         if (error is CancellationException) throw error
                         if (sessionCurrent(bound) && mediaRequest == request) {
                             mutable.value = mutable.value.copy(notice = "片源连接未能续期，若无法继续播放请重试")
                         }
                     }
                 }
-                catalogPlayback = CatalogMediaBinding(connection, renewal)
+                catalogPlayback = CatalogMediaBinding(connection, progress, maintenance)
                 acquired = null
                 mutable.value = mutable.value.copy(busy = false, stage = "")
             } catch (error: Exception) {
@@ -1620,6 +1631,14 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     fun togglePlayback() {
         if (player.state.value.playing) { pausePlayback(); return }
         if (localPlayback != null) { if (foreground) player.toggle(); return }
+        if (catalogPlayback != null) {
+            if (foreground) {
+                val selection = catalogSelection
+                if (player.state.value.ended && selection != null) openCatalogVideo(selection.first, selection.second, fromStart = true)
+                else player.toggle()
+            }
+            return
+        }
         val binding = playback ?: return
         if (!foreground) return
         resumeOperation?.cancel()
@@ -1657,6 +1676,10 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     }
     private fun saveProgress() {
         if (!player.state.value.canSavePosition) return
+        catalogPlayback?.let {
+            it.progress.capture(player.state.value, immediate = true)
+            return
+        }
         localPlayback?.let { item ->
             val value = player.state.value
             val fingerprint = value.positionMs to value.durationMs
@@ -1677,9 +1700,10 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     }
     private fun endPlayback() {
         val catalog = catalogPlayback
+        catalog?.progress?.capture(player.state.value, immediate = true)
         catalogPlayback = null
         catalogSelection = null
-        catalog?.renewal?.cancel()
+        catalog?.maintenance?.cancel()
         closeTemporaryContent()
         saveProgress()
         val oldLocal = localPlayback; localPlayback = null

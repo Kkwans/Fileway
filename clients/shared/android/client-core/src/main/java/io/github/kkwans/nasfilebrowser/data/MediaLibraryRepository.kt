@@ -7,6 +7,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
@@ -160,10 +161,16 @@ class MediaLibraryRepository(
     }
 
     /** Explicit selection creates a short-lived server lease; never auto-retry an unknown outcome. */
-    suspend fun resolvePlayback(variant: MediaCatalogVariant): MediaReadResult<MediaCatalogPlaybackResolution> {
+    suspend fun resolvePlayback(variant: MediaCatalogVariant, trackProgress: Boolean = false,
+        fromStart: Boolean = false): MediaReadResult<MediaCatalogPlaybackResolution> {
         variant.ref.requireBound(scope, catalogDeviceSession)
         val endpoint = "${itemEndpoint(variant.ref.libraryId, variant.ref.itemId)}/playback-resolutions"
         val body = JSONObject().put("editionId", variant.editionId).put("variantId", variant.variantId).put("bindingId", variant.bindingId)
+        val progressSupported = trackProgress && !variant.weakIdentity && supportsWatchProgress()
+        if (progressSupported) {
+            body.put("watchProgress", true)
+            if (fromStart) body.put("fromStart", true)
+        }
         return when (val result = catalogRead(null) { parseCatalogPlayback(context.api.request("POST", endpoint, body), variant) }) {
             is MediaReadResult.Success -> result
             is MediaReadResult.Failure -> {
@@ -173,6 +180,20 @@ class MediaLibraryRepository(
                 result.copy(error = result.error.copy(mutationMayHaveCommitted = unknown))
             }
         }
+    }
+
+    private suspend fun supportsWatchProgress(): Boolean {
+        checkCurrent()
+        checkCatalogCredential()
+        // Older preview servers strictly reject new fields in the admission request.
+        val supported = withTimeoutOrNull(3_000) {
+            try { context.api.request("GET", "/api/client-capabilities").opt("catalogWatchProgressV1") == true }
+            catch (error: CancellationException) { throw error }
+            catch (_: Exception) { false }
+        } ?: false
+        checkCurrent()
+        checkCatalogCredential()
+        return supported
     }
 
     private fun checkCatalogCurrentNow() {

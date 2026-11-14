@@ -238,6 +238,82 @@ class MediaCatalogBrowseContractTest {
         }
     }
 
+    @Test fun watchAdmissionSupportsOldServersAndFlushesOrderedProgressBeforeClosing() = runBlocking<Unit> {
+        val profile = ServerProfile(name = "fixture", address = "https://example.invalid")
+        val sessionEndpoint = "/api/media-library/v1/playback-sessions/session_fixture"
+        val events = mutableListOf<String>()
+        var modern = false
+        var firstBody: String? = null
+        fun progress(sequence: Long, position: Long) = JSONObject().put("sequence", sequence)
+            .put("positionMs", position).put("durationMs", 100_000).put("completed", false)
+        val session = bound(profile) { command ->
+            when (command.getString("op")) {
+                "open" -> "watch-fixture"
+                "token" -> token()
+                "asset" -> "http://127.0.0.1:11080/stream/fixture"
+                "revoke" -> null.also { events += "revoke" }
+                "request" -> when (val endpoint = command.getString("endpoint")) {
+                    "/api/client-capabilities" -> reply(200, JSONObject().apply { if (modern) put("catalogWatchProgressV1", true) })
+                    "$sessionEndpoint/progress" -> {
+                        val body = command.getJSONObject("body")
+                        assertEquals(1L, body.getLong("sequence"))
+                        assertEquals(40_000L, body.getLong("positionMs"))
+                        if (firstBody == null) {
+                            firstBody = body.toString()
+                            events += "retry"
+                            reply(503)
+                        } else {
+                            assertEquals(firstBody, body.toString())
+                            events += "saved"
+                            reply(200, progress(1, 40_000))
+                        }
+                    }
+                    sessionEndpoint -> reply(204).also { events += "close" }
+                    else -> when {
+                        "/variants?" in endpoint -> reply(200, JSONObject().put("items", JSONArray().put(variant())))
+                        endpoint.endsWith("/playback-resolutions") -> {
+                            val body = command.getJSONObject("body")
+                            if (!modern && body.length() != 3) reply(400)
+                            else {
+                                if (modern) assertTrue(body.getBoolean("watchProgress"))
+                                val result = resolution()
+                                if (modern) result.put("watchProgress", progress(0, if (body.optBoolean("fromStart")) 0 else 28_000))
+                                reply(200, result)
+                            }
+                        }
+                        else -> reply(404)
+                    }
+                }
+                else -> error("Unknown fixture command")
+            }
+        }
+        val journal = MediaWriteJournal.open(isolatedContext())
+        try {
+            val repo = MediaLibraryRepository(session, { true }, journal)
+            val source = (repo.playbackVariants(repo.catalogRef("lib_1", "episode_1")) as MediaReadResult.Success).value.items.single()
+            suspend fun open(fromStart: Boolean) = repo.openPlaybackLease(
+                (repo.resolvePlayback(source, trackProgress = true, fromStart = fromStart) as MediaReadResult.Success).value)
+            val legacy = open(fromStart = true)
+            assertEquals(0L, legacy.startPositionMs)
+            legacy.recordProgress(1_000, 100_000, false)
+            legacy.release()
+            assertEquals(listOf("revoke", "close"), events)
+            events.clear()
+
+            modern = true
+            val resumable = open(fromStart = false)
+            assertEquals(28_000L, resumable.startPositionMs)
+            resumable.recordProgress(40_000, 100_000, false)
+            resumable.release()
+            assertEquals(listOf("retry", "saved", "revoke", "close"), events)
+            val restart = open(fromStart = true)
+            assertEquals(0L, restart.startPositionMs)
+            restart.release()
+        } finally {
+            journal.close()
+        }
+    }
+
     @Test fun personalStateRetryUsesTheOriginalOperationAndReadsFreshState() = runBlocking<Unit> {
         val profile = ServerProfile(name = "fixture", address = "https://example.invalid")
         val endpoint = "/api/media-library/v1/libraries/lib_1/items/movie_1/user-state"

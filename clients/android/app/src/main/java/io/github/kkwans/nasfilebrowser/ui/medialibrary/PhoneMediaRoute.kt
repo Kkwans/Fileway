@@ -36,7 +36,7 @@ internal fun PhoneMediaRoute(
     repository: MediaLibraryRepository,
     imageLoader: ImageLoader,
     onDrawer: () -> Unit,
-    onPlayback: (MediaCatalogVariant) -> Unit,
+    onPlayback: (MediaCatalogVariant, Boolean) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val route = remember(session, repository, scope) { PhoneMediaRouteState(session, repository, scope) }
@@ -53,6 +53,7 @@ internal fun PhoneMediaRoute(
     var reviewLibraryId by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var reviewItemId by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var autoAdvance by rememberSaveable(session.owner) { mutableStateOf(true) }
+    var startFromBeginning by remember(route) { mutableStateOf(false) }
     val grid = rememberLazyGridState()
     val pages = rememberSaveableStateHolder()
     val detailScroll = androidx.compose.runtime.key(item) { rememberLazyListState() }
@@ -87,10 +88,13 @@ internal fun PhoneMediaRoute(
     }
     val action: (PhoneMediaAction) -> Unit = { intent ->
         val detailRef = if (libraryId != null && detailId != null) repository.catalogRef(libraryId, detailId) else null
-        fun source(id: String) {
+        fun source(id: String, fromStart: Boolean = false) {
             val ref = if (detailRef != null && key(detailRef) == id) detailRef
             else route.episodes.firstOrNull { key(it.ref) == id }?.ref
-            ref?.let(route::openSources)
+            if (ref != null) {
+                startFromBeginning = fromStart
+                route.openSources(ref)
+            }
         }
         when (intent) {
             PhoneMediaAction.Back -> back()
@@ -109,11 +113,14 @@ internal fun PhoneMediaRoute(
             is PhoneMediaAction.Category -> { filter = intent.id; route.chooseFilter(intent.id) }
             is PhoneMediaAction.SetCarouselAutoAdvance -> autoAdvance = intent.enabled
             is PhoneMediaAction.SelectSeason -> route.selectSeason(intent.id)
-            is PhoneMediaAction.Play -> source(intent.id)
+            is PhoneMediaAction.Play -> source(intent.id, intent.fromStart)
             is PhoneMediaAction.Favorite -> route.changeUserState(intent.id, intent.expectedRevision, favorite = intent.value)
             is PhoneMediaAction.Watched -> route.changeUserState(intent.id, intent.expectedRevision, watched = intent.value)
             is PhoneMediaAction.Sources -> source(intent.id)
-            is PhoneMediaAction.SelectSource -> route.variant(intent.id)?.let { route.closeSources(); onPlayback(it) }
+            is PhoneMediaAction.SelectSource -> route.variant(intent.id)?.let {
+                route.closeSources()
+                onPlayback(it, startFromBeginning)
+            }
             is PhoneMediaAction.Retry -> when (intent.section) {
                 "home", "featured" -> route.refreshHome()
                 "catalog" -> route.loadCatalog(reset = true)
