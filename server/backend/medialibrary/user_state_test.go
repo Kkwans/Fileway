@@ -123,7 +123,7 @@ func TestUserStateSchemaNineMigrationPreservesCatalog(t *testing.T) {
 	}
 	library := createLibrary(t, store, 7, "preserved")
 	item := catalogItem(t, store, 7, library.ID, "film")
-	if _, err = store.db.Exec(`DROP TABLE user_item_state; PRAGMA user_version=9`); err != nil {
+	if _, err = store.db.Exec(`DROP TABLE library_metadata_policy; DROP TABLE provider_grant; DROP TABLE provider_connection; DROP TABLE provider_credential; DROP TABLE user_item_state; PRAGMA user_version=9`); err != nil {
 		t.Fatal(err)
 	}
 	if err = store.Close(); err != nil {
