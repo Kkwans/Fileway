@@ -6,6 +6,36 @@ import (
 	"testing"
 )
 
+func TestWatchSchemaUpgradeKeepsExistingUserState(t *testing.T) {
+	ctx := t.Context()
+	path := filepath.Join(t.TempDir(), "catalog.db")
+	store, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	library := createLibrary(t, store, 7, "Films")
+	item := catalogItem(t, store, 7, library.ID, "Fixture")
+	watched := false
+	if _, err := store.SetUserState(ctx, 7, library.ID, item.ID, 0, "legacy-unwatched", UserStatePatch{ManualWatched: &watched}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `DROP TABLE user_watch_progress; PRAGMA user_version=15`); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := Open(ctx, path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	state, err := reopened.GetUserState(ctx, 7, library.ID, item.ID)
+	if err != nil || state.ManualWatched == nil || *state.ManualWatched || state.WatchResetRevision != 1 || tableCount(t, reopened, "user_watch_progress") != 0 {
+		t.Fatalf("watch upgrade lost explicit state: %+v %v", state, err)
+	}
+}
+
 func TestMetadataJobResumesAfterDatabaseReopen(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "catalog.db")

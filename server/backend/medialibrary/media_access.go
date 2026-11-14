@@ -137,13 +137,17 @@ func scanPlaybackAccess(row rowScanner, viewer uint, libraryID, itemID string) (
 // relationship from one SQL statement. A successful lookup cannot authorize
 // bytes and must be repeated when validating a lease.
 func (store *Store) ResolvePlayback(ctx context.Context, viewer uint, libraryID, itemID, editionID, variantID, bindingID string) (*PlaybackAccess, error) {
+	return resolvePlayback(ctx, store.db, viewer, libraryID, itemID, editionID, variantID, bindingID)
+}
+
+func resolvePlayback(ctx context.Context, reader schemaReader, viewer uint, libraryID, itemID, editionID, variantID, bindingID string) (*PlaybackAccess, error) {
 	if viewer == 0 {
 		return nil, ErrForbidden
 	}
 	if libraryID == "" || itemID == "" || editionID == "" || variantID == "" || bindingID == "" {
 		return nil, fmt.Errorf("%w: playback reference", ErrInvalid)
 	}
-	return scanPlaybackAccess(store.db.QueryRowContext(ctx, playbackAccessSelection+` AND ls.binding_id=?`, viewer, viewer, viewer, libraryID, itemID, editionID, variantID, viewer, bindingID), viewer, libraryID, itemID)
+	return scanPlaybackAccess(reader.QueryRowContext(ctx, playbackAccessSelection+` AND ls.binding_id=?`, viewer, viewer, viewer, libraryID, itemID, editionID, variantID, viewer, bindingID), viewer, libraryID, itemID)
 }
 
 func (store *Store) ListPlaybackAccess(ctx context.Context, viewer uint, libraryID, itemID, editionID, variantID, afterBindingID string, limit int) (*PlaybackAccessPage, error) {

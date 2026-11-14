@@ -227,7 +227,7 @@ func TestMetadataPolicyV11MigratesAndSwitchesPriority(t *testing.T) {
 	library := createLibrary(t, store, 7, "Metadata policy")
 	conn := fixtureProvider(t, store, 7, false, "user", "migration-connection")
 	// Recreate the released v11 leaf table without disturbing the connection.
-	_, err = store.db.ExecContext(ctx, `DROP TABLE provider_match_manual_review; DROP TABLE provider_match_revision; DROP INDEX library_file_scan_observation; DROP TABLE metadata_job_target; DROP TABLE metadata_job; DROP TABLE item_provider_match; DROP TABLE library_metadata_policy;`+schemaV11[strings.Index(schemaV11, "CREATE TABLE library_metadata_policy"):]+`PRAGMA user_version=11`)
+	_, err = store.db.ExecContext(ctx, `DROP TABLE user_watch_progress; DROP TABLE provider_match_manual_review; DROP TABLE provider_match_revision; DROP INDEX library_file_scan_observation; DROP TABLE metadata_job_target; DROP TABLE metadata_job; DROP TABLE item_provider_match; DROP TABLE library_metadata_policy;`+schemaV11[strings.Index(schemaV11, "CREATE TABLE library_metadata_policy"):]+`PRAGMA user_version=11`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -269,7 +269,7 @@ func TestProviderConcurrentRevisionAndSchemaMigration(t *testing.T) {
 		t.Fatal(err)
 	}
 	library := createLibrary(t, store, 7, "preserved")
-	if _, err = store.db.Exec(`DROP TABLE provider_match_manual_review; DROP TABLE provider_match_revision; DROP INDEX library_file_scan_observation; DROP TABLE metadata_job_target; DROP TABLE metadata_job; DROP TABLE item_provider_match; DROP TABLE library_metadata_policy; DROP TABLE provider_grant; DROP TABLE provider_connection; DROP TABLE provider_credential; PRAGMA user_version=10`); err != nil {
+	if _, err = store.db.Exec(`DROP TABLE user_watch_progress; DROP TABLE provider_match_manual_review; DROP TABLE provider_match_revision; DROP INDEX library_file_scan_observation; DROP TABLE metadata_job_target; DROP TABLE metadata_job; DROP TABLE item_provider_match; DROP TABLE library_metadata_policy; DROP TABLE provider_grant; DROP TABLE provider_connection; DROP TABLE provider_credential; PRAGMA user_version=10`); err != nil {
 		t.Fatal(err)
 	}
 	if err = store.Close(); err != nil {

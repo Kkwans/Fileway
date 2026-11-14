@@ -4,14 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
-	"github.com/Kkwans/nas-file-browser/backend/mediascan"
-	"github.com/gorilla/mux"
 	"io"
 	"io/fs"
 	"net/http"
 	"os"
 	"strconv"
+
+	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
+	"github.com/Kkwans/nas-file-browser/backend/mediascan"
+	"github.com/gorilla/mux"
 )
 
 const mediaReadChunk = 256 << 10
@@ -117,9 +118,11 @@ func mediaPlaybackResolutionHandler(leases *mediaPlaybackLeases) handleFunc {
 			return mediaAccessError(err)
 		}
 		var body struct {
-			EditionID string `json:"editionId"`
-			VariantID string `json:"variantId"`
-			BindingID string `json:"bindingId"`
+			EditionID     string `json:"editionId"`
+			VariantID     string `json:"variantId"`
+			BindingID     string `json:"bindingId"`
+			WatchProgress bool   `json:"watchProgress,omitempty"`
+			FromStart     bool   `json:"fromStart,omitempty"`
 		}
 		if err := deviceBody(w, r, &body); err != nil || body.EditionID == "" || body.VariantID == "" || body.BindingID == "" {
 			return http.StatusBadRequest, fmt.Errorf("播放请求无效")
@@ -144,32 +147,43 @@ func mediaPlaybackResolutionHandler(leases *mediaPlaybackLeases) handleFunc {
 			return http.StatusServiceUnavailable, fmt.Errorf("播放服务繁忙，请稍后重试")
 		}
 		weak := evidence.IdentityKind != string(mediascan.IdentityNative)
-		// Neither a native file ID nor the v1 size/mtime marker establishes a
-		// reliable timeline across independent opens. Preserve same-lease seeks;
-		// advertise cross-open resume only after stronger timeline evidence exists.
+		var progress *medialibrary.WatchProgress
+		if body.WatchProgress && !weak {
+			state, err := d.store.MediaLibrary.BeginWatchProgress(r.Context(), evidence, stamp, admission.SessionID, body.FromStart)
+			if err != nil {
+				if lease := leases.session(admission.SessionID, d.user.ID, d.deviceSession); lease != nil {
+					leases.revoke(lease)
+				}
+				return mediaAccessError(err)
+			}
+			progress = &state
+		}
+		// Opted-in clients use the checkpoint below for this exact native
+		// timeline. The existing same-session lease contract stays compatible.
 		endpoint := "/api/media-library/v1/streams/" + admission.LeaseID + "/original"
 		return renderJSON(w, r, struct {
-			ItemID                     string   `json:"itemId"`
-			EditionID                  string   `json:"editionId"`
-			VariantID                  string   `json:"variantId"`
-			SourceFileID               string   `json:"sourceFileId"`
-			FileRevision               int64    `json:"fileRevision"`
-			IdentityEpoch              int64    `json:"identityEpoch"`
-			WeakIdentity               bool     `json:"weakIdentity"`
-			CanResumeAcrossOpen        bool     `json:"canResumeAcrossOpen"`
-			ResumeRequiresSameRevision bool     `json:"resumeRequiresSameRevision"`
-			DisplayName                string   `json:"displayName"`
-			ContentType                string   `json:"contentType"`
-			Size                       int64    `json:"size"`
-			DurationSeconds            *float64 `json:"durationSeconds"`
-			Resolution                 *string  `json:"resolution"`
-			RangeSupported             bool     `json:"rangeSupported"`
-			URL                        string   `json:"url"`
-			Endpoint                   string   `json:"endpoint"`
+			ItemID                     string                      `json:"itemId"`
+			EditionID                  string                      `json:"editionId"`
+			VariantID                  string                      `json:"variantId"`
+			SourceFileID               string                      `json:"sourceFileId"`
+			FileRevision               int64                       `json:"fileRevision"`
+			IdentityEpoch              int64                       `json:"identityEpoch"`
+			WeakIdentity               bool                        `json:"weakIdentity"`
+			CanResumeAcrossOpen        bool                        `json:"canResumeAcrossOpen"`
+			ResumeRequiresSameRevision bool                        `json:"resumeRequiresSameRevision"`
+			DisplayName                string                      `json:"displayName"`
+			ContentType                string                      `json:"contentType"`
+			Size                       int64                       `json:"size"`
+			DurationSeconds            *float64                    `json:"durationSeconds"`
+			Resolution                 *string                     `json:"resolution"`
+			RangeSupported             bool                        `json:"rangeSupported"`
+			URL                        string                      `json:"url"`
+			Endpoint                   string                      `json:"endpoint"`
+			WatchProgress              *medialibrary.WatchProgress `json:"watchProgress,omitempty"`
 			mediaAdmission
 		}{evidence.ItemID, evidence.EditionID, evidence.VariantID, evidence.SourceFileID, evidence.FileRevision, evidence.IdentityEpoch, weak, false, true,
 			mediaDisplayName(evidence.Locator), mediaContentType(evidence.Locator), info.Size(), nil, nil, true,
-			d.server.BaseURL + endpoint, endpoint, admission})
+			d.server.BaseURL + endpoint, endpoint, progress, admission})
 	})
 }
 

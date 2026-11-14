@@ -1,5 +1,30 @@
 package medialibrary
 
+const schemaV16 = `
+CREATE TABLE user_watch_progress (
+    user_id INTEGER NOT NULL CHECK(user_id>0),
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    source_file_id TEXT NOT NULL REFERENCES source_file(id),
+    edition_id TEXT NOT NULL,
+    variant_id TEXT NOT NULL,
+    file_revision INTEGER NOT NULL,
+    identity_epoch INTEGER NOT NULL,
+    edition_revision INTEGER NOT NULL,
+    mapping_revision INTEGER NOT NULL,
+    native_stamp TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    reset_revision INTEGER NOT NULL,
+    sequence INTEGER NOT NULL DEFAULT 0,
+    position_ms INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER,
+    completed INTEGER NOT NULL DEFAULT 0 CHECK(completed IN (0,1)),
+    updated_at INTEGER NOT NULL CHECK(updated_at>=0),
+    PRIMARY KEY(user_id,library_id,item_id,edition_id,variant_id),
+    FOREIGN KEY(library_id,item_id) REFERENCES library_item(library_id,id)
+) STRICT;
+`
+
 const schemaV15 = `
 CREATE TABLE provider_match_revision (
     library_id TEXT NOT NULL,

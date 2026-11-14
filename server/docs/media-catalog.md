@@ -37,6 +37,28 @@ and its TMDB follow-up without the originating device's local state.
 
 ## Explicit personal state
 
+### Exact-source viewing checkpoints
+
+New clients can send `watchProgress: true` in a playback resolution. For an
+eligible native original the response includes `watchProgress` with the
+starting position in milliseconds, nullable duration, completion state,
+and a sequence starting at zero. It is scoped to the exact variant and
+native file timeline. `fromStart: true` clears that variant's checkpoint
+when opening a new session. A completed timeline opens at zero. Weak source
+identities continue to play without this session checkpoint.
+
+`POST /playback-sessions/{session}/progress` accepts positive `sequence`,
+`positionMs`, optional `durationMs`, and `ended`. The same authenticated
+viewer and device session must still be authorized for the exact lease.
+Repeat or older sequence numbers return the latest state. A newer session
+for the variant, an explicit unwatched operation, or a source revision
+change fences the old session. A normal seek to the end does not complete
+viewing. Negative or out-of-range positions and invalid end events are
+rejected. Old clients can omit the opt-in and use the existing lease.
+
+Checkpoints are separate from legacy file progress. This endpoint does not
+infer equal timelines across different encodings.
+
 `GET /libraries/{id}/items/{itemId}/user-state` returns the current actor's
 `favorite`, nullable `manualWatched`, `revision`, and `watchResetRevision`.
 An untouched item is `false`, `null`, `0`, `0`: null means no manual decision,
