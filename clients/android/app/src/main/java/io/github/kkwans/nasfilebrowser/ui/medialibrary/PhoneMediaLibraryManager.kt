@@ -5,11 +5,17 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.ResourceRef
@@ -19,6 +25,11 @@ import io.github.kkwans.nasfilebrowser.data.MediaSourceRoot as LibrarySourceRoot
 import io.github.kkwans.nasfilebrowser.data.archiveAbsoluteWire
 import io.github.kkwans.nasfilebrowser.ui.SettingsAction
 import io.github.kkwans.nasfilebrowser.ui.SettingsGroup
+import io.github.kkwans.nasfilebrowser.ui.DirectoryBreadcrumbItem
+import io.github.kkwans.nasfilebrowser.ui.DirectoryBreadcrumbs
+import io.github.kkwans.nasfilebrowser.ui.FilewayButton
+import io.github.kkwans.nasfilebrowser.ui.FilewayDirectoryRow
+import io.github.kkwans.nasfilebrowser.ui.FilewayIcon
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayEmptyState
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import kotlinx.coroutines.CancellationException
@@ -51,6 +62,11 @@ import kotlin.coroutines.coroutineContext
         var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
         var historyScanId by rememberSaveable { mutableStateOf<String?>(null) }
         var name by rememberSaveable { mutableStateOf("") }
+        val focusManager = LocalFocusManager.current
+        var draftFolders by rememberSaveable(stateSaver = mediaFolderSaver) { mutableStateOf(emptyList<ResourceRef>()) }
+        var draftLibraryId by rememberSaveable { mutableStateOf<String?>(null) }
+        var draftBinding by rememberSaveable { mutableStateOf<String?>(null) }
+        var directoryReturn by rememberSaveable { mutableStateOf("library") }
         // The journal owns the original request; only its opaque operation ID is saved here.
         var pendingId by rememberSaveable { mutableStateOf<String?>(null) }
         var pendingKind by rememberSaveable { mutableStateOf<String?>(null) }
@@ -71,10 +87,12 @@ import kotlin.coroutines.coroutineContext
         var error by remember { mutableStateOf<String?>(null) }
         var notice by remember { mutableStateOf<String?>(null) }
         var syncWarning by remember { mutableStateOf<String?>(null) }
-        var browseStack by remember { mutableStateOf(listOf(ResourceRef("/", "/", "根目录", true, "", 0))) }
+        var browseStack by rememberSaveable(stateSaver = mediaFolderSaver) {
+            mutableStateOf(listOf(ResourceRef("/", "/", "服务器根目录", true, "", 0)))
+        }
         var browseEntries by remember { mutableStateOf<List<ResourceRef>>(emptyList()) }
-        var browseLoading by remember { mutableStateOf(false) }
         var browseError by remember { mutableStateOf<String?>(null) }
+        var verifiedBrowse by remember { mutableStateOf<Pair<String, Int>?>(null) }
         var refresh by remember { mutableIntStateOf(0) }
         var scanRefresh by remember { mutableIntStateOf(0) }
         var browseRefresh by remember { mutableIntStateOf(0) }
@@ -87,8 +105,9 @@ import kotlin.coroutines.coroutineContext
         fun leave() {
             if (busy) return
             when (screen) {
-                "directory" -> { screen = "library"; browseEntries = emptyList() }
-                "create" -> screen = "libraries"
+                "directory" -> if (browseStack.size > 1) browseStack = browseStack.dropLast(1)
+                    else { screen = directoryReturn; browseEntries = emptyList() }
+                "create" -> { name = ""; draftFolders = emptyList(); if (createInitially) onBack() else screen = "libraries" }
                 "policy" -> screen = "library"
                 "history" -> { historyScanId = null; screen = "library" }
                 "library" -> { screen = "libraries"; selectedId = null; selected = null }
@@ -146,9 +165,19 @@ import kotlin.coroutines.coroutineContext
         }
 
         val currentDirectory = browseStack.last()
+        val browseRequest = currentDirectory.wirePath to browseRefresh
+        val directoryVerified = verifiedBrowse == browseRequest
+        fun openDirectory(returnTo: String) {
+            focusManager.clearFocus()
+            directoryReturn = returnTo
+            browseStack = listOf(ResourceRef("/", "/", "服务器根目录", true, "", 0))
+            browseRefresh++
+            screen = "directory"
+            error = null
+        }
         LaunchedEffect(repository, screen, currentDirectory.wirePath, browseRefresh) {
             if (screen != "directory") return@LaunchedEffect
-            browseLoading = true; browseError = null; browseEntries = emptyList()
+            browseError = null; browseEntries = emptyList(); verifiedBrowse = null
             try {
                 val requested = archiveAbsoluteWire(currentDirectory.path, currentDirectory.wirePath)
                 val row = session.api.request("GET", "/api/resources$requested")
@@ -165,9 +194,9 @@ import kotlin.coroutines.coroutineContext
                 check(session.api.identity.id == repository.scope.account.userId &&
                     session.api.sessionHealth.value?.code != SessionHealthCode.ACCOUNT_CHANGED)
                 browseEntries = folders.distinctBy { recentAccessWireIdentity(it.wirePath) }.sortedBy { it.name.lowercase() }
+                verifiedBrowse = browseRequest
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { browseError = "无法读取此目录，可能已离线或没有访问权限。" }
-            finally { browseLoading = false }
         }
 
         LaunchedEffect(repository, scanLibrary, scanId, scanRefresh) {
@@ -216,12 +245,19 @@ import kotlin.coroutines.coroutineContext
                     pendingId = null; pendingKind = null
                     when (val value = result.value) {
                         is MediaLibrarySummary -> {
+                            name = ""
                             selected = value; selectedId = value.id; screen = "library"
-                            notice = "媒体库已创建。接下来可以添加本地目录。"
+                            if (draftFolders.isNotEmpty()) { draftLibraryId = value.id; loading = true }
+                            else notice = "媒体库已创建。"
                         }
                         is MediaLibrarySource -> {
                             selected = selected?.copy(revision = value.libraryRevision)
-                            screen = "library"; notice = "来源已添加。请确认后启动扫描。"
+                            if (draftBinding != null) {
+                                draftFolders = draftFolders.filterNot { it.wirePath == draftBinding }
+                                draftBinding = null
+                                if (draftFolders.isEmpty()) { draftLibraryId = null; notice = "媒体库和文件夹已保存，可以开始扫描。" }
+                            } else notice = "文件夹已添加，可以开始扫描。"
+                            screen = "library"
                         }
                         is MediaScan -> {
                             val old = batchScans.firstOrNull { it.bindingId != null && it.bindingId == value.bindingId }
@@ -291,15 +327,47 @@ import kotlin.coroutines.coroutineContext
             }
         }
 
-        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        LaunchedEffect(draftLibraryId, draftFolders, busy, pendingId, selected, screen, error, loading) {
+            val library = selected?.takeIf { it.id == draftLibraryId } ?: return@LaunchedEffect
+            val folder = draftFolders.firstOrNull() ?: return@LaunchedEffect
+            if (screen == "library" && !busy && !loading && pendingId == null && error == null) {
+                draftBinding = folder.wirePath
+                submit("source") { repository.createLocalSource(it, library.id, library.revision, LibrarySourceRoot.fromDirectory(folder)) }
+            }
+        }
+        val trimmedName = name.trim()
+        val validName = trimmedName.isNotEmpty() && trimmedName.codePointCount(0, trimmedName.length) <= 200 &&
+            name.none { it.isISOControl() }
+        val canCreate = validName && !busy && pendingId == null
+        fun createLibrary() {
+            if (canCreate) {
+                focusManager.clearFocus()
+                submit("create") { repository.createLibrary(it, trimmedName) }
+            }
+        }
+
+        Column(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).imePadding(),
+            horizontalAlignment = Alignment.CenterHorizontally) {
             FilewayTopAppBar(when (screen) {
-                "create" -> "创建媒体库"; "library" -> selected?.name ?: "媒体库"; "directory" -> "选择服务器目录"; else -> "管理媒体库"
-            }, leadingIcon = R.drawable.ic_arrow_back, leadingDescription = "返回", onLeadingClick = { leave() }, actions = {
+                "create" -> "新建媒体库"; "library" -> selected?.name ?: "媒体库"; "directory" -> "选择媒体文件夹"; else -> "管理媒体库"
+            }, leadingIcon = R.drawable.ic_arrow_back, leadingDescription = "返回", onLeadingClick = {
+                if (screen == "directory" && !busy) screen = directoryReturn else leave()
+            }, actions = {
                 if (screen == "libraries" && session.api.identity.deviceSessionId.isEmpty()) {
                     TextButton(onClick = { screen = "create"; error = null; notice = null }, enabled = !busy && pendingId == null) { Text("创建") }
                 }
             })
-            LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(16.dp),
+            if (screen == "directory") {
+                Surface(Modifier.widthIn(max = 640.dp).fillMaxWidth(), color = MaterialTheme.colorScheme.surface) {
+                    DirectoryBreadcrumbs(browseStack.map { DirectoryBreadcrumbItem(it.wirePath, it.name) },
+                        busy = busy, fullPath = currentDirectory.path, wrapCurrent = true) { wire ->
+                        val index = browseStack.indexOfFirst { it.wirePath == wire }
+                        if (index >= 0) browseStack = browseStack.take(index + 1)
+                    }
+                }
+            }
+            key(screen, if (screen == "directory") currentDirectory.wirePath else null) {
+            LazyColumn(Modifier.weight(1f).widthIn(max = 640.dp).fillMaxWidth(), contentPadding = PaddingValues(16.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (notice != null) item(key = "notice") {
                     Row(Modifier.fillMaxWidth()) {
@@ -354,18 +422,56 @@ import kotlin.coroutines.coroutineContext
                         }
                     }
                     "create" -> {
-                        val validName = name.isNotBlank() && name.trim().codePointCount(0, name.trim().length) <= 200 &&
-                            name.none { it.isISOControl() }
                         item(key = "name") {
-                            OutlinedTextField(name, { name = it }, label = { Text("媒体库名称") },
-                                enabled = !busy && pendingId == null, singleLine = true, modifier = Modifier.fillMaxWidth(),
-                                isError = name.isNotEmpty() && !validName,
-                                supportingText = if (name.isNotEmpty() && !validName) ({ Text("名称须为 1–200 个字符且不含控制字符") }) else null)
+                            SettingsGroup("基本信息") {
+                                OutlinedTextField(name, { name = it }, label = { Text("媒体库名称") },
+                                    placeholder = { Text("例如：电影、电视剧") },
+                                    enabled = !busy && pendingId == null, singleLine = true,
+                                    modifier = Modifier.fillMaxWidth().padding(16.dp), shape = MaterialTheme.shapes.medium,
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                    keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() }),
+                                    isError = name.isNotBlank() && !validName,
+                                    supportingText = if (name.isNotBlank() && !validName)
+                                        ({ Text("名称须为 1–200 个字符且不含控制字符") }) else null)
+                            }
+                        }
+                        item(key = "draft-folders") {
+                            SettingsGroup("媒体文件夹") {
+                                draftFolders.forEach { folder ->
+                                    ListItem(headlineContent = { Text(folder.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                                        supportingContent = { Text(folder.path, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                                        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+                                        leadingContent = { FilewayIcon(R.drawable.ic_folder, null, Modifier.size(24.dp)) },
+                                        trailingContent = {
+                                            TextButton(onClick = { draftFolders = draftFolders.filterNot { it.wirePath == folder.wirePath } },
+                                                enabled = !busy && pendingId == null) { Text("移除") }
+                                        })
+                                }
+                                SettingsAction("添加文件夹", if (draftFolders.isEmpty()) "可选，也可以创建后再添加" else "${draftFolders.size} 个文件夹已选",
+                                    R.drawable.ic_folder, enabled = !busy && pendingId == null) { openDirectory("create") }
+                            }
                         }
                     }
                     "library" -> {
                         selected?.let { library ->
                             if (library.role == MediaLibraryRole.OWNER) {
+                                item(key = "add-source") {
+                                    SettingsGroup("媒体文件夹") {
+                                        SettingsAction("添加文件夹", "可关联多个当前服务器目录", R.drawable.ic_folder,
+                                            enabled = !busy && pendingId == null && draftLibraryId == null) { openDirectory("library") }
+                                    }
+                                }
+                                if (draftLibraryId == library.id && draftFolders.isNotEmpty() && !busy && pendingId == null && error != null) {
+                                    item(key = "retry-draft-folders") {
+                                        SettingsGroup("待添加的文件夹") {
+                                            SettingsAction("重试添加", "还有 ${draftFolders.size} 个文件夹待添加", R.drawable.ic_folder) {
+                                                refreshPage()
+                                            }
+                                            TextButton(onClick = { draftLibraryId = null; draftBinding = null; draftFolders = emptyList(); error = null },
+                                                modifier = Modifier.padding(horizontal = 12.dp)) { Text("稍后手动添加") }
+                                        }
+                                    }
+                                }
                                 item(key = "scan-history") {
                                     SettingsGroup("扫描与补全") {
                                         SettingsAction("扫描记录", "查看目录扫描、TMDB 补全和待确认影片", R.drawable.ic_search, enabled = !busy) {
@@ -376,14 +482,6 @@ import kotlin.coroutines.coroutineContext
                                 item(key = "metadata-policy") {
                                     SettingsGroup("资料") {
                                         SettingsAction("资料优先级", "本地资料与 TMDB", R.drawable.ic_settings, enabled = !busy && pendingId == null) { screen = "policy" }
-                                    }
-                                }
-                                item(key = "add-source") {
-                                    SettingsGroup("媒体文件夹") {
-                                    SettingsAction("添加文件夹", "可关联多个当前服务器目录", R.drawable.ic_folder, enabled = !busy && pendingId == null) {
-                                        browseStack = listOf(ResourceRef("/", "/", "根目录", true, "", 0))
-                                        screen = "directory"; browseRefresh++; error = null
-                                    }
                                     }
                                 }
                                 if (support?.available != true) item(key = "scan-unavailable") {
@@ -477,50 +575,71 @@ import kotlin.coroutines.coroutineContext
                         }
                     }
                     "directory" -> {
-                        item(key = "directory-current") {
-                            Text(currentDirectory.name, style = MaterialTheme.typography.titleLarge)
-                            Text("只显示当前账号可访问的目录。", style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        if (browseStack.size > 1) item(key = "up") {
-                            TextButton(onClick = { browseStack = browseStack.dropLast(1) }, enabled = !browseLoading && !busy) { Text("上一级") }
-                        }
-                        if (browseLoading) item(key = "browse-loading") { MediaLoading("正在读取目录") }
+                        if (!directoryVerified && browseError == null) item(key = "browse-loading") { MediaLoading("正在读取文件夹") }
                         browseError?.let { message -> item(key = "browse-error") {
-                            MediaProblemCard(MediaProblem("无法读取目录", message, "重试"), { browseRefresh++ })
+                            MediaProblemCard(MediaProblem("无法读取文件夹", message, "重试"), { browseError = null; browseRefresh++ })
                         } }
-                        if (browseEntries.isEmpty() && !browseLoading && browseError == null) item(key = "no-directories") {
-                            FilewayEmptyState(R.drawable.ic_folder, "没有子目录", "可以选择当前目录。")
+                        if (browseEntries.isEmpty() && directoryVerified) item(key = "no-directories") {
+                            FilewayEmptyState(R.drawable.ic_folder, "没有下级文件夹", "可以添加当前文件夹。")
                         }
-                        items(browseEntries, key = { it.wirePath }) { directory ->
-                            Card(onClick = { browseStack = browseStack + directory }, enabled = !browseLoading && !busy,
-                                modifier = Modifier.fillMaxWidth()) { Text(directory.name, Modifier.padding(16.dp)) }
+                        if (directoryVerified) items(browseEntries, key = { it.wirePath }) { directory ->
+                            FilewayDirectoryRow(directory.name, enabled = !busy) {
+                                browseError = null; browseStack = browseStack + directory
+                            }
                         }
                     }
                 }
             }
+            }
             if (screen == "create" || screen == "directory") {
                 val creating = screen == "create"
-                val trimmed = name.trim()
-                val canSubmit = if (creating) trimmed.isNotEmpty() && trimmed.codePointCount(0, trimmed.length) <= 200 && name.none { it.isISOControl() }
-                    else !browseLoading && browseError == null && selected != null
-                Surface(color = MaterialTheme.colorScheme.background, modifier = Modifier.fillMaxWidth()) {
-                    Button(onClick = {
-                        if (creating) submit("create") { repository.createLibrary(it, trimmed) }
-                        else {
-                            val library = selected ?: return@Button
-                            val root = LibrarySourceRoot.fromDirectory(currentDirectory)
-                            submit("source") { repository.createLocalSource(it, library.id, library.revision, root) }
+                val alreadyAdded = if (directoryReturn == "create") draftFolders.any { it.wirePath == currentDirectory.wirePath }
+                    else sources.any { it.wireRoot == LibrarySourceRoot.fromDirectory(currentDirectory) }
+                val canSubmit = if (creating) canCreate else directoryVerified && !alreadyAdded &&
+                    (directoryReturn == "create" || selected != null)
+                Surface(color = MaterialTheme.colorScheme.background,
+                    modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth()) {
+                    Column {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (!creating) {
+                                Text(if (alreadyAdded) "已添加 · ${currentDirectory.name}" else "当前文件夹 · ${currentDirectory.name}",
+                                    style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            }
+                            FilewayButton(onClick = {
+                                if (creating) createLibrary()
+                                else if (verifiedBrowse == (browseStack.last().wirePath to browseRefresh) && browseStack.last() == currentDirectory) {
+                                    if (directoryReturn == "create") {
+                                        draftFolders = draftFolders + currentDirectory
+                                        screen = "create"
+                                    } else {
+                                        val library = selected ?: return@FilewayButton
+                                        val root = LibrarySourceRoot.fromDirectory(currentDirectory)
+                                        submit("source") { repository.createLocalSource(it, library.id, library.revision, root) }
+                                    }
+                                }
+                            }, enabled = canSubmit && !busy && pendingId == null,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                                Text(when {
+                                    busy -> "正在保存…"
+                                    creating -> "创建媒体库"
+                                    alreadyAdded -> "已添加此文件夹"
+                                    else -> "添加当前文件夹"
+                                })
+                            }
                         }
-                    }, enabled = canSubmit && !busy && pendingId == null,
-                        modifier = Modifier.fillMaxWidth().padding(16.dp).heightIn(min = 48.dp),
-                        shape = MaterialTheme.shapes.medium) { Text(if (creating) "创建媒体库" else "使用当前目录") }
+                    }
                 }
             }
         }
         }
     }
 }
+
+private val mediaFolderSaver = listSaver<List<ResourceRef>, String>(
+    save = { folders -> folders.flatMap { listOf(it.path, it.wirePath, it.name) } },
+    restore = { saved -> saved.chunked(3).map { ResourceRef(it[0], it[1], it[2], true, "", 0) } },
+)
 
 private fun managerFailure(error: MediaFailure): String = when (error.kind) {
     MediaFailureKind.AUTHENTICATION -> "登录状态已失效，请重新登录。"

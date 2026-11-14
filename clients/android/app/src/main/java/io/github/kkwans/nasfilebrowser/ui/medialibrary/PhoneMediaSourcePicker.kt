@@ -20,13 +20,11 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
     onAction: (PhoneMediaAction) -> Unit, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss, shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        LazyColumn(Modifier.fillMaxWidth().selectableGroup(), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+        MediaHeading("片源与版本", modifier = Modifier.padding(horizontal = 16.dp),
+            actionLabel = "关闭", onAction = onDismiss)
+        LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).selectableGroup(),
+            contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            item(key = "title") {
-                MediaHeading("片源与版本", actionLabel = "关闭", onAction = onDismiss)
-                Text("选择有权限访问的片源开始播放。", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
             state.problem?.let { problem -> item(key = "problem") {
                 MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("sources")) })
             } }

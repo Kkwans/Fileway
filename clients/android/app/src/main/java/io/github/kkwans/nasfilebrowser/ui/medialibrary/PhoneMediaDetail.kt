@@ -47,7 +47,7 @@ import io.github.kkwans.fileway.design.R as Art
                     }
                 })
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                LazyColumn(Modifier.widthIn(max = 840.dp).fillMaxSize(), state = listState,
+                LazyColumn(Modifier.widthIn(max = 640.dp).fillMaxSize(), state = listState,
                     contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     if (state.loading) item(key = "loading") { MediaLoading("正在加载影视详情") }
                     state.problem?.let { problem -> item(key = "problem") {
@@ -61,7 +61,8 @@ import io.github.kkwans.fileway.design.R as Art
                                     0f to Color.Transparent, .55f to Color.Transparent, 1f to background)))
                             }
                             Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(state.title, style = MaterialTheme.typography.headlineLarge,
+                                Text(state.title, style = MaterialTheme.typography.headlineMedium,
+                                    maxLines = 2, overflow = TextOverflow.Ellipsis,
                                     modifier = Modifier.semantics { heading() })
                                 state.originalTitle?.takeIf { it.isNotBlank() && it != state.title }?.let {
                                     Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
