@@ -54,14 +54,13 @@ private val PlaybackFocus = TvPlayerDesign.raised
 @Composable internal fun TvPlaybackControls(
     playing: Boolean, enabled: Boolean, seekable: Boolean, audio: Boolean,
     rate: Float, previous: Boolean, next: Boolean, position: Long, duration: Long,
-    buffered: Long, cachedRanges: List<TvCachedRange>, playFocus: FocusRequester,
+    buffered: Long, cachedRanges: List<TvCachedRange>, playFocus: FocusRequester, timeline: FocusRequester,
     actions: Map<TvPlayerPage, FocusRequester>, onToggle: () -> Unit, onSeek: (Long) -> Unit,
     onSeekTo: (Long) -> Unit, onPrevious: () -> Unit, onNext: () -> Unit,
     onQuick: (TvPlayerPage) -> Unit, onQuickAnchor: (TvPlayerPage, Rect) -> Unit,
-    onMenu: (FocusRequester) -> Unit, onSettings: () -> Unit, activeQuick: TvPlayerPage?,
+    onMenu: (FocusRequester) -> Unit, onSettings: () -> Unit, activeQuick: TvPlayerPage?, interactive: Boolean,
     seekStepSeconds: Int, safePercent: Int, modifier: Modifier = Modifier,
 ) {
-    val timeline = remember { FocusRequester() }
     val previousFocus = remember { FocusRequester() }
     val nextFocus = remember { FocusRequester() }
     val settingsFocus = actions.getValue(TvPlayerPage.SETTINGS)
@@ -94,7 +93,7 @@ private val PlaybackFocus = TvPlayerDesign.raised
                 else -> false
             }
         }
-    BoxWithConstraints(modifier.fillMaxWidth()) {
+    BoxWithConstraints(modifier.fillMaxWidth().then(if (!interactive) Modifier.clearAndSetSemantics { } else Modifier)) {
         val inset = tvPlayerSafeInset(maxWidth, safePercent, 16.dp)
         val bottom = tvPlayerSafeInset(maxHeight, safePercent, 12.dp)
         val controlsWidth = maxOf(maxWidth - inset * 2, 432.dp)
@@ -106,14 +105,14 @@ private val PlaybackFocus = TvPlayerDesign.raised
                 ))
                 .padding(start = inset, end = inset, top = 22.dp, bottom = bottom),
         ) {
-            Box(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            Box(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState(), enabled = interactive)) {
                 Box(Modifier.width(controlsWidth)) {
                     TvPlayerMainFrame(
                         seeker = {
                             Box(Modifier.fillMaxWidth().then(if (activeQuick != null)
                                 Modifier.alpha(0f).clearAndSetSemantics { } else Modifier)) {
                                 TvTimeline(position, duration, buffered, onSeek, Modifier.fillMaxWidth(), cachedRanges,
-                                    onSeekTo, seekStepSeconds, seekable, Modifier.focusRequester(timeline)
+                                    onSeekTo, seekStepSeconds, seekable && interactive, Modifier.focusRequester(timeline)
                                         .focusProperties { down = returnFromTimeline ?: playFocus }
                                         .onPreviewKeyEvent { event ->
                                             if (event.type == KeyEventType.KeyDown &&
@@ -129,23 +128,23 @@ private val PlaybackFocus = TvPlayerDesign.raised
                         leftActions = {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.focusGroup()) {
                                 TvHudAction("设置", Art.drawable.fileway_ic_settings, onSettings,
-                                    actionFocus(settingsFocus, FocusRequester.Cancel, queueFocus))
+                                    actionFocus(settingsFocus, FocusRequester.Cancel, queueFocus), interactive)
                                 TvHudAction("列表", Art.drawable.fileway_ic_playlist_play, { onQuick(TvPlayerPage.QUEUE) },
                                     actionFocus(queueFocus, settingsFocus, if (hasPrevious) previousFocus else if (enabled) playFocus else speedFocus)
                                         .onGloballyPositioned { onQuickAnchor(TvPlayerPage.QUEUE, it.boundsInWindow()) },
-                                    active = activeQuick == TvPlayerPage.QUEUE)
+                                    interactive, active = activeQuick == TvPlayerPage.QUEUE)
                             }
                         },
                         transport = {
                             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.focusGroup()) {
                                 TvHudAction("上一项", Art.drawable.fileway_ic_skip_previous, onPrevious,
-                                    actionFocus(previousFocus, queueFocus, playFocus), enabled = hasPrevious)
+                                    actionFocus(previousFocus, queueFocus, playFocus), interactive, enabled = hasPrevious)
                                 TvHudAction(if (playing) "暂停" else "播放",
                                     if (playing) Art.drawable.fileway_ic_pause else Art.drawable.fileway_ic_play_arrow,
                                     onToggle, actionFocus(playFocus, if (hasPrevious) previousFocus else queueFocus,
-                                        if (hasNext) nextFocus else speedFocus), enabled = enabled, primary = true)
+                                        if (hasNext) nextFocus else speedFocus), interactive, enabled = enabled, primary = true)
                                 TvHudAction("下一项", Art.drawable.fileway_ic_skip_next, onNext,
-                                    actionFocus(nextFocus, playFocus, speedFocus), enabled = hasNext)
+                                    actionFocus(nextFocus, playFocus, speedFocus), interactive, enabled = hasNext)
                             }
                         },
                         rightActions = {
@@ -168,7 +167,7 @@ private val PlaybackFocus = TvPlayerDesign.raised
                                     }
                                     TvHudAction(label, icon, { onQuick(page) }, actionFocus(actions.getValue(page), left, right)
                                         .onGloballyPositioned { onQuickAnchor(page, it.boundsInWindow()) },
-                                        active = activeQuick == page)
+                                        interactive, active = activeQuick == page)
                                 }
                             }
                         },
@@ -180,7 +179,7 @@ private val PlaybackFocus = TvPlayerDesign.raised
 }
 
 @Composable private fun TvHudAction(
-    label: String, icon: Int, onClick: () -> Unit, modifier: Modifier = Modifier,
+    label: String, icon: Int, onClick: () -> Unit, modifier: Modifier, interactive: Boolean,
     enabled: Boolean = true, primary: Boolean = false, active: Boolean = false,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -194,18 +193,20 @@ private val PlaybackFocus = TvPlayerDesign.raised
         horizontalAlignment = Alignment.CenterHorizontally) {
         Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) {
             Button(
-                onClick = onClick, enabled = enabled, interactionSource = interaction,
-                modifier = Modifier.size(size).tvTouch(onClick, enabled, interaction)
+                onClick = onClick, enabled = enabled && interactive, interactionSource = interaction,
+                modifier = Modifier.size(size).focusProperties { canFocus = interactive && enabled }
+                    .tvTouch(onClick, enabled && interactive, interaction)
                     .semantics { contentDescription = label },
                 contentPadding = PaddingValues(0.dp),
                 shape = ButtonDefaults.shape(shape),
                 scale = ButtonDefaults.scale(focusedScale = 1f),
-                border = ButtonDefaults.border(focusedBorder = Border(BorderStroke(2.dp, TvPlayerDesign.focus), shape = shape)),
+                border = ButtonDefaults.border(focusedBorder = if (interactive) Border(BorderStroke(2.dp, TvPlayerDesign.focus), shape = shape) else Border.None),
                 colors = ButtonDefaults.colors(
                     containerColor = if (primary || active) Color.White.copy(alpha = .10f) else Color.Transparent, contentColor = Color.White,
                     focusedContainerColor = TvPlayerDesign.raised,
                     focusedContentColor = Color.White,
-                    disabledContainerColor = Color.Transparent, disabledContentColor = TvPlayerDesign.muted,
+                    disabledContainerColor = if (active) TvPlayerDesign.raised else Color.Transparent,
+                    disabledContentColor = if (enabled) TvPlayerDesign.secondary else TvPlayerDesign.muted,
                 ),
             ) {
                 Box(Modifier.fillMaxWidth().heightIn(min = size), contentAlignment = Alignment.Center) {
@@ -214,7 +215,7 @@ private val PlaybackFocus = TvPlayerDesign.raised
             }
         }
         Box(Modifier.height(24.dp).requiredWidth(120.dp), contentAlignment = Alignment.Center) {
-            if (focused) Text(label, style = tvTextStyle(16, 24), color = TvPlayerDesign.text, maxLines = 1,
+            if (focused && interactive) Text(label, style = tvTextStyle(16, 24), color = TvPlayerDesign.text, maxLines = 1,
                 overflow = TextOverflow.Ellipsis)
         }
     }

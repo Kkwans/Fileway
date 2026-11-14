@@ -24,10 +24,12 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.Lifecycle
@@ -45,7 +47,15 @@ import io.github.kkwans.nasfilebrowser.player.*
 import kotlinx.coroutines.*
 import kotlin.math.roundToLong
 
-private val PlayerFeedbackSurface = TvPlayerDesign.feedback
+private val subtitlePages = setOf(
+    TvPlayerPage.SUBTITLE, TvPlayerPage.SUBTITLE_SOURCE, TvPlayerPage.SUBTITLE_ADJUST,
+    TvPlayerPage.EXTERNAL, TvPlayerPage.LOCAL_SUBTITLE, TvPlayerPage.APPEARANCE, TvPlayerPage.SYNC, TvPlayerPage.FONT,
+)
+
+private data class TvPlaybackIssue(val message: String, val page: TvPlayerPage? = null, val seek: Boolean = false) {
+    fun belongsTo(activePage: TvPlayerPage) =
+        page == activePage || (page == TvPlayerPage.SUBTITLE && activePage in subtitlePages)
+}
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
 @Composable fun TvMediaScreen(model: TvModel) {
@@ -58,15 +68,42 @@ private val PlayerFeedbackSurface = TvPlayerDesign.feedback
     val textAppearance by model.media.playbackPreferences.textSubtitleAppearance.collectAsStateWithLifecycle()
     val audio = file.mediaKind() == MediaKind.AUDIO
     val mediaEpoch=model.media.controlEpoch
-    var fontNotice by remember(mediaEpoch) { mutableStateOf<String?>(null) }
-    LaunchedEffect(mediaEpoch, player.subtitleFontNotice) {
-        fontNotice = player.subtitleFontNotice
-        if (fontNotice != null) { delay(5_000); fontNotice = null }
+    val notices = listOf(state.subtitleNotice, player.subtitleFontNotice, state.notice)
+    var previousNotices by remember(mediaEpoch) { mutableStateOf<List<String?>>(emptyList()) }
+    var transientNotice by remember(mediaEpoch) { mutableStateOf<String?>(null) }
+    val accessibility = LocalAccessibilityManager.current
+    LaunchedEffect(mediaEpoch, notices) {
+        val newNotice = notices.indices.firstNotNullOfOrNull { index ->
+            notices[index]?.takeIf { it != previousNotices.getOrNull(index) }
+        }
+        previousNotices = notices
+        if (newNotice != null) transientNotice = newNotice
+        else if (transientNotice !in notices) transientNotice = null
     }
+    var lastTrackOperation by remember(mediaEpoch) { mutableStateOf<TvPlayerPage?>(null) }
+    val operationIssue = remember(mediaEpoch, player.operationError) {
+        player.operationError?.let { message ->
+            val page = when {
+                message.contains("字幕") -> TvPlayerPage.SUBTITLE
+                message.contains("音轨") -> TvPlayerPage.AUDIO
+                message == "轨道已变化，请重新选择" -> lastTrackOperation
+                else -> null
+            }
+            TvPlaybackIssue(message, page)
+        }
+    }
+    val issues = listOfNotNull(
+        state.subtitleError?.let { TvPlaybackIssue(it, TvPlayerPage.SUBTITLE) },
+        player.seekError?.let { TvPlaybackIssue(it, seek = true) },
+        operationIssue,
+    ).distinct()
+    val dismissedIssues = remember(mediaEpoch) { mutableStateListOf<TvPlaybackIssue>() }
+    LaunchedEffect(issues) { dismissedIssues.retainAll(issues.toSet()) }
     var controls by remember(mediaEpoch) { mutableStateOf(audio) }
     var exitPrompt by remember(mediaEpoch) { mutableStateOf(false) }
     val pages = remember(model.sessionEpoch, file.mediaKey) { mutableStateListOf<TvPlayerPage>() }
     val panel = pages.lastOrNull()
+    var stayOnTab by remember(mediaEpoch) { mutableStateOf(false) }
     var quickPanel by remember(mediaEpoch) { mutableStateOf(false) }
     val quickAnchors = remember(mediaEpoch) { mutableStateMapOf<TvPlayerPage, Rect>() }
     var returnToHud by remember(mediaEpoch) { mutableStateOf(false) }
@@ -84,6 +121,8 @@ private val PlayerFeedbackSurface = TvPlayerDesign.feedback
     val resize by model.media.ratioIndex.collectAsStateWithLifecycle()
     val stage = remember { FocusRequester() }
     val play = remember { FocusRequester() }
+    val timeline = remember { FocusRequester() }
+    var returnToTimeline by remember(mediaEpoch) { mutableStateOf(false) }
     val pauseAction = remember { FocusRequester() }
     var resumePending by remember(mediaEpoch, player.mediaGeneration) { mutableStateOf(false) }
     val playbackError = state.error ?: player.error
@@ -127,6 +166,7 @@ private val PlayerFeedbackSurface = TvPlayerDesign.feedback
     fun showPanel(page: TvPlayerPage, quick: Boolean = false, origin: FocusRequester? = null) {
         browserBack = null
         focusMemory.clear()
+        stayOnTab = false
         pages.clear()
         pages.add(page)
         quickPanel = quick
@@ -138,22 +178,27 @@ private val PlayerFeedbackSurface = TvPlayerDesign.feedback
     }
     fun navigatePanel(page: TvPlayerPage) {
         browserBack = null
-        if (page == TvPlayerPage.SPEED) {
-            pages.clear()
-            lastMenu = page
-        }
+        stayOnTab = false
         pages.add(page)
+        if (BuildConfig.DEBUG) android.util.Log.d("FilewayTvPanelFocus", "action=navigate page=$page depth=${pages.size}")
         pulse++
     }
-    fun switchPanelTab(page: TvPlayerPage) {
+    fun switchPanelTab(page: TvPlayerPage, keepTabFocus: Boolean) {
+        val current = pages.lastOrNull()
+        if (current == page && pages.size == 1) return
+        if (keepTabFocus && page == TvPlayerPage.SUBTITLE && current in subtitlePages) return
         browserBack = null
+        stayOnTab = keepTabFocus
         pages.clear()
         pages.add(page)
         lastMenu = page
+        if (BuildConfig.DEBUG) android.util.Log.d("FilewayTvPanelFocus",
+            "action=switch-tab page=$page depth=${pages.size} keepTabFocus=$keepTabFocus")
         pulse++
     }
     fun selectSubtitleSection(page: TvPlayerPage) {
         browserBack = null
+        stayOnTab = false
         while (pages.size > 1) pages.removeAt(pages.lastIndex)
         if (page == TvPlayerPage.SUBTITLE) {
             // An explicit group activation enters the choices; Back restores the group itself.
@@ -178,15 +223,22 @@ private val PlayerFeedbackSurface = TvPlayerDesign.feedback
             "source=$source action=$action panel=${pages.lastOrNull()?.name ?: "none"} depth=${pages.size} hud=$controls exitPrompt=$exitPrompt")
     }
     fun backPanel(source: String) {
+        transientNotice = null
         val browser = browserBack
         when {
             pages.isEmpty() -> traceBack(source, "dialog-already-closed")
             browser != null -> { traceBack(source, "parent-directory"); browser() }
-            pages.size > 1 -> { traceBack(source, "parent-page"); pages.removeAt(pages.lastIndex); pulse++ }
+            pages.size > 1 -> {
+                traceBack(source, "parent-page")
+                stayOnTab = false
+                pages.removeAt(pages.lastIndex)
+                pulse++
+            }
             else -> { traceBack(source, if (returnToHud) "restore-hud" else "return-to-video"); closePanel() }
         }
     }
     fun back(source: String) {
+        transientNotice = null
         when {
             pages.isNotEmpty() -> backPanel(source)
             controls -> { traceBack(source, "hide-hud"); controls = false; exitPrompt = false }
@@ -199,9 +251,6 @@ private val PlayerFeedbackSurface = TvPlayerDesign.feedback
     LaunchedEffect(controls,panel,textAppearance,player.mediaGeneration,controlsHeight,stageHeight) {
         model.media.player.textSubtitleAppearance(if(controls&&(panel==null||quickPanel))textAppearance.copy(bottomPadding=maxOf(textAppearance.bottomPadding,((controlsHeight+12f)/stageHeight).coerceIn(0f,.4f))) else textAppearance)
     }
-    LaunchedEffect(controls, player.playing, panel, pulse,interfaceState.controlsTimeoutSeconds) {
-        if (controls && player.playing && panel == null && !audio) { delay(interfaceState.controlsTimeoutSeconds*1000L); controls = false }
-    }
     val playEnabled = !state.busy || player.durationMs > 0
     val hudVisible = controls && (panel == null || quickPanel) && state.error == null && player.error == null
     val busyFeedback = key(mediaEpoch) {
@@ -209,23 +258,72 @@ private val PlayerFeedbackSurface = TvPlayerDesign.feedback
             player.mediaGeneration, seekPulse)
     }
     val centerSeekFeedback = seekFeedback != null && !hudVisible && !state.busy && player.seekError == null
-    val pauseVisible = paused && panel == null && !exitPrompt && !busyFeedback && !centerSeekFeedback
+    val subtitleLoading = key(mediaEpoch) {
+        delayedPlayerFeedback(state.subtitleLoading || player.subtitleLoading, player.mediaGeneration, 0)
+    }
+    val activeIssue = issues.firstOrNull { it !in dismissedIssues }
+    val recovery = activeIssue.takeIf { panel == null && playbackError == null && !exitPrompt && !state.busy }
+    val panelIssues = if (panel == null) emptyList() else issues.filter {
+        it.belongsTo(panel)
+    }
+    val otherPanelIssue = panel?.let { current ->
+        issues.firstOrNull { it !in dismissedIssues && !it.belongsTo(current) }
+    }
+    LaunchedEffect(controls, player.playing, panel, recovery, pulse, interfaceState.controlsTimeoutSeconds) {
+        if (controls && player.playing && panel == null && recovery == null && !audio) {
+            delay(interfaceState.controlsTimeoutSeconds * 1000L)
+            controls = false
+        }
+    }
+    val subtitleLoadingInline = panel == TvPlayerPage.SUBTITLE || panel == TvPlayerPage.EXTERNAL ||
+        panel == TvPlayerPage.LOCAL_SUBTITLE
+    val standaloneSubtitleLoading = subtitleLoading && !subtitleLoadingInline
+    val noticeVisible = transientNotice != null && playbackError == null &&
+        !exitPrompt && recovery == null && otherPanelIssue == null &&
+        !busyFeedback && !centerSeekFeedback && !standaloneSubtitleLoading
+    LaunchedEffect(mediaEpoch, transientNotice, noticeVisible) {
+        if (noticeVisible) {
+            delay(accessibility?.calculateRecommendedTimeoutMillis(3_000, containsText = true, containsControls = true) ?: 3_000)
+            transientNotice = null
+        }
+    }
+    val pauseVisible = paused && panel == null && !exitPrompt && !busyFeedback && !centerSeekFeedback &&
+        !noticeVisible && recovery == null && !subtitleLoading
     val pauseFocusTarget = pauseVisible && !hudVisible
-    LaunchedEffect(hudVisible, panel, state.busy, state.error, player.error, pauseFocusTarget) {
-        if (panel != null) return@LaunchedEffect
+    LaunchedEffect(hudVisible, panel, state.busy, playbackError, pauseFocusTarget, recovery) {
+        if (panel != null || recovery != null) return@LaunchedEffect
         withFrameNanos {}
         when {
-            !state.busy && (state.error != null || player.error != null) -> retry.requestFocus()
+            !state.busy && playbackError != null -> retry.requestFocus()
             hudVisible -> {
                 val fallback = if (playEnabled) play else actions.getValue(TvPlayerPage.SETTINGS)
-                (if (restoring) trigger ?: fallback else fallback).requestFocus()
+                val target = when {
+                    returnToTimeline && model.media.canSeek -> timeline
+                    restoring -> trigger ?: fallback
+                    else -> fallback
+                }
+                target.requestFocus()
+                returnToTimeline = false
                 restoring = false
             }
             pauseVisible -> pauseAction.requestFocus()
             else -> stage.requestFocus()
         }
     }
-    LaunchedEffect(player.seekError) { if(player.seekError!=null)controls=true }
+    val sharedFeedback: @Composable BoxScope.() -> Unit = {
+        when {
+            panel != null && playbackError != null && !state.busy -> TvPlaybackFeedback(
+                playbackError, Modifier.align(Alignment.Center))
+            busyFeedback -> TvPlaybackFeedback(
+                if (state.busy) "正在准备播放" else if (player.seeking) "正在跳转" else "正在缓冲",
+                Modifier.align(Alignment.Center))
+            otherPanelIssue != null -> TvPlaybackFeedback(otherPanelIssue.message, Modifier.align(Alignment.Center))
+            standaloneSubtitleLoading -> TvPlaybackFeedback("正在加载字幕", Modifier.align(Alignment.Center),
+                Art.drawable.fileway_ic_subtitles, state.subtitleLoadDetail?.takeUnless { it == "正在加载字幕" })
+            noticeVisible -> TvPlaybackNotice(transientNotice.orEmpty(), { transientNotice = null },
+                Modifier.align(Alignment.Center))
+        }
+    }
     LaunchedEffect(mediaEpoch, seekPulse) {
         val target = seekTarget ?: return@LaunchedEffect
         delay(350)
@@ -247,11 +345,11 @@ private val PlayerFeedbackSurface = TvPlayerDesign.feedback
     }
     val requestSeek: (Long) -> Unit = { delta -> queueSeek((seekTarget ?: model.media.sourcePosition()) + delta) }
     Box(Modifier.fillMaxSize().onSizeChanged{stageHeight=it.height.toFloat().coerceAtLeast(1f)}.background(Color.Black).focusRequester(stage)
-        .focusProperties { canFocus = panel == null && !hudVisible }
+        .focusProperties { canFocus = panel == null && recovery == null && !hudVisible }
         // Back has one owner: Activity's dispatcher (also used by the phone remote).
         // A separate key-up callback here can hide the HUD and then arm exit for the same press.
         .tvRemoteKeys { event ->
-        if (event.nativeKeyEvent.keyCode == AndroidKey.KEYCODE_BACK) return@tvRemoteKeys false
+        if (panel != null || recovery != null || event.nativeKeyEvent.keyCode == AndroidKey.KEYCODE_BACK) return@tvRemoteKeys false
         run {
             pulse++
             exitPrompt = false
@@ -263,12 +361,12 @@ private val PlayerFeedbackSurface = TvPlayerDesign.feedback
                 AndroidKey.KEYCODE_MEDIA_PREVIOUS -> {model.media.navigateQueue(-1);true}
                 AndroidKey.KEYCODE_MEDIA_FAST_FORWARD -> {requestSeek(tvSeekDelta(event.nativeKeyEvent,interfaceState.seekStepSeconds));true}
                 AndroidKey.KEYCODE_MEDIA_REWIND -> {requestSeek(-tvSeekDelta(event.nativeKeyEvent,interfaceState.seekStepSeconds));true}
-                AndroidKey.KEYCODE_DPAD_LEFT -> if(!controls && panel==null){requestSeek(-tvSeekDelta(event.nativeKeyEvent,interfaceState.seekStepSeconds));true}else false
-                AndroidKey.KEYCODE_DPAD_RIGHT -> if(!controls && panel==null){requestSeek(tvSeekDelta(event.nativeKeyEvent,interfaceState.seekStepSeconds));true}else false
-                AndroidKey.KEYCODE_DPAD_UP -> if(!controls && panel==null){controls=true;true}else false
-                AndroidKey.KEYCODE_DPAD_DOWN -> if(!controls && panel==null){showPanel(lastMenu);true}else false
+                AndroidKey.KEYCODE_DPAD_LEFT -> if(!controls){requestSeek(-tvSeekDelta(event.nativeKeyEvent,interfaceState.seekStepSeconds));true}else false
+                AndroidKey.KEYCODE_DPAD_RIGHT -> if(!controls){requestSeek(tvSeekDelta(event.nativeKeyEvent,interfaceState.seekStepSeconds));true}else false
+                AndroidKey.KEYCODE_DPAD_UP -> if(!controls){controls=true;true}else false
+                AndroidKey.KEYCODE_DPAD_DOWN -> if(!controls){showPanel(lastMenu);true}else false
                 AndroidKey.KEYCODE_DPAD_CENTER, AndroidKey.KEYCODE_ENTER, AndroidKey.KEYCODE_NUMPAD_ENTER, AndroidKey.KEYCODE_BUTTON_A -> {
-                    if (controls || panel != null) false else {
+                    if (controls) false else {
                         if (event.nativeKeyEvent.repeatCount == 0) {
                             val nativePlayer = model.media.player
                             val before = if (BuildConfig.DEBUG) "${nativePlayer.wantsPlay}/${nativePlayer.state.value.playing}" else null
@@ -300,7 +398,7 @@ private val PlayerFeedbackSurface = TvPlayerDesign.feedback
 
             }
         }
-        Box(Modifier.matchParentSize().pointerInput(mediaEpoch) {
+        if (panel == null && recovery == null && playbackError == null) Box(Modifier.matchParentSize().pointerInput(mediaEpoch) {
             detectTapGestures(onTap = { controls = !controls; exitPrompt = false; pulse++ }, onDoubleTap = { toggleLatest() })
         })
         if (hudVisible) {
@@ -308,7 +406,7 @@ private val PlayerFeedbackSurface = TvPlayerDesign.feedback
                 playing = player.playing, enabled = playEnabled, seekable = model.media.canSeek, audio = audio, rate = player.rate,
                 previous = state.queue?.hasPrevious == true, next = state.queue?.hasNext == true,
                 position = seekTarget ?: model.media.sourcePosition(), duration = state.sourceDurationMs,
-                buffered = player.bufferedPositionMs + state.sourceOffsetMs, cachedRanges = cache.ranges, playFocus = play,
+                buffered = player.bufferedPositionMs + state.sourceOffsetMs, cachedRanges = cache.ranges, playFocus = play, timeline = timeline,
                 actions = actions, onToggle = ::togglePlayback, onSeek = requestSeek,
                 onSeekTo = ::queueSeek,
                 onPrevious = { model.media.navigateQueue(-1) }, onNext = { model.media.navigateQueue(1) },
@@ -316,6 +414,7 @@ private val PlayerFeedbackSurface = TvPlayerDesign.feedback
                 onQuickAnchor = { page, bounds -> if (quickAnchors[page] != bounds) quickAnchors[page] = bounds },
                 onMenu = { showPanel(lastMenu, origin = it) },
                 onSettings = { showPanel(TvPlayerPage.SETTINGS) }, activeQuick = panel.takeIf { quickPanel },
+                interactive = panel == null && recovery == null,
                 modifier = Modifier.align(Alignment.BottomCenter).onSizeChanged { controlsHeight = it.height.toFloat() },
                 seekStepSeconds = interfaceState.seekStepSeconds, safePercent = interfaceState.safePercent,
             )
@@ -326,27 +425,9 @@ private val PlayerFeedbackSurface = TvPlayerDesign.feedback
             showSpeed = !audio && (interfaceState.speedAlways || controls || panel != null),
             bytesPerSecond = cache.bytesPerSecond, safePercent = interfaceState.safePercent,
         )
-        val subtitleLoading = delayedBusy(state.subtitleLoading || player.subtitleLoading)
-        if (panel == null && subtitleLoading) {
-            TvPlayerFeedback(Art.drawable.fileway_ic_subtitles, "正在加载字幕", state.subtitleLoadDetail,
-                Modifier.align(Alignment.TopEnd).padding(top = 66.dp, end = 32.dp))
-        }
-        (state.subtitleError?:player.seekError?:state.subtitleNotice?:fontNotice?:state.notice?:player.operationError)?.let{notice->
-            val inSubtitlePanel=panel==TvPlayerPage.SUBTITLE||panel==TvPlayerPage.EXTERNAL||panel==TvPlayerPage.LOCAL_SUBTITLE
-            val shownInSubtitlePanel=notice==state.subtitleError||notice==state.subtitleNotice||notice==player.subtitleFontNotice||
-                (notice==player.operationError&&notice.contains("字幕"))
-            if(!inSubtitlePanel||!shownInSubtitlePanel) {
-                val noticeBottom = if (hudVisible) with(LocalDensity.current) { controlsHeight.toDp() } else 24.dp
-                val placement=if(panel==null)Modifier.align(Alignment.BottomStart).padding(start=48.dp,end=48.dp,bottom=noticeBottom)
-                    else Modifier.align(Alignment.TopStart).padding(start=48.dp,end=48.dp,top=96.dp)
-                Text(notice,placement.background(PlayerFeedbackSurface.copy(alpha=.94f),TvShape).padding(horizontal=12.dp,vertical=8.dp),
-                    style=MaterialTheme.typography.bodySmall,color=Color.White,maxLines=2,overflow=TextOverflow.Ellipsis)
-            }
-        }
-        if (playbackError != null && !state.busy) Column(
+        if (panel == null && playbackError != null && !state.busy) Column(
             Modifier.align(Alignment.Center).widthIn(max = 720.dp).background(TvPlayerDesign.surface, TvShape).padding(24.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            LaunchedEffect(playbackError) { withFrameNanos {}; retry.requestFocus() }
             Text(playbackError, color = MaterialTheme.colorScheme.error, style = tvTextStyle(18, 28))
             Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TvButton("重试", model.media::retry, Modifier.focusRequester(retry))
@@ -359,9 +440,8 @@ private val PlayerFeedbackSurface = TvPlayerDesign.feedback
             val feedback = seekFeedback
             when {
                 exitPrompt -> TvPlaybackFeedback("再按一次返回退出播放", Modifier.align(Alignment.Center))
-                busyFeedback -> TvPlaybackFeedback(
-                    if (state.busy) "正在准备播放" else if (player.seeking) "正在跳转" else "正在缓冲",
-                    Modifier.align(Alignment.Center))
+                recovery != null -> Unit
+                busyFeedback -> sharedFeedback()
                 feedback != null && !hudVisible && !state.busy && player.seekError == null -> {
                     val (from, target) = feedback
                     val delta = ((target - from) / 1000.0).roundToLong()
@@ -374,8 +454,37 @@ private val PlayerFeedbackSurface = TvPlayerDesign.feedback
                         icon = if (delta < 0) Art.drawable.fileway_ic_skip_back else Art.drawable.fileway_ic_skip_forward,
                         detail = tvTime(target))
                 }
+                standaloneSubtitleLoading || noticeVisible -> sharedFeedback()
                 pauseVisible -> TvPausedPlayback(::togglePlayback, resumePending,
                     Modifier.align(Alignment.Center).focusRequester(pauseAction))
+            }
+        }
+    }
+    recovery?.let { issue ->
+        val dismiss: () -> Unit = {
+            if (issue !in dismissedIssues) dismissedIssues.add(issue)
+        }
+        Dialog(onDismissRequest = dismiss) {
+            TvTheme(dark = true, media = true) {
+                TvRemoteDialogKeys(dismiss)
+                val primary = remember { FocusRequester() }
+                LaunchedEffect(issue) { withFrameNanos {}; primary.requestFocus() }
+                Column(Modifier.widthIn(max = 560.dp).background(TvPlayerDesign.feedback, TvShape)
+                    .padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    Text(issue.message, style = tvTextStyle(18, 28), color = TvPlayerDesign.text)
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        if (issue.seek || issue.page != null) {
+                            TvButton(if (issue.seek) "重新选择进度" else "打开${issue.page?.title}", {
+                                dismiss()
+                                if (issue.seek) {
+                                    controls = true
+                                    returnToTimeline = true
+                                } else issue.page?.let { showPanel(it) }
+                            }, Modifier.focusRequester(primary))
+                            TvButton("关闭提示", dismiss)
+                        } else TvButton("关闭提示", dismiss, Modifier.focusRequester(primary))
+                    }
+                }
             }
         }
     }
@@ -384,7 +493,7 @@ private val PlayerFeedbackSurface = TvPlayerDesign.feedback
             player.audio, player.subtitles, state.compatible) {
             when (page) {
                 TvPlayerPage.QUEUE -> state.queue?.items.orEmpty().map { it.name }
-                TvPlayerPage.SPEED -> listOf("0.5×", "0.75×", "1.0×", "1.25×", "1.5×", "2.0×")
+                TvPlayerPage.SPEED -> listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f).map(::tvPlaybackRate)
                 TvPlayerPage.AUDIO -> if (state.compatible) state.sourceAudio.flatMap { listOf(it.title, "${it.language} · ${it.codec}") }
                     else player.audio.flatMap { listOf(it.title, "${it.language} · ${it.codec}") }
                 TvPlayerPage.SUBTITLE -> listOf("关闭字幕") + state.sourceText.map { it.title } +
@@ -394,17 +503,13 @@ private val PlayerFeedbackSurface = TvPlayerDesign.feedback
         }
         TvPlayerPanel(
             page = page, safePercent = interfaceState.safePercent,
-            child = pages.size > 1, audio = audio,
+            child = pages.size > 1, depth = pages.size, audio = audio,
             quick = quickPanel, hudHeight = with(LocalDensity.current) { controlsHeight.toDp() },
             quickAnchor = quickAnchors[page], quickLabels = quickLabels,
             parentPage = pages.firstOrNull() ?: page,
-            initialKey = focusMemory[page], onFocused = { key ->
-                val tab = if (page in setOf(TvPlayerPage.SUBTITLE, TvPlayerPage.SUBTITLE_SOURCE, TvPlayerPage.SUBTITLE_ADJUST))
-                    TvPlayerPage.SUBTITLE else page
-                if (!key.startsWith("header/tab/") || key == "header/tab/${tab.name}") focusMemory[page] = key
-            },
+            initialKey = focusMemory[page], stayOnTab = stayOnTab, onFocused = { key -> focusMemory[page] = key },
             onTab = ::switchPanelTab, onSubtitleSection = ::selectSubtitleSection,
-            onBack = ::backPanel, onClose = ::closePanel,
+            onBack = ::backPanel, onClose = ::closePanel, feedback = sharedFeedback,
         ) { focus ->
             TvPlayerMenuContent(
                 model, page, state, player, cache, resize, quickPanel, focus,
@@ -412,6 +517,11 @@ private val PlayerFeedbackSurface = TvPlayerDesign.feedback
                 onNavigate = ::navigatePanel, onBack = { backPanel("dialog-choice") }, onClose = ::closePanel,
                 onExit = { traceBack("settings-exit", "exit-player"); model.media.close() },
                 onBrowserBack = { browserBack = it },
+                operationErrors = panelIssues.map { it.message }.distinct().takeUnless {
+                    page == TvPlayerPage.LOCAL_SUBTITLE
+                }.orEmpty(),
+                subtitleLoading = subtitleLoading,
+                onTrackOperation = { lastTrackOperation = it },
             )
         }
     }

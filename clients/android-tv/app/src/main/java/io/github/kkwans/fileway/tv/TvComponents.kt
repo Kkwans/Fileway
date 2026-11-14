@@ -270,14 +270,14 @@ fun Modifier.tvRemoteKeys(onDown: (androidx.compose.ui.input.key.KeyEvent) -> Bo
  * Add pointer handling only, keeping its existing focus and key semantics.
  * A scroll cancels the press; lifting after a scroll never opens a card. */
 fun Modifier.tvTouch(onClick: () -> Unit, enabled: Boolean = true, interaction: MutableInteractionSource? = null,
-    onLongClick: (() -> Unit)? = null): Modifier = composed {
+    onLongClick: (() -> Unit)? = null, requestFocusOnTouch: Boolean = true): Modifier = composed {
     val click by rememberUpdatedState(onClick)
     val longClick by rememberUpdatedState(onLongClick)
     val focus = remember { FocusRequester() }
-    this.focusRequester(focus).pointerInput(enabled, interaction, onLongClick != null) {
+    this.focusRequester(focus).pointerInput(enabled, interaction, onLongClick != null, requestFocusOnTouch) {
         if (enabled) detectTapGestures(
             onPress = { point ->
-                focus.requestFocus()
+                if (requestFocusOnTouch) focus.requestFocus()
                 val press = PressInteraction.Press(point)
                 interaction?.emit(press)
                 val released=tryAwaitRelease()

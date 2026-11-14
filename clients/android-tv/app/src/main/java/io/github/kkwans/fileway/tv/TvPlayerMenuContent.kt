@@ -3,6 +3,7 @@ package io.github.kkwans.fileway.tv
 import android.view.KeyEvent
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -20,9 +21,13 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
@@ -47,6 +52,37 @@ import kotlinx.coroutines.*
 import java.util.Locale
 import kotlinx.coroutines.flow.first
 
+internal fun tvPlaybackRate(rate: Float): String =
+    String.format(Locale.ROOT, "%.2f", rate).removeSuffix("0") + "×"
+
+private fun tvTrackLanguage(language: String): String? = when (language.lowercase(Locale.ROOT)) {
+    "", "und", "unknown" -> null
+    "zh", "zho", "chi" -> "中文"
+    "en", "eng" -> "英语"
+    "ja", "jpn" -> "日语"
+    "ko", "kor" -> "韩语"
+    "fr", "fra", "fre" -> "法语"
+    "de", "deu", "ger" -> "德语"
+    "es", "spa" -> "西班牙语"
+    else -> language
+}
+
+private fun tvTrackFormat(codec: String): String? = when (codec.lowercase(Locale.ROOT)) {
+    "" -> null
+    "audio/mp4a-latm", "aac" -> "AAC"
+    "audio/ac3", "ac3" -> "Dolby Digital"
+    "audio/eac3", "eac3" -> "Dolby Digital Plus"
+    "audio/opus", "opus" -> "Opus"
+    "audio/flac", "flac" -> "FLAC"
+    "audio/mpeg", "mp3" -> "MP3"
+    "application/x-subrip", "subrip", "srt" -> "SRT"
+    "text/vtt", "webvtt" -> "WebVTT"
+    "text/x-ssa" -> "ASS / SSA"
+    "ass", "ssa" -> codec.uppercase(Locale.ROOT)
+    "application/pgs", "hdmv_pgs_subtitle", "pgs" -> "PGS"
+    else -> codec
+}
+
 /** The settings panel and its compact child share the same live labels and values. */
 internal fun tvPlayerSettingsRows(
     state: TvMediaState, player: PlayerState, resize: Int, onExit: () -> Unit, onNavigate: (TvPlayerPage) -> Unit,
@@ -64,14 +100,14 @@ internal fun tvPlayerSettingsRows(
         action = { onNavigate(target) },
     )
     return buildList {
-        add(destination(TvPlayerPage.SPEED, "${player.rate}×"))
+        add(destination(TvPlayerPage.SPEED, tvPlaybackRate(player.rate)))
         add(destination(TvPlayerPage.VOLUME, "${player.volume}%"))
         if (!audio) {
             add(destination(TvPlayerPage.RATIO, listOf("适合屏幕", "拉伸", "裁切")[resize]))
             add(destination(TvPlayerPage.HDR, state.mode.title))
         }
         add(destination(TvPlayerPage.INFO))
-        add(TvPlayerRow.Choice(key = "exit", title = "退出播放", icon = Art.drawable.fileway_ic_logout, selectable = false, action = onExit))
+        add(TvPlayerRow.Choice(key = "exit", title = "退出播放", icon = Art.drawable.fileway_ic_logout, selectable = false, destination = true, action = onExit))
     }
 }
 
@@ -80,6 +116,7 @@ internal fun tvPlayerSettingsRows(
     quick: Boolean,
     focus: TvPlayerPanelFocus, onResize: (Int) -> Unit, onNavigate: (TvPlayerPage) -> Unit, onBack: () -> Unit,
     onClose: () -> Unit, onExit: () -> Unit, onBrowserBack: ((() -> Unit)?) -> Unit,
+    operationErrors: List<String>, subtitleLoading: Boolean, onTrackOperation: (TvPlayerPage) -> Unit,
 ) {
     val appearance by model.media.playbackPreferences.textSubtitleAppearance.collectAsStateWithLifecycle()
     val fonts by SubtitleFontCatalog.state.collectAsStateWithLifecycle()
@@ -89,24 +126,36 @@ internal fun tvPlayerSettingsRows(
         icon: Int? = null, value: String? = null, destination: Boolean = false, enabled: Boolean = true,
         selectable: Boolean = true, action: () -> Unit,
     ) = TvPlayerRow.Choice(key, title, selected, enabled, supporting, value, icon, destination, selectable, {
+        if (page == TvPlayerPage.AUDIO || page == TvPlayerPage.SUBTITLE) onTrackOperation(page)
         action()
         if (quick && page in listOf(TvPlayerPage.SUBTITLE, TvPlayerPage.AUDIO)) onBack()
     })
     fun destination(target: TvPlayerPage, value: String? = null, icon: Int? = null, title: String = target.title) =
         choice(target.name, title, value = value, icon = icon, destination = true, selectable = false) { onNavigate(target) }
-    fun trackDetail(vararg details: String) = details.filter { it.isNotBlank() }.joinToString(" · ")
+    fun track(key: String, title: String, selected: Boolean, language: String, codec: String,
+        origin: String? = null, fileName: String? = null, enabled: Boolean = true, action: () -> Unit,
+    ): TvPlayerRow.Choice {
+        val languageName = tvTrackLanguage(language)
+        val format = tvTrackFormat(codec)
+        val detail = listOfNotNull(origin, languageName, format).joinToString(" · ").ifBlank { null }
+        return choice(key, title, selected, supporting = fileName, enabled = enabled, action = action)
+            .copy(value = detail, accessibilityDetail = listOfNotNull(fileName, origin, languageName ?: "语言未标注", format).joinToString("，"))
+    }
     val rows: List<TvPlayerRow> = when (page) {
         TvPlayerPage.SETTINGS -> tvPlayerSettingsRows(state, player, resize, onExit, onNavigate)
         TvPlayerPage.AUDIO -> buildList {
             if (state.compatible) {
                 add(choice("audio/off", "关闭音轨", state.sourceAudioOff, enabled = !state.busy) { model.media.selectSourceAudio(-1) })
                 state.sourceAudio.forEach { track ->
-                    add(choice("source/${track.index}", track.title, !state.sourceAudioOff && state.selectedSourceAudio == track.index,
-                        trackDetail(track.language, track.codec), enabled = !state.busy) { model.media.selectSourceAudio(track.index) })
+                    add(track("source/${track.index}", track.title, !state.sourceAudioOff && state.selectedSourceAudio == track.index,
+                        track.language, track.codec, enabled = !state.busy) { model.media.selectSourceAudio(track.index) })
                 }
             } else player.audio.forEach { track ->
-                add(choice("native/${track.id}", track.title, player.selectedAudio == track.id,
-                    trackDetail(track.language, track.codec), enabled = !state.busy) { model.media.selectAudio(track.id) })
+                val key = "native/${track.id}"
+                val selected = player.selectedAudio == track.id
+                val select = { model.media.selectAudio(track.id) }
+                add(if (track.id == -1) choice(key, "关闭音轨", selected, enabled = !state.busy, action = select)
+                    else track(key, track.title, selected, track.language, track.codec, enabled = !state.busy, action = select))
             }
         }
         TvPlayerPage.SUBTITLE -> buildList {
@@ -127,16 +176,16 @@ internal fun tvPlayerSettingsRows(
             if (state.sidecars.isNotEmpty()) origins += "同目录"
             val showOrigin = origins.size > 1
             source.forEach { track ->
-                add(choice("source/${track.index}", track.title, state.selectedSourceSubtitle == track.index,
-                    trackDetail(if (showOrigin) "内嵌" else "", track.language, track.codec)) { model.media.selectSourceSubtitle(track.index) })
+                add(track("source/${track.index}", track.title, state.selectedSourceSubtitle == track.index,
+                    track.language, track.codec, origin = "内嵌".takeIf { showOrigin }) { model.media.selectSourceSubtitle(track.index) })
             }
             embedded.forEach { (track, _) ->
-                add(choice("native/${track.id}", track.title, player.selectedSubtitle == track.id && state.selectedSourceSubtitle == -1,
-                    trackDetail(if (showOrigin) "内嵌" else "", track.language, track.codec)) { model.media.selectPlayerSubtitle(track.id) })
+                add(track("native/${track.id}", track.title, player.selectedSubtitle == track.id && state.selectedSourceSubtitle == -1,
+                    track.language, track.codec, origin = "内嵌".takeIf { showOrigin }) { model.media.selectPlayerSubtitle(track.id) })
             }
             importedFiles.forEach { (track, imported) ->
-                add(choice("native/${track.id}", track.title, player.selectedSubtitle == track.id && state.selectedSourceSubtitle == -1,
-                    trackDetail(if (showOrigin) origin(imported) else "", track.language, track.codec)) { model.media.selectPlayerSubtitle(track.id) })
+                add(track("native/${track.id}", track.title, player.selectedSubtitle == track.id && state.selectedSourceSubtitle == -1,
+                    track.language, track.codec, origin = origin(imported).takeIf { showOrigin }) { model.media.selectPlayerSubtitle(track.id) })
             }
             if (state.sidecars.isNotEmpty()) {
                 val tracksBySource = tracks.groupBy { (_, imported) -> imported?.sourceKey }
@@ -144,10 +193,10 @@ internal fun tvPlayerSettingsRows(
                     val sourceKey = "external:${file.mediaKey}"
                     val fileTracks = tracksBySource[sourceKey].orEmpty()
                     if (fileTracks.size > 1) fileTracks.forEach { (track, _) ->
-                        add(choice("native/${track.id}", track.title, player.selectedSubtitle == track.id && state.selectedSourceSubtitle == -1,
-                            trackDetail(if (showOrigin) "同目录" else "", file.name, track.language, track.codec)) { model.media.selectPlayerSubtitle(track.id) })
+                        add(track("native/${track.id}", track.title, player.selectedSubtitle == track.id && state.selectedSourceSubtitle == -1,
+                            track.language, track.codec, origin = "同目录".takeIf { showOrigin }, fileName = file.name) { model.media.selectPlayerSubtitle(track.id) })
                     } else add(choice("external/${file.mediaKey}", file.name, state.selectedSourceSubtitle == -1 && selectedExternal == sourceKey,
-                        supporting = if (showOrigin) "同目录" else null) {
+                        value = "同目录".takeIf { showOrigin }) {
                         model.media.selectExternalSubtitle(file)
                     })
                 }
@@ -168,7 +217,7 @@ internal fun tvPlayerSettingsRows(
             }.copy(fontFamily = FontFamily(font.typeface ?: android.graphics.Typeface.DEFAULT))
         }
         TvPlayerPage.SPEED -> listOf(.5f, .75f, 1f, 1.25f, 1.5f, 2f).map { rate ->
-            choice("rate/$rate", "${rate}×", kotlin.math.abs(player.rate - rate) < .001f) {
+            choice("rate/$rate", tvPlaybackRate(rate), kotlin.math.abs(player.rate - rate) < .001f) {
                 model.media.player.rate(rate)
                 if (quick) onBack()
             }
@@ -194,6 +243,7 @@ internal fun tvPlayerSettingsRows(
         else -> emptyList()
     }
 
+    operationErrors.forEach { TvPlayerNote(it, error = true) }
     when (page) {
         TvPlayerPage.SETTINGS -> TvPlayerSettings(rows.filterIsInstance<TvPlayerRow.Choice>(), focus)
         TvPlayerPage.SPEED -> if (quick) {
@@ -275,14 +325,16 @@ internal fun tvPlayerSettingsRows(
             TvPlayerNote(if (player.volume > 100) "已启用音频增益" else "当前媒体的输出音量")
         }
         TvPlayerPage.INFO -> TvPlayerInfo(state, player, cache, focus)
-        TvPlayerPage.EXTERNAL -> TvSubtitleFiles(model, state, player, focus, onBrowserBack)
+        TvPlayerPage.EXTERNAL -> TvSubtitleFiles(model, state, player, focus, onBrowserBack,
+            subtitleLoading && operationErrors.isEmpty()) { onTrackOperation(TvPlayerPage.SUBTITLE) }
         TvPlayerPage.LOCAL_SUBTITLE -> TvLocalSubtitleBrowser(model.media, focus, onBack, onBrowserBack)
         else -> {
-            if (page == TvPlayerPage.SUBTITLE) TvSubtitleStatus(state, player)
+            if (page == TvPlayerPage.SUBTITLE && subtitleLoading && operationErrors.isEmpty()) {
+                TvSubtitleStatus(state.subtitleLoadDetail)
+            }
             if (page == TvPlayerPage.AUDIO) {
                 if (state.busy) TvPlayerNote("正在读取音轨…")
                 if (rows.isEmpty() && !state.busy) TvPlayerMessage("没有可用音轨", focus)
-                player.operationError?.takeIf { it.contains("音轨") }?.let { TvPlayerNote(it, error = true) }
             }
             if (page == TvPlayerPage.FONT) {
                 LaunchedEffect(Unit) { SubtitleFontCatalog.request() }
@@ -292,7 +344,10 @@ internal fun tvPlayerSettingsRows(
             if (page == TvPlayerPage.HDR && !state.sdrAvailable) TvPlayerNote("当前片源未提供 SDR 兼容播放")
             if (rows.isNotEmpty()) {
                 if (rows.filterIsInstance<TvPlayerRow.Choice>().none { it.enabled }) TvPlayerMessage("暂时无法切换", focus)
-                TvPlayerChoiceList(rows, focus, Modifier.weight(1f, fill = !quick))
+                if (page == TvPlayerPage.AUDIO || page == TvPlayerPage.SUBTITLE) {
+                    TvPlayerTracks(rows.filterIsInstance<TvPlayerRow.Choice>(), focus, quick,
+                        Modifier.weight(1f, fill = !quick))
+                } else TvPlayerChoiceList(rows, focus, Modifier.weight(1f, fill = !quick))
             } else if (page == TvPlayerPage.AUDIO && state.busy) TvPlayerMessage("正在准备播放", focus)
         }
     }
@@ -306,36 +361,24 @@ private fun TvSpeedEditor(
     val preferred = focus.initialKey ?: presets.firstOrNull { it.selected }?.key ?: "custom-speed"
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val scaledWidth = maxWidth / LocalDensity.current.fontScale.coerceAtLeast(1f)
-        val wide = scaledWidth >= 720.dp
-        val columns = if (wide || scaledWidth >= 560.dp) 6 else 3
+        val columns = if (scaledWidth >= 560.dp) 6 else 3
         val lines = presets.chunked(columns)
-        @Composable fun Editor(modifier: Modifier) {
-            Column(modifier, verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                lines.forEachIndexed { index, line ->
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        line.forEach { preset ->
-                            TvSpeedPreset(preset, focus.target(preset.key, preferred == preset.key,
-                                Modifier.weight(1f).focusProperties {
-                                    if (index == 0) up = focus.header
-                                    if (index == lines.lastIndex) down = slider
-                                }))
-                        }
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            lines.forEachIndexed { index, line ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    line.forEach { preset ->
+                        TvSpeedPreset(preset, focus.target(preset.key, preferred == preset.key,
+                            Modifier.weight(1f).focusProperties {
+                                if (index == 0) up = focus.header
+                                if (index == lines.lastIndex) down = slider
+                            }))
                     }
                 }
-                TvPlayerRange("精调", rate, .1f..5f, .01f, { String.format(Locale.ROOT, "%.2f×", it) },
-                    focus.target("custom-speed", preferred == "custom-speed", Modifier.focusRequester(slider)),
-                    expandTrack = true, accelerate = true, onCommit = applyRate)
             }
-        }
-        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            if (wide) Row(horizontalArrangement = Arrangement.spacedBy(32.dp)) {
-                Column(Modifier.width(208.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("播放速度", style = tvTextStyle(20, 28, FontWeight.Medium))
-                    Text(String.format(Locale.ROOT, "%.2f×", rate), style = tvTextStyle(32, 40, FontWeight.Medium).copy(fontFeatureSettings = "tnum"))
-                    Text("当前速度", style = tvTextStyle(16, 24), color = TvPlayerDesign.secondary)
-                }
-                Editor(Modifier.weight(1f))
-            } else Editor(Modifier.fillMaxWidth())
+            TvPlayerRange("微调倍速", rate, .1f..5f, .01f, ::tvPlaybackRate,
+                focus.target("custom-speed", preferred == "custom-speed", Modifier.focusRequester(slider)),
+                expandTrack = true, accelerate = true, displayLabel = "精调", onCommit = applyRate)
         }
     }
 }
@@ -356,9 +399,9 @@ private fun TvSpeedEditor(
             focusedContainerColor = if (preset.selected) TvPlayerDesign.selected else PanelFocus)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
             Text(preset.title, style = tvTextStyle(18, 24, FontWeight.Medium).copy(fontFeatureSettings = "tnum"), maxLines = 1)
-            if (preset.selected) {
-                Spacer(Modifier.width(4.dp))
-                Icon(painterResource(Art.drawable.fileway_ic_check), null, Modifier.size(16.dp), tint = TvPlayerDesign.accent)
+            Spacer(Modifier.width(4.dp))
+            Box(Modifier.size(16.dp), contentAlignment = Alignment.Center) {
+                if (preset.selected) Icon(painterResource(Art.drawable.fileway_ic_check), null, Modifier.size(16.dp), tint = TvPlayerDesign.accent)
             }
         }
     }
@@ -388,6 +431,7 @@ private fun TvSpeedEditor(
                     Text(items.first().name, style = tvTextStyle(20, 28, FontWeight.Medium), maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text("${player.phase} · 1 / 1", style = tvTextStyle(16, 24), color = TvPlayerDesign.secondary)
                 }
+                if (row.selected) Icon(painterResource(Art.drawable.fileway_ic_check), "当前项", Modifier.size(24.dp), tint = TvPlayerDesign.accent)
             }
         }
         return
@@ -433,7 +477,8 @@ private fun TvSpeedEditor(
     val artworkShape = TvShape
     var focused by remember { mutableStateOf(false) }
     Button(onClick = row.action, enabled = row.enabled, interactionSource = interaction,
-        modifier = modifier.onFocusChanged { focused = it.isFocused }.hoverable(interaction, enabled = row.enabled)
+        modifier = modifier.onFocusChanged { focused = it.isFocused }
+            .border(2.dp, playerFocusColor(focused), TvShape).hoverable(interaction, enabled = row.enabled)
             .tvTouch(row.action, row.enabled, interaction).semantics {
                 selected = row.selected
                 if (row.selected) stateDescription = phase
@@ -450,8 +495,8 @@ private fun TvSpeedEditor(
                     Icon(painterResource(if (playing) Art.drawable.fileway_ic_pause else Art.drawable.fileway_ic_play_arrow),
                         null, Modifier.size(18.dp), tint = Color.White)
                 }
-                if (focused || hovered) Box(Modifier.matchParentSize().border(1.5.dp,
-                    if (focused) PanelOutline else Color.White.copy(alpha = .52f), artworkShape))
+                if (hovered && !focused) Box(Modifier.matchParentSize().border(1.dp,
+                    Color.White.copy(alpha = .52f), artworkShape))
             }
             Text("${index + 1}. ${file.name}", Modifier.fillMaxWidth().padding(horizontal = 2.dp)
                 .then(if (focused) Modifier.basicMarquee() else Modifier),
@@ -469,14 +514,76 @@ private fun TvSpeedEditor(
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             rows.chunked(columns).forEachIndexed { index, group ->
                 Row(
-                    Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp),
+                    Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(24.dp),
                     verticalAlignment = Alignment.Top,
                 ) {
                     for (row in group) TvPlayerChoiceRow(
                         row, focus.target(row.key, row.key == preferred,
-                            Modifier.weight(1f).focusProperties { if (index == 0) up = focus.header }),
+                            Modifier.weight(1f).fillMaxHeight().focusProperties { if (index == 0) up = focus.header }),
+                        settingsRow = columns == 2,
                     )
                     if (group.size < columns) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable private fun TvPlayerTracks(
+    tracks: List<TvPlayerRow.Choice>, focus: TvPlayerPanelFocus, quick: Boolean, modifier: Modifier,
+) {
+    BoxWithConstraints(modifier.fillMaxWidth()) {
+        val scaledWidth = maxWidth / LocalDensity.current.fontScale.coerceAtLeast(1f)
+        val columns = if (!quick && tracks.size >= 4 && scaledWidth >= 744.dp) 2 else 1
+        val width = if (columns == 2 || quick) maxWidth
+            else minOf(maxWidth, (maxWidth * .60f).coerceIn(396.dp, 560.dp))
+        val gap = 24.dp
+        val cellWidth = (width - gap * (columns - 1)) / columns
+        val keys = tracks.map { it.key }
+        val requesters = remember(keys) { keys.associateWith { FocusRequester() } }
+        val active = tracks.filter { it.enabled }.map { it.key }.toSet()
+        var previousKeys by remember { mutableStateOf(keys) }
+        LaunchedEffect(keys, active) {
+            val focusedKey = focus.focusedBodyKey
+            if (focusedKey != null && focusedKey !in active) {
+                val index = previousKeys.indexOf(focusedKey)
+                val adjacent = tracks.withIndex().filter { it.value.enabled }.minByOrNull { (position, _) ->
+                    kotlin.math.abs(position - index)
+                }?.value?.key
+                if (adjacent != null) focus.retarget(adjacent)
+                else if (focus.hasHeader) focus.header.requestFocus()
+            }
+            previousKeys = keys
+        }
+        val preferred = focus.initialKey?.takeIf { it in active }
+            ?: tracks.firstOrNull { it.enabled && it.selected }?.key
+            ?: tracks.firstOrNull { it.enabled }?.key
+        fun target(index: Int) = tracks.getOrNull(index)?.key?.takeIf { it in active }?.let(requesters::getValue)
+        val chrome = focus.initialKey?.let { it.startsWith("header/") || it.startsWith("group/") } == true
+        val scroll = rememberScrollState()
+        CompositionLocalProvider(LocalBringIntoViewSpec provides FullRowVisibility) {
+            Column(Modifier.width(width).verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                tracks.chunked(columns).forEachIndexed { rowIndex, row ->
+                    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(gap)) {
+                        row.forEachIndexed { column, track ->
+                            key(track.key) {
+                                val index = rowIndex * columns + column
+                                TvPlayerChoiceRow(track, focus.target(track.key, track.key == preferred && !chrome,
+                                    Modifier.width(cellWidth).fillMaxHeight().focusRequester(requesters.getValue(track.key))
+                                        .focusProperties {
+                                            left = if (column > 0) target(index - 1) ?: FocusRequester.Cancel
+                                                else if (focus.hasSection) focus.section else FocusRequester.Cancel
+                                            right = if (column + 1 < row.size) target(index + 1) ?: FocusRequester.Cancel
+                                                else FocusRequester.Cancel
+                                            up = target(index - columns) ?: if (rowIndex == 0 && focus.hasHeader) focus.header else FocusRequester.Cancel
+                                            down = target(index + columns)
+                                                ?: target((rowIndex + 1) * columns)
+                                                ?: FocusRequester.Cancel
+                                        }), trackWidth = cellWidth)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -514,12 +621,15 @@ private fun TvSpeedEditor(
         "unknown", "未知" -> "未识别"
         else -> value.orEmpty()
     }
-    // A scroll region, not an action button: no giant focus ring around facts.
+    var focused by remember { mutableStateOf(false) }
+    val density = LocalDensity.current
+    val step = with(density) { 48.dp.roundToPx() }
     BoxWithConstraints(focus.target("info", focus.initialKey?.startsWith("header/") != true, Modifier.fillMaxSize())
+        .onFocusChanged { focused = it.isFocused }
         .tvRemoteKeys { event ->
             val delta = when (event.nativeKeyEvent.keyCode) {
-                KeyEvent.KEYCODE_DPAD_DOWN -> 80
-                KeyEvent.KEYCODE_DPAD_UP -> -80
+                KeyEvent.KEYCODE_DPAD_DOWN -> step
+                KeyEvent.KEYCODE_DPAD_UP -> -step
                 else -> 0
             }
             when {
@@ -533,7 +643,8 @@ private fun TvSpeedEditor(
             Column(modifier, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("片源与播放", style = tvTextStyle(20, 28, FontWeight.Medium))
                 if (state.file?.mediaKind() == MediaKind.VIDEO) {
-                    TvPlayerInfoField("片源动态范围", readable(state.info?.optString("dynamicRange")))
+                    val range = state.info?.optString("dynamicRange")
+                    TvPlayerInfoField("片源动态范围", if (range.equals("sdr", ignoreCase = true)) "SDR" else readable(range))
                     TvPlayerInfoField("请求模式", state.mode.title)
                     TvPlayerInfoField("实际路径", if (state.compatible) "SDR 兼容" else "原文件")
                     TvPlayerInfoField("画面尺寸", if (player.width > 0 && player.height > 0) "${player.width} × ${player.height}" else "暂无信息")
@@ -551,14 +662,40 @@ private fun TvSpeedEditor(
                 }
                 TvPlayerInfoField("音频解码器", readable(player.audioDecoder))
                 TvPlayerInfoField("音频输出缓冲", "${player.audioRenderedBuffers} / 跳过 ${player.audioSkippedBuffers}")
+                val bufferEnd = player.bufferedPositionMs.takeIf {
+                    it > player.positionMs && player.firstFrameRendered
+                }
+                    ?.plus(state.sourceOffsetMs)
+                TvPlayerInfoField("连续缓冲至", bufferEnd?.let(::tvTime) ?: "暂无时间范围")
                 TvPlayerInfoField("磁盘缓存 / 上限", "${tvSize(cache.usedBytes)} / ${tvSize(cache.limitBytes)}")
+                TvPlayerInfoField("传输速度", tvSpeed(cache.bytesPerSecond))
+                val cacheRanges = cache.ranges.firstOrNull()?.let { range ->
+                    val first = "${tvTime(range.startMs)}–${tvTime(range.endMs)}"
+                    if (cache.ranges.size == 1) first else "$first 等 ${cache.ranges.size} 段"
+                }.orEmpty()
+                TvPlayerInfoField("缓存时间范围", cacheRanges.ifEmpty { "暂无时间范围" })
                 cache.feedback?.let { Text(it, style = tvTextStyle(16, 24), color = TvPlayerDesign.secondary) }
             }
         }
-        Column(Modifier.fillMaxSize().verticalScroll(scroll), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+        Column(Modifier.fillMaxSize().padding(end = 16.dp).verticalScroll(scroll),
+            verticalArrangement = Arrangement.spacedBy(24.dp)) {
             if (twoColumns) Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
                 Source(Modifier.weight(1f)); Output(Modifier.weight(1f))
             } else { Source(Modifier.fillMaxWidth()); Output(Modifier.fillMaxWidth()) }
+        }
+        val maxScroll = scroll.maxValue
+        if (maxScroll in 1 until Int.MAX_VALUE || focused) {
+            Canvas(Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(4.dp)) {
+                val trackHeight = size.height
+                val range = maxScroll.takeIf { it in 1 until Int.MAX_VALUE }?.toFloat() ?: 0f
+                val thumb = (trackHeight * trackHeight / (trackHeight + range))
+                    .coerceIn(minOf(24.dp.toPx(), trackHeight), trackHeight)
+                val start = if (range == 0f) 0f else (trackHeight - thumb) * scroll.value / range
+                val radius = CornerRadius(2.dp.toPx())
+                drawRoundRect(TvPlayerDesign.divider, cornerRadius = radius)
+                drawRoundRect(if (focused) TvPlayerDesign.focus else TvPlayerDesign.outline,
+                    topLeft = Offset(0f, start), size = Size(size.width, thumb), cornerRadius = radius)
+            }
         }
     }
 }
@@ -570,27 +707,14 @@ private fun TvSpeedEditor(
     }
 }
 
-@Composable private fun TvSubtitleStatus(state: TvMediaState, player: PlayerState) {
-    val loading = delayedBusy(state.subtitleLoading || player.subtitleLoading)
-    val error = state.subtitleError ?: player.operationError?.takeIf { it.contains("字幕") }
-    val message = error ?: if (loading) state.subtitleLoadDetail ?: "正在加载字幕…"
-        else state.subtitleNotice ?: player.subtitleFontNotice
-    if (message != null) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp)
-            .background(Color.White.copy(alpha = .07f), TvShape).padding(horizontal = 12.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(painterResource(Art.drawable.fileway_ic_subtitles), null, Modifier.size(18.dp),
-                tint = if (error != null) MaterialTheme.colorScheme.error else LocalTvSurfaces.current.secondaryText)
-            Text(message, Modifier.weight(1f), style = tvTextStyle(14, 20),
-                color = if (error != null) MaterialTheme.colorScheme.error else Color.White,
-                maxLines = 2, overflow = TextOverflow.Ellipsis)
-        }
-    }
+@Composable private fun TvSubtitleStatus(detail: String?) {
+    TvPlaybackFeedback("正在加载字幕", Modifier.padding(bottom = 8.dp), Art.drawable.fileway_ic_subtitles,
+        detail?.takeUnless { it == "正在加载字幕" })
 }
 
 @Composable private fun ColumnScope.TvSubtitleFiles(
     model: TvModel, state: TvMediaState, player: PlayerState, focus: TvPlayerPanelFocus,
-    onBrowserBack: ((() -> Unit)?) -> Unit,
+    onBrowserBack: ((() -> Unit)?) -> Unit, subtitleLoading: Boolean, onSelectSubtitle: () -> Unit,
 ) {
     data class Location(val path: String, val wire: String, val row: String? = null)
     data class Page(val cursor: String?, val result: ScopedSubtitlePage)
@@ -742,7 +866,7 @@ private fun TvSpeedEditor(
         onDispose { onBrowserBack(null) }
     }
     TvPlayerNote(location.path)
-    TvSubtitleStatus(state, player)
+    if (subtitleLoading) TvSubtitleStatus(state.subtitleLoadDetail)
     if (delayedBusy(busy)) TvPlayerNote("正在读取目录…")
     error?.let {
         if (!state.scopedSubtitlePages) TvPlayerMessage(it, focus) else TvPlayerNote(it, error = true)
@@ -768,7 +892,10 @@ private fun TvSpeedEditor(
                 enabled = !busy && (file.directory || file.size > 0), icon = if (file.directory) Art.drawable.fileway_ic_folder else null,
                 selectable = !file.directory, destination = file.directory, action = {
                     if (file.directory) navigate(file.path, file.wirePath, file.mediaKey)
-                    else model.media.selectScopedSubtitle(entry)
+                    else {
+                        onSelectSubtitle()
+                        model.media.selectScopedSubtitle(entry)
+                    }
                 },
             ))
         }

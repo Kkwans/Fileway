@@ -483,8 +483,15 @@ class TvPlayerUiJourneyTest {
                 }
             }
             waitFor("owned decoded frame has color variation") { hasDecodedColorVariation(launched) }
-            waitFor("owned audio track") { tv.media.player.state.value.audio.isNotEmpty() }
-            val audioTitle = tv.media.player.state.value.audio.first().title
+            waitFor("selected owned audio track") {
+                val player = tv.media.player.state.value
+                player.audio.any { it.id >= 0 && it.id == player.selectedAudio }
+            }
+            val playerWithAudio = tv.media.player.state.value
+            val audioTrack = playerWithAudio.audio.single { it.id >= 0 && it.id == playerWithAudio.selectedAudio }
+            assertTrue("fixture must expose a real AAC track", audioTrack.codec.equals("audio/mp4a-latm", true) ||
+                audioTrack.codec.equals("aac", true))
+            val audioTitle = audioTrack.title
             waitFor("owned external subtitle listing") { tv.media.state.value.sidecars.any { it.name == subtitleName } }
             check(tv.media.state.value.scopedSubtitlePages) { "The fixture server must advertise scoped subtitle resources" }
             val movie = requireNotNull(tv.media.state.value.file)
@@ -549,6 +556,8 @@ class TvPlayerUiJourneyTest {
             mark("quick queue")
             touch("列表")
             waitVisible("播放列表")
+            val quickQueue = requireNotNull(tv.media.state.value.queue)
+            waitFocus(quickQueue.items[quickQueue.index].name)
             capture("quick-queue.png")
             assertTrue(device.pressBack()); waitFocus("列表")
 
@@ -576,6 +585,9 @@ class TvPlayerUiJourneyTest {
             }
             sameSource()
             checks += "quick subtitle choice applies to the original video and closes to its HUD trigger"
+            touch("字幕")
+            waitFocus(subtitleName)
+            assertTrue(device.pressBack()); waitFocus("字幕")
             val selectedBeforeFailure = tv.media.player.state.value.selectedSubtitle
             val sourceKey = "external:${sidecar.mediaKey}"
             val missing = File(requireNotNull(instrumentation.targetContext.getExternalFilesDir(null)),
@@ -595,7 +607,9 @@ class TvPlayerUiJourneyTest {
             checks += "a failed replacement retains the previously accepted subtitle"
             touch("音轨")
             waitVisible("音轨")
+            waitVisible("关闭音轨", actionable = true)
             waitVisible(audioTitle, actionable = true)
+            waitFocus(audioTitle)
             capture("quick-audio.png")
             assertTrue(device.pressBack()); waitFocus("音轨")
             touch("倍速 1.0×")
@@ -663,16 +677,26 @@ class TvPlayerUiJourneyTest {
             assertEquals("group and track share their bottom edge", group.bottom, firstTrack.bottom)
             capture("subtitle-preview.png")
             assertFocusOutlineVisible(subtitleName, "subtitle-preview.png")
-            assertLabelCentered("选择字幕", "subtitle-preview.png")
+            val groupText = Rect().also { waitVisible("选择字幕").getBoundsInScreen(it) }
+            val firstTrackText = Rect().also { waitVisible("关闭字幕").getBoundsInScreen(it) }
+            val density = instrumentation.targetContext.resources.displayMetrics.density
+            assertTrue("subtitle group and track text share a vertical center",
+                abs(groupText.centerY() - firstTrackText.centerY()) <= (density * 2).toInt().coerceAtLeast(2))
             assertNull("subtitle source heading removed from the full panel", node("同目录外挂"))
             val selectedTrack = bounds(subtitleName)
             assertEquals("subtitle rows share the same right edge", firstTrack.right, selectedTrack.right)
-            assertTrue("subtitle list must use the available panel width",
-                device.displayWidth - selectedTrack.right < device.displayWidth * .12f)
-            touch("音频")
+            val availableWidth = bounds("关闭面板").right - firstTrack.left
+            val tolerance = (density * 2).toInt().coerceAtLeast(2)
+            assertTrue("subtitle list starts 24dp after the group",
+                abs(firstTrack.left - group.right - (density * 24).toInt()) <= tolerance)
+            assertTrue("subtitle list has a bounded width within the panel",
+                firstTrack.width() in ((minOf(availableWidth, (density * 396).toInt()) - tolerance)..
+                    (minOf(availableWidth, (density * 560).toInt()) + tolerance)))
+            touch("音轨")
+            waitVisible("关闭音轨", actionable = true)
             waitVisible(audioTitle, actionable = true)
             capture("full-audio.png")
-            touch("列表")
+            touch("播放列表")
             waitVisible("播放列表")
             val queue = requireNotNull(tv.media.state.value.queue)
             val currentQueueLabel = "${queue.index + 1}. ${queue.items[queue.index].name}"
@@ -689,12 +713,45 @@ class TvPlayerUiJourneyTest {
             moveUntil(firstQueueLabel, "left", queue.items.size + 1)
             val tabTouchBounds = bounds("播放列表")
             val firstCardBounds = bounds(firstQueueLabel)
-            val tabVisualInset = (instrumentation.targetContext.resources.displayMetrics.density * 8).toInt()
             assertTrue("queue artwork and selected tab share a left edge",
-                abs(firstCardBounds.left - (tabTouchBounds.left + tabVisualInset)) <= 1)
+                abs(firstCardBounds.left - tabTouchBounds.left) <= tolerance)
             capture("full-queue-first.png")
             assertTrue(device.pressDPadUp()); waitFocus("播放列表")
             capture("full-queue-tab-focused.png")
+
+            mark("remote focus switches each tab without confirmation")
+            assertTrue(device.pressDPadRight()); waitFocus("播放设置"); waitVisible("画面比例", actionable = true)
+            assertTrue(device.pressDPadDown()); waitFocus("播放速度")
+            assertTrue(device.pressDPadUp()); waitFocus("播放设置")
+            assertTrue(device.pressDPadRight()); waitFocus("倍速"); waitVisible("微调倍速", actionable = true)
+            assertTrue(device.pressDPadDown()); waitFocus("1.0×")
+            assertTrue(device.pressDPadUp()); waitFocus("倍速")
+            assertTrue(device.pressDPadRight()); waitFocus("字幕"); waitVisible("选择字幕", actionable = true)
+            assertTrue(device.pressDPadDown()); waitFocus(subtitleName)
+            moveUntil("关闭字幕", "up", 20)
+            assertTrue(device.pressDPadUp()); waitFocus("字幕")
+            assertTrue(device.pressDPadRight()); waitFocus("音轨"); waitVisible("关闭音轨", actionable = true)
+            assertTrue(device.pressDPadDown()); waitFocus(audioTitle)
+            moveUntil("音轨", "up", 4)
+            assertTrue(device.pressDPadRight()); waitFocus("信息"); waitVisible("片源与播放")
+            assertTrue(device.pressDPadDown())
+            waitFor("information body owns input focus") {
+                val root = instrumentation.uiAutomation.windows.filter {
+                    it.root?.packageName?.toString() == "io.github.kkwans.fileway.tv"
+                }.maxByOrNull { it.layer }?.root
+                val focused = root?.findFocus(AccessibilityNodeInfo.FOCUS_INPUT)
+                val marker = node("片源与播放")
+                val focusBounds = Rect().also { focused?.getBoundsInScreen(it) }
+                val markerBounds = Rect().also { marker?.getBoundsInScreen(it) }
+                focused != null && marker != null && focusBounds.contains(markerBounds.centerX(), markerBounds.centerY())
+            }
+            assertTrue(device.pressDPadUp()); waitFocus("信息")
+            assertTrue(device.pressDPadLeft()); waitFocus("音轨"); waitVisible("关闭音轨", actionable = true)
+            assertTrue(device.pressDPadLeft()); waitFocus("字幕"); waitVisible("选择字幕", actionable = true)
+            assertTrue(device.pressDPadLeft()); waitFocus("倍速"); waitVisible("微调倍速", actionable = true)
+            assertTrue(device.pressDPadLeft()); waitFocus("播放设置"); waitVisible("画面比例", actionable = true)
+            assertTrue(device.pressDPadLeft()); waitFocus("播放列表"); waitVisible(currentQueueLabel, actionable = true)
+            checks += "remote tab focus selects each body immediately in both directions and restores body navigation"
             assertTrue(device.pressDPadDown()); waitFocus(firstQueueLabel)
             moveUntil(currentQueueLabel, "right", queue.items.size + 1)
             assertTrue(device.pressDPadCenter())
@@ -1097,29 +1154,6 @@ class TvPlayerUiJourneyTest {
             }
             assertTrue("focused row top outline is clipped: $label", brightAlongEdge(true) >= sampleCount * 4 / 5)
             assertTrue("focused row bottom outline is clipped: $label", brightAlongEdge(false) >= sampleCount * 4 / 5)
-        } finally { bitmap.recycle() }
-    }
-
-    private fun assertLabelCentered(label: String, screenshot: String) {
-        val rect = bounds(label)
-        val bitmap = requireNotNull(BitmapFactory.decodeFile(File(evidence, screenshot).absolutePath))
-        try {
-            var first = rect.right
-            var last = rect.left
-            val density = instrumentation.targetContext.resources.displayMetrics.density
-            val band = (density * 17).toInt()
-            for (y in (rect.centerY() - band).coerceAtLeast(0) until (rect.centerY() + band).coerceAtMost(bitmap.height)) {
-                for (x in (rect.left + 4).coerceAtLeast(0) until (rect.right - 4).coerceAtMost(bitmap.width)) {
-                    val pixel = bitmap.getPixel(x, y)
-                    val red = Color.red(pixel); val green = Color.green(pixel); val blue = Color.blue(pixel)
-                    if (minOf(red, green, blue) >= 215 && maxOf(red, green, blue) - minOf(red, green, blue) < 28) {
-                        first = minOf(first, x); last = maxOf(last, x)
-                    }
-                }
-            }
-            assertTrue("label not visible: $label", first <= last)
-            assertTrue("section label is not horizontally centered: $label",
-                abs((first + last) / 2 - rect.centerX()) <= (density * 2).toInt().coerceAtLeast(2))
         } finally { bitmap.recycle() }
     }
 

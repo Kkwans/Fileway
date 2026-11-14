@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
@@ -12,8 +13,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.dismiss
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -76,17 +79,27 @@ internal object TvPlayerDesign {
     }
 }
 
+@Composable internal fun TvPlaybackNotice(message: String, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
+    val dismissLatest by rememberUpdatedState(onDismiss)
+    TvPlaybackFeedback(message, modifier.pointerInput(message) { detectTapGestures { dismissLatest() } }
+        .semantics { dismiss { dismissLatest(); true } })
+}
+
 @Composable internal fun TvPausedPlayback(onResume: () -> Unit, pending: Boolean, modifier: Modifier = Modifier) {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
-    Button(onClick = onResume, interactionSource = interaction,
+    val resume = { if (!pending) onResume() }
+    Button(onClick = resume, interactionSource = interaction,
         modifier = modifier.size(72.dp).border(2.dp, playerFocusColor(focused), CircleShape)
-            .tvTouch(onResume, interaction = interaction)
+            .tvTouch(resume, interaction = interaction)
             .semantics { contentDescription = if (pending) "正在恢复播放" else "继续播放" },
         contentPadding = PaddingValues(0.dp), shape = ButtonDefaults.shape(CircleShape),
         scale = ButtonDefaults.scale(focusedScale = 1f), border = ButtonDefaults.border(focusedBorder = Border.None),
         colors = ButtonDefaults.colors(containerColor = TvPlayerDesign.feedback, focusedContainerColor = TvPlayerDesign.raised,
             contentColor = TvPlayerDesign.text, focusedContentColor = TvPlayerDesign.text)) {
-        Icon(painterResource(Art.drawable.fileway_ic_play_arrow), null, Modifier.size(32.dp))
+        Box(Modifier.fillMaxWidth().height(72.dp), contentAlignment = Alignment.Center) {
+            if (pending) Text("恢复中", style = tvTextStyle(16, 24), color = TvPlayerDesign.text)
+            else Icon(painterResource(Art.drawable.fileway_ic_play_arrow), null, Modifier.size(32.dp))
+        }
     }
 }
