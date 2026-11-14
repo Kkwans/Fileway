@@ -189,6 +189,7 @@ func TestScanRecoveryResetsTraversalAndPreservesCatalog(t *testing.T) {
 		t.Fatal(resumed, err)
 	}
 	input.ExpectedRevision = first.FileRevision
+	input.ExpectedLocatorRevision = first.LocatorRevision
 	second, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 1, 1))
 	if err != nil || second.SourceFileID != first.SourceFileID || second.ItemID != first.ItemID || tableCount(t, store, "library_item") != 1 {
 		t.Fatal(first, second, err)
@@ -285,12 +286,14 @@ func TestPathIdentityEpochAndExistingMapping(t *testing.T) {
 		t.Fatal(err)
 	}
 	input.ExpectedRevision = file.Revision
+	input.ExpectedLocatorRevision = file.LocatorRevision
 	_, lease := testScan(t, store, binding, "unverified-1")
 	first, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 1, 1))
 	if err != nil || first.ItemID != item.ID || first.IdentityEpoch != 2 || tableCount(t, store, "library_item") != 1 {
 		t.Fatal(first, err)
 	}
 	input.ExpectedRevision = first.FileRevision
+	input.ExpectedLocatorRevision = first.LocatorRevision
 	second, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 2, 2))
 	if err != nil || second.IdentityEpoch != first.IdentityEpoch {
 		t.Fatal(second, err)
@@ -298,6 +301,7 @@ func TestPathIdentityEpochAndExistingMapping(t *testing.T) {
 	finishEmptyReconcile(t, store, 7, *lease, 2)
 	_, lease = testScan(t, store, binding, "unverified-2")
 	input.ExpectedRevision = second.FileRevision
+	input.ExpectedLocatorRevision = second.LocatorRevision
 	third, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 1, 1))
 	if err != nil || third.IdentityEpoch != first.IdentityEpoch+1 || third.ItemID != item.ID {
 		t.Fatal(third, err)
@@ -344,6 +348,60 @@ func TestScanReconciliationRechecksStagedRevision(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := store.FinishScan(t.Context(), 7, *lease, ScanFinish{Status: "completed", ExpectedSequence: 2}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestMissingConfirmationRejectsBindingLocatorABA(t *testing.T) {
+	store := openTestStore(t)
+	library := createLibrary(t, store, 7, "Films")
+	binding := createBoundSource(t, store, library)
+	file := observeFile(t, store, binding, "one.mkv")
+	_, lease := testScan(t, store, binding, "missing-aba")
+	ctx := t.Context()
+	if err := store.CompleteScanEnumeration(ctx, 7, *lease, 0); err != nil {
+		t.Fatal(err)
+	}
+	page, err := store.ListScanMissingCandidates(ctx, 7, *lease, "", 10)
+	if err != nil || len(page.Items) != 1 {
+		t.Fatal(page, err)
+	}
+	stale := page.Items[0]
+	checkpoint := ScanCheckpoint{Version: 1, Sequence: 1, Phase: "reconcile"}
+	if err := store.CommitScanMissing(ctx, 7, *lease, page.Items, checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	version := stale.LocatorRevision
+	moved, err := store.ObserveSourceFile(ctx, 7, binding.Ref(), FileObservation{ObjectKey: file.ObjectKey, Locator: []byte("/videos/elsewhere.mkv"), SourceVersion: file.SourceVersion, ExpectedRevision: file.Revision, ExpectedLocatorRevision: &version})
+	if err != nil {
+		t.Fatal(err)
+	}
+	version = moved.LocatorRevision
+	returned, err := store.ObserveSourceFile(ctx, 7, binding.Ref(), FileObservation{ObjectKey: file.ObjectKey, Locator: file.Locator, SourceVersion: file.SourceVersion, ExpectedRevision: file.Revision, ExpectedLocatorRevision: &version})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if returned.Revision != file.Revision || returned.LocatorRevision != stale.LocatorRevision+2 {
+		t.Fatal(returned)
+	}
+	if err := store.CompleteScanReconciliation(ctx, 7, *lease, 1); !errors.Is(err, ErrRevisionConflict) {
+		t.Fatal("stale staged absence accepted", err)
+	}
+	checkpoint.Sequence = 2
+	if err := store.CommitScanMissing(ctx, 7, *lease, []ScanMissingConfirmation{stale}, checkpoint); !errors.Is(err, ErrRevisionConflict) {
+		t.Fatal("stale absence restaged", err)
+	}
+	fresh, err := store.ListScanMissingCandidates(ctx, 7, *lease, "", 10)
+	if err != nil || len(fresh.Items) != 1 || fresh.Items[0].LocatorRevision != returned.LocatorRevision {
+		t.Fatal(fresh, err)
+	}
+	if err := store.CommitScanMissing(ctx, 7, *lease, fresh.Items, checkpoint); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.CompleteScanReconciliation(ctx, 7, *lease, 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.FinishScan(ctx, 7, *lease, ScanFinish{Status: "completed", ExpectedSequence: 2}); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -416,6 +474,7 @@ func TestScanKeepsAnNFOIssueWhenAHardlinkHasNoSidecar(t *testing.T) {
 		t.Fatal(err)
 	}
 	input.ExpectedRevision = first.FileRevision
+	input.ExpectedLocatorRevision = first.LocatorRevision
 	input.Locator, input.NFOStatus = []byte("/videos/other.mkv"), "missing"
 	second, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 2, 2))
 	if err != nil {
@@ -428,6 +487,7 @@ func TestScanKeepsAnNFOIssueWhenAHardlinkHasNoSidecar(t *testing.T) {
 	finishEmptyReconcile(t, store, 7, *lease, 2)
 	job, lease = testScan(t, store, binding, "hardlink-next")
 	input.ExpectedRevision = second.FileRevision
+	input.ExpectedLocatorRevision = second.LocatorRevision
 	if _, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 1, 1)); err != nil {
 		t.Fatal(err)
 	}
@@ -490,9 +550,13 @@ func TestNativeIdentityEpochAdvancesOnlyAfterEveryBindingWasMissing(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	currentTokens, err := store.GetObservationRevision(t.Context(), 7, root.Ref(), input.ObjectKey)
+	if err != nil {
+		t.Fatal(err)
+	}
 	restored, err := store.ObserveSourceFile(t.Context(), 7, root.Ref(), FileObservation{
 		ObjectKey: input.ObjectKey, Locator: []byte("/videos/one.mkv"), SourceVersion: input.SourceVersion,
-		SizeBytes: &input.SizeBytes, ExpectedRevision: current.Revision,
+		SizeBytes: &input.SizeBytes, ExpectedRevision: current.Revision, ExpectedLocatorRevision: &currentTokens.LocatorRevision,
 	})
 	if err != nil || restored.IdentityEpoch != first.IdentityEpoch {
 		t.Fatal(restored, err)
@@ -509,6 +573,11 @@ func TestNativeIdentityEpochAdvancesOnlyAfterEveryBindingWasMissing(t *testing.T
 	}
 	_, lease = testScan(t, store, root, "native-reappeared")
 	input.ExpectedRevision, input.Locator = before.Revision, []byte("/videos/one.mkv")
+	currentTokens, err = store.GetObservationRevision(t.Context(), 7, root.Ref(), input.ObjectKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.ExpectedLocatorRevision = currentTokens.LocatorRevision
 	reappeared, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 1, 1))
 	if err != nil || reappeared.IdentityEpoch != before.IdentityEpoch+1 || reappeared.FileRevision != before.Revision+1 || reappeared.ItemID != first.ItemID {
 		t.Fatal(before, reappeared, err)

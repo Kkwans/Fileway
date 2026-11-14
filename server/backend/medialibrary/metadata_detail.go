@@ -381,14 +381,39 @@ func restoreMetadataSnapshot(ctx context.Context, tx *sql.Tx, libraryID, itemID 
 		}
 	}
 	for _, entry := range []struct {
-		table string
-		ids   []string
-	}{{"item_credit", target.CreditIDs}, {"rating_observation", target.RatingIDs}, {"artwork_declaration", target.ArtworkIDs}, {"item_external_id", target.ExternalIDs}} {
-		if _, err := tx.ExecContext(ctx, "UPDATE "+entry.table+" SET active=0 WHERE library_id=? AND item_id=? AND active=1", libraryID, itemID); err != nil {
-			return err
+		table   string
+		current []string
+		target  []string
+	}{{"item_credit", current.CreditIDs, target.CreditIDs}, {"rating_observation", current.RatingIDs, target.RatingIDs}, {"artwork_declaration", current.ArtworkIDs, target.ArtworkIDs}, {"item_external_id", current.ExternalIDs, target.ExternalIDs}} {
+		currentIDs := make(map[string]bool, len(entry.current))
+		targetIDs := make(map[string]bool, len(entry.target))
+		for _, id := range entry.current {
+			currentIDs[id] = true
 		}
-		for _, id := range entry.ids {
-			result, err := tx.ExecContext(ctx, "UPDATE "+entry.table+" SET active=1 WHERE library_id=? AND item_id=? AND id=?", libraryID, itemID, id)
+		for _, id := range entry.target {
+			targetIDs[id] = true
+		}
+		for _, id := range entry.current {
+			if targetIDs[id] {
+				continue
+			}
+			result, err := tx.ExecContext(ctx, "UPDATE "+entry.table+" SET active=0 WHERE library_id=? AND item_id=? AND id=? AND active=1", libraryID, itemID, id)
+			if err != nil {
+				return err
+			}
+			n, err := result.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if n != 1 {
+				return ErrRevisionConflict
+			}
+		}
+		for _, id := range entry.target {
+			if currentIDs[id] {
+				continue
+			}
+			result, err := tx.ExecContext(ctx, "UPDATE "+entry.table+" SET active=1 WHERE library_id=? AND item_id=? AND id=? AND active=0", libraryID, itemID, id)
 			if err != nil {
 				return err
 			}

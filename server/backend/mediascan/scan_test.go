@@ -24,7 +24,9 @@ type observationSink struct {
 	after        func(Observation)
 }
 
-func (*observationSink) LookupRevision(context.Context, []byte) (int64, error) { return 0, nil }
+func (*observationSink) LookupRevision(context.Context, []byte) (medialibrary.FileObservationRevision, error) {
+	return medialibrary.FileObservationRevision{}, nil
+}
 
 func (s *observationSink) Observe(_ context.Context, observation Observation) error {
 	s.observations = append(s.observations, observation)

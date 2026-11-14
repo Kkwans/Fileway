@@ -26,12 +26,11 @@ func testNFO(t *testing.T, text string) *MetadataObservation {
 
 func scanNFO(t *testing.T, store *Store, binding *LibrarySource, lease *ScanLease, input ScanObservation, sequence int64) *ScanCommit {
 	t.Helper()
-	current, err := store.GetSourceFile(t.Context(), binding.Source.OwnerUserID, binding.Source.ID, input.ObjectKey)
-	if err == nil {
-		input.ExpectedRevision = current.Revision
-	} else if !errors.Is(err, ErrNotFound) {
+	current, err := store.GetObservationRevision(t.Context(), binding.Source.OwnerUserID, binding.Ref(), input.ObjectKey)
+	if err != nil {
 		t.Fatal(err)
 	}
+	input.ExpectedRevision, input.ExpectedLocatorRevision = current.FileRevision, current.LocatorRevision
 	result, err := store.CommitScanObservation(t.Context(), binding.Source.OwnerUserID, *lease, input, testCheckpoint(input, sequence, sequence))
 	if err != nil {
 		t.Fatal(err)

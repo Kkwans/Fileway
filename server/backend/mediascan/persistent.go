@@ -152,7 +152,7 @@ func Run(ctx context.Context, actor uint, store *medialibrary.Store, coord *medi
 				return result, ErrCandidateUncertain
 			}
 			confirmations = append(confirmations, medialibrary.ScanMissingConfirmation{
-				SourceFileID: candidate.SourceFileID, Locator: append([]byte(nil), candidate.Locator...), FileRevision: candidate.FileRevision,
+				SourceFileID: candidate.SourceFileID, Locator: append([]byte(nil), candidate.Locator...), FileRevision: candidate.FileRevision, LocatorRevision: candidate.LocatorRevision,
 				SeenJobID: candidate.SeenJobID, SeenGeneration: candidate.SeenGeneration,
 			})
 		}
@@ -223,15 +223,8 @@ type persistentSink struct {
 	checkpoint *medialibrary.ScanCheckpoint
 }
 
-func (s *persistentSink) LookupRevision(ctx context.Context, key []byte) (int64, error) {
-	file, err := s.coord.GetSourceFile(ctx, s.actor, s.lease.Binding.SourceID, key)
-	if errors.Is(err, medialibrary.ErrNotFound) {
-		return 0, nil
-	}
-	if err != nil {
-		return 0, err
-	}
-	return file.Revision, nil
+func (s *persistentSink) LookupRevision(ctx context.Context, key []byte) (medialibrary.FileObservationRevision, error) {
+	return s.coord.GetObservationRevision(ctx, s.actor, s.lease.Binding, key)
 }
 
 func (s *persistentSink) Observe(ctx context.Context, observation Observation) error {
@@ -247,7 +240,7 @@ func (s *persistentSink) Observe(ctx context.Context, observation Observation) e
 	next.Phase = "enumerate"
 	_, err := s.coord.CommitScanObservation(ctx, s.actor, s.lease, medialibrary.ScanObservation{
 		ObjectKey: observation.ObjectKey, Identity: string(observation.Identity), Locator: observation.Locator,
-		ExpectedRevision: observation.ExpectedRevision, SourceVersion: observation.SourceVersion, SizeBytes: observation.SizeBytes, InitialTitle: observation.InitialTitle, NFOStatus: string(observation.NFOStatus), NFO: observation.NFO,
+		ExpectedRevision: observation.ExpectedRevision, ExpectedLocatorRevision: observation.ExpectedLocatorRevision, SourceVersion: observation.SourceVersion, SizeBytes: observation.SizeBytes, InitialTitle: observation.InitialTitle, NFOStatus: string(observation.NFOStatus), NFO: observation.NFO,
 	}, next)
 	if err == nil {
 		*s.checkpoint = next

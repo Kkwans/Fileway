@@ -163,6 +163,12 @@ func (c *ScanCoordinator) GetSourceFile(ctx context.Context, actor uint, sourceI
 	})
 }
 
+func (c *ScanCoordinator) GetObservationRevision(ctx context.Context, actor uint, binding SourceBindingRef, objectKey []byte) (FileObservationRevision, error) {
+	return coordinatedCall(ctx, c, func(ctx context.Context, store *Store) (FileObservationRevision, error) {
+		return store.GetObservationRevision(ctx, actor, binding, objectKey)
+	})
+}
+
 func (c *ScanCoordinator) CommitScanObservation(ctx context.Context, actor uint, lease ScanLease, input ScanObservation, checkpoint ScanCheckpoint) (*ScanCommit, error) {
 	return coordinatedCall(ctx, c, func(ctx context.Context, store *Store) (*ScanCommit, error) {
 		return store.CommitScanObservation(ctx, actor, lease, input, checkpoint)

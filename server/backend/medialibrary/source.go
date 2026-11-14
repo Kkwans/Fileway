@@ -79,7 +79,7 @@ type SourceFile struct {
 	ID            string
 	SourceID      string
 	ObjectKey     []byte
-	Locator       []byte
+	Locator       []byte // last global hint; use the exact binding locator for access
 	SourceVersion string
 	SizeBytes     *int64
 	Revision      int64
@@ -90,17 +90,29 @@ type SourceFile struct {
 	// automatic recovery of old progress. Legacy and path-only IDs are weaker.
 	IdentityKind  string
 	IdentityEpoch int64
+	// LocatorRevision is populated only for a binding-specific observation;
+	// GetSourceFile exposes a global locator hint and leaves it zero.
+	LocatorRevision int64
 }
 
-// FileObservation keeps stable object identity separate from a replaceable
-// locator and a provider/source version. ExpectedRevision is zero only for a
-// new object; a stale observation must not overwrite a newer scan result.
+// FileObservation keeps stable object identity separate from each binding's
+// replaceable locator and a provider/source version. ExpectedRevision is zero
+// only for a new object; ExpectedLocatorRevision fences that binding's path.
 type FileObservation struct {
 	ObjectKey        []byte
 	Locator          []byte
 	SourceVersion    string
 	SizeBytes        *int64
 	ExpectedRevision int64
+	// Nil preserves the legacy API only for a new binding or an unchanged,
+	// present locator. A move or recovery from missing requires an explicit
+	// binding locator revision obtained before the final safe-open check.
+	ExpectedLocatorRevision *int64
+}
+
+type FileObservationRevision struct {
+	FileRevision    int64
+	LocatorRevision int64
 }
 
 // CreateLocalSource registers an owner connection and its first library root in
@@ -307,6 +319,30 @@ func (store *Store) GetSourceFile(ctx context.Context, actor uint, sourceID stri
 	return scanSourceFile(store.db.QueryRowContext(ctx, sourceFileSelection+` JOIN source s ON s.id = f.source_id WHERE f.source_id = ? AND f.object_key = ? AND s.owner_user_id = ? AND s.kind = 'local'`, sourceID, objectKey, actor))
 }
 
+// GetObservationRevision snapshots both independent CAS tokens before the
+// scanner reopens the object. Zero means the respective record does not yet
+// exist in this source/current binding epoch; a stored binding revision is
+// never skipped by passing zero.
+func (store *Store) GetObservationRevision(ctx context.Context, actor uint, binding SourceBindingRef, objectKey []byte) (FileObservationRevision, error) {
+	var revision FileObservationRevision
+	if len(objectKey) == 0 {
+		return revision, fmt.Errorf("%w: object key", ErrInvalid)
+	}
+	if _, err := validateSourceBinding(ctx, store.db, actor, binding); err != nil {
+		return revision, err
+	}
+	err := store.db.QueryRowContext(ctx, `SELECT COALESCE(f.revision,0),COALESCE(lf.locator_revision,0)
+FROM library_source ls JOIN library l ON l.id=ls.library_id JOIN source s ON s.id=ls.source_id
+LEFT JOIN source_file f ON f.source_id=s.id AND f.object_key=?
+LEFT JOIN library_file lf ON lf.library_id=ls.library_id AND lf.source_id=ls.source_id AND lf.root_locator=ls.root_locator AND lf.source_file_id=f.id AND lf.binding_epoch=ls.proof_epoch
+WHERE ls.binding_id=? AND ls.library_id=? AND ls.source_id=? AND ls.root_locator=? AND ls.proof_epoch=? AND ls.revision=? AND s.authorization_revision=? AND l.owner_user_id=? AND s.owner_user_id=? AND s.kind='local' AND l.archived_at IS NULL`,
+		objectKey, binding.BindingID, binding.LibraryID, binding.SourceID, binding.RootLocator, binding.ProofEpoch, binding.BindingRevision, binding.AuthorizationRevision, actor, actor).Scan(&revision.FileRevision, &revision.LocatorRevision)
+	if errors.Is(err, sql.ErrNoRows) {
+		return revision, ErrRevisionConflict
+	}
+	return revision, err
+}
+
 const sourceFileSelection = `SELECT f.id, f.source_id, f.object_key, f.locator, f.source_version, f.size_bytes, f.revision, f.observed_at, f.missing_since, f.identity_kind, f.identity_epoch FROM source_file f`
 
 func scanSourceFile(row rowScanner) (*SourceFile, error) {
@@ -362,7 +398,7 @@ func validateSourceBinding(ctx context.Context, reader schemaReader, actor uint,
 }
 
 func observeSourceFileTx(ctx context.Context, tx *sql.Tx, actor uint, binding SourceBindingRef, input FileObservation, identityKind string, forceNewEpoch bool) (*SourceFile, error) {
-	if len(input.ObjectKey) == 0 || len(input.Locator) == 0 || input.SourceVersion == "" || input.ExpectedRevision < 0 || (input.SizeBytes != nil && *input.SizeBytes < 0) {
+	if len(input.ObjectKey) == 0 || len(input.Locator) == 0 || input.SourceVersion == "" || input.ExpectedRevision < 0 || (input.ExpectedLocatorRevision != nil && *input.ExpectedLocatorRevision < 0) || (input.SizeBytes != nil && *input.SizeBytes < 0) {
 		return nil, fmt.Errorf("%w: invalid file observation", ErrInvalid)
 	}
 	if identityKind != "" && identityKind != "native" && identityKind != "path_unverified" {
@@ -377,6 +413,30 @@ func observeSourceFileTx(ctx context.Context, tx *sql.Tx, actor uint, binding So
 	}
 	newFile := errors.Is(err, ErrNotFound)
 	if (newFile && input.ExpectedRevision != 0) || (!newFile && file.Revision != input.ExpectedRevision) {
+		return nil, ErrRevisionConflict
+	}
+	var oldLocator []byte
+	var oldMissing *int64
+	var oldEpoch, oldLocatorRevision int64
+	associationExists := false
+	if !newFile {
+		err = tx.QueryRowContext(ctx, "SELECT locator,missing_since,binding_epoch,locator_revision FROM library_file WHERE library_id=? AND source_id=? AND root_locator=? AND source_file_id=?", binding.LibraryID, binding.SourceID, binding.RootLocator, file.ID).Scan(&oldLocator, &oldMissing, &oldEpoch, &oldLocatorRevision)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return nil, err
+		}
+		associationExists = err == nil && oldEpoch == binding.ProofEpoch
+	}
+	currentLocatorRevision := int64(0)
+	if associationExists {
+		currentLocatorRevision = oldLocatorRevision
+	}
+	if input.ExpectedLocatorRevision != nil {
+		if *input.ExpectedLocatorRevision != currentLocatorRevision {
+			return nil, ErrRevisionConflict
+		}
+	} else if associationExists && (!bytes.Equal(oldLocator, input.Locator) || oldMissing != nil) {
+		// Legacy callers may repeat an unchanged present path, but must supply
+		// an explicit locator token before moving it or clearing missing state.
 		return nil, ErrRevisionConflict
 	}
 	now := time.Now().UnixMilli()
@@ -414,7 +474,7 @@ FROM library_file WHERE source_file_id = ?`, file.ID).Scan(&known, &live); err !
 		if identityChanged || forceNewEpoch || nativeRevived {
 			file.IdentityEpoch++
 		}
-		changed = !bytes.Equal(file.Locator, input.Locator) || file.SourceVersion != input.SourceVersion || !sameOptionalSize(file.SizeBytes, input.SizeBytes) || file.MissingSince != nil || identityChanged || forceNewEpoch || nativeRevived
+		changed = file.SourceVersion != input.SourceVersion || !sameOptionalSize(file.SizeBytes, input.SizeBytes) || file.MissingSince != nil || identityChanged || forceNewEpoch || nativeRevived
 		if changed {
 			file.Revision++
 		}
@@ -434,16 +494,12 @@ FROM library_file WHERE source_file_id = ?`, file.ID).Scan(&known, &live); err !
 	if err != nil {
 		return nil, err
 	}
-	var oldLocator []byte
-	var oldMissing *int64
-	var oldEpoch int64
-	err = tx.QueryRowContext(ctx, "SELECT locator, missing_since,binding_epoch FROM library_file WHERE library_id = ? AND source_id = ? AND root_locator = ? AND source_file_id = ?", binding.LibraryID, binding.SourceID, binding.RootLocator, file.ID).Scan(&oldLocator, &oldMissing, &oldEpoch)
-	if err != nil && !errors.Is(err, sql.ErrNoRows) {
-		return nil, err
-	}
-	associationChanged := errors.Is(err, sql.ErrNoRows) || !bytes.Equal(oldLocator, input.Locator) || oldMissing != nil || oldEpoch != binding.ProofEpoch
+	associationChanged := !associationExists || !bytes.Equal(oldLocator, input.Locator) || oldMissing != nil
 	if _, err := tx.ExecContext(ctx, `INSERT INTO library_file(library_id, source_file_id, source_id, root_locator, locator, observed_at,binding_epoch) VALUES (?, ?, ?, ?, ?, ?,?)
 ON CONFLICT(library_id, source_id, root_locator, source_file_id) DO UPDATE SET locator = excluded.locator, observed_at = excluded.observed_at, missing_since = NULL,binding_epoch=excluded.binding_epoch`, binding.LibraryID, file.ID, binding.SourceID, binding.RootLocator, input.Locator, now, binding.ProofEpoch); err != nil {
+		return nil, err
+	}
+	if err := tx.QueryRowContext(ctx, "SELECT locator_revision FROM library_file WHERE library_id=? AND source_id=? AND root_locator=? AND source_file_id=?", binding.LibraryID, binding.SourceID, binding.RootLocator, file.ID).Scan(&file.LocatorRevision); err != nil {
 		return nil, err
 	}
 	if !changed && !associationChanged {

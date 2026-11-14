@@ -54,17 +54,18 @@ const (
 // The consumer owns these values after Observe returns. Version is the legacy
 // v1:size:mtimeNs marker; it is neither a content hash nor object identity.
 type Observation struct {
-	OwnerUserID      uint
-	Binding          medialibrary.SourceBindingRef
-	ObjectKey        []byte
-	Identity         IdentityKind
-	Locator          []byte
-	ExpectedRevision int64
-	SourceVersion    string
-	SizeBytes        int64
-	InitialTitle     string
-	NFO              *medialibrary.MetadataObservation
-	NFOStatus        NFOStatus
+	OwnerUserID             uint
+	Binding                 medialibrary.SourceBindingRef
+	ObjectKey               []byte
+	Identity                IdentityKind
+	Locator                 []byte
+	ExpectedRevision        int64
+	ExpectedLocatorRevision int64
+	SourceVersion           string
+	SizeBytes               int64
+	InitialTitle            string
+	NFO                     *medialibrary.MetadataObservation
+	NFOStatus               NFOStatus
 }
 
 // Sink must validate the binding and generation at commit time. Observe must
@@ -72,10 +73,9 @@ type Observation struct {
 // entry if needed, update the persistent job checkpoint and publish its outbox.
 // A binding ref is a consistency token, never a substitute for live authority.
 type Sink interface {
-	// LookupRevision must return zero only when this object does not exist.
-	// Capture it before the final safe reopen; Observe must compare-and-swap it
-	// so an older cross-binding scan cannot overwrite a newer observation.
-	LookupRevision(context.Context, []byte) (int64, error)
+	// Capture the file and binding-local locator tokens before the final safe
+	// reopen; Observe compare-and-swaps both, including absent-record zero.
+	LookupRevision(context.Context, []byte) (medialibrary.FileObservationRevision, error)
 	Observe(context.Context, Observation) error
 }
 
@@ -259,11 +259,11 @@ func (w *walker) video(ctx context.Context, locator, name string) (resultErr err
 	}
 	abs := absoluteLocator(w.binding.RootLocator, locator)
 	key, identity := objectKey(file.File, w.binding.BindingID, w.binding.ProofEpoch, abs)
-	expectedRevision, err := w.sink.LookupRevision(ctx, key)
+	expected, err := w.sink.LookupRevision(ctx, key)
 	if err != nil {
 		return err
 	}
-	if expectedRevision < 0 {
+	if expected.FileRevision < 0 || expected.LocatorRevision < 0 {
 		return fs.ErrInvalid
 	}
 	nfo, nfoStatus := w.readNFO(ctx, locator)
@@ -300,7 +300,7 @@ func (w *walker) video(ctx context.Context, locator, name string) (resultErr err
 	}
 	observation := Observation{
 		OwnerUserID: w.actor, Binding: w.binding, ObjectKey: key, Identity: identity,
-		Locator: abs, ExpectedRevision: expectedRevision, SourceVersion: fmt.Sprintf("v1:%d:%d", initial.Size(), initial.ModTime().UnixNano()),
+		Locator: abs, ExpectedRevision: expected.FileRevision, ExpectedLocatorRevision: expected.LocatorRevision, SourceVersion: fmt.Sprintf("v1:%d:%d", initial.Size(), initial.ModTime().UnixNano()),
 		SizeBytes: initial.Size(), InitialTitle: displayTitle(name), NFO: nfo, NFOStatus: nfoStatus,
 	}
 	observation.Binding.RootLocator = append([]byte(nil), w.binding.RootLocator...)

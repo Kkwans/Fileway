@@ -114,6 +114,7 @@ func TestFileObservationKeepsOpaqueIdentityAndRejectsStaleUpdates(t *testing.T) 
 		t.Fatal(err)
 	}
 	input.ExpectedRevision = first.Revision
+	input.ExpectedLocatorRevision = &first.LocatorRevision
 	same, err := store.ObserveSourceFile(ctx, 7, binding.Ref(), input)
 	if err != nil || same.ID != first.ID || same.Revision != first.Revision {
 		t.Fatal(same, err)

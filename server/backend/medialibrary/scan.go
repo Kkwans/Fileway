@@ -72,10 +72,11 @@ type ScanObservation struct {
 	SizeBytes     int64
 	// Read the existing revision (zero if absent) before the final safe-open
 	// verification. This prevents an older observation overwriting a newer one.
-	ExpectedRevision int64
-	InitialTitle     string
-	NFOStatus        string
-	NFO              *MetadataObservation
+	ExpectedRevision        int64
+	ExpectedLocatorRevision int64
+	InitialTitle            string
+	NFOStatus               string
+	NFO                     *MetadataObservation
 }
 
 // MetadataObservation is source evidence from a safely opened sidecar. Its
@@ -89,18 +90,20 @@ type MetadataObservation struct {
 }
 
 type ScanCommit struct {
-	SourceFileID  string
-	ItemID        string
-	FileRevision  int64
-	IdentityEpoch int64
+	SourceFileID    string
+	ItemID          string
+	FileRevision    int64
+	IdentityEpoch   int64
+	LocatorRevision int64
 }
 
 type ScanMissingCandidate struct {
-	SourceFileID   string
-	Locator        []byte
-	FileRevision   int64
-	SeenJobID      string
-	SeenGeneration int64
+	SourceFileID    string
+	Locator         []byte
+	FileRevision    int64
+	LocatorRevision int64
+	SeenJobID       string
+	SeenGeneration  int64
 }
 
 type ScanMissingConfirmation = ScanMissingCandidate
@@ -567,7 +570,7 @@ func cancelScanTx(ctx context.Context, tx *sql.Tx, actor uint, jobID string, exp
 // mapping exists, the checkpoint and outbox under one SQLite write lock.
 // Only the last identical sequence may be replayed; it returns the same IDs.
 func (store *Store) CommitScanObservation(ctx context.Context, actor uint, lease ScanLease, input ScanObservation, checkpoint ScanCheckpoint) (*ScanCommit, error) {
-	if len(input.ObjectKey) == 0 || len(input.ObjectKey) > 16384 || len(input.Locator) == 0 || len(input.Locator) > 8192 || input.SourceVersion == "" || len(input.SourceVersion) > 1024 || input.SizeBytes < 0 || input.ExpectedRevision < 0 || (input.Identity != "native" && input.Identity != "path_unverified") {
+	if len(input.ObjectKey) == 0 || len(input.ObjectKey) > 16384 || len(input.Locator) == 0 || len(input.Locator) > 8192 || input.SourceVersion == "" || len(input.SourceVersion) > 1024 || input.SizeBytes < 0 || input.ExpectedRevision < 0 || input.ExpectedLocatorRevision < 0 || (input.Identity != "native" && input.Identity != "path_unverified") {
 		return nil, fmt.Errorf("%w: scan observation", ErrInvalid)
 	}
 	if input.Identity == "path_unverified" && !bytes.Equal(input.ObjectKey, UnverifiedPathObjectKey(lease.Binding.BindingID, lease.Binding.ProofEpoch, input.Locator)) {
@@ -624,7 +627,7 @@ WHERE f.source_id = ? AND f.object_key = ?`, r.LibraryID, r.Binding.SourceID, r.
 		sameGeneration := seenJob.Valid && seenJob.String == r.ID && seenGeneration.Valid && seenGeneration.Int64 == r.Generation
 		forceEpoch := exists && input.Identity == "path_unverified" && !sameGeneration
 		size := input.SizeBytes
-		file, err := observeSourceFileTx(ctx, tx, actor, r.Binding, FileObservation{ObjectKey: input.ObjectKey, Locator: input.Locator, SourceVersion: input.SourceVersion, SizeBytes: &size, ExpectedRevision: input.ExpectedRevision}, input.Identity, forceEpoch)
+		file, err := observeSourceFileTx(ctx, tx, actor, r.Binding, FileObservation{ObjectKey: input.ObjectKey, Locator: input.Locator, SourceVersion: input.SourceVersion, SizeBytes: &size, ExpectedRevision: input.ExpectedRevision, ExpectedLocatorRevision: &input.ExpectedLocatorRevision}, input.Identity, forceEpoch)
 		if err != nil {
 			return err
 		}
@@ -664,7 +667,7 @@ WHERE v.library_id = ? AND v.source_file_id = ? ORDER BY e.item_id, v.id LIMIT 1
 				return err
 			}
 		}
-		result = &ScanCommit{SourceFileID: file.ID, ItemID: itemID, FileRevision: file.Revision, IdentityEpoch: file.IdentityEpoch}
+		result = &ScanCommit{SourceFileID: file.ID, ItemID: itemID, FileRevision: file.Revision, IdentityEpoch: file.IdentityEpoch, LocatorRevision: file.LocatorRevision}
 		if err := saveScanCheckpoint(ctx, tx, r, checkpoint, digest, result); err != nil {
 			return err
 		}
@@ -708,7 +711,7 @@ const unstagedMissing = `lf.library_id = ? AND lf.source_id = ? AND lf.root_loca
 AND lf.binding_epoch=(SELECT ls.proof_epoch FROM library_source ls WHERE ls.library_id=lf.library_id AND ls.source_id=lf.source_id AND ls.root_locator=lf.root_locator)
 AND NOT (lf.last_seen_job_id IS ? AND lf.last_seen_generation IS ?)
 AND NOT EXISTS (SELECT 1 FROM scan_missing_candidate c WHERE c.job_id = ? AND c.generation = ? AND c.source_file_id = lf.source_file_id
- AND c.file_revision = f.revision AND c.locator = lf.locator AND c.seen_job_id IS lf.last_seen_job_id AND c.seen_generation IS lf.last_seen_generation)`
+ AND c.file_revision = f.revision AND c.locator_revision=lf.locator_revision AND c.locator = lf.locator AND c.seen_job_id IS lf.last_seen_job_id AND c.seen_generation IS lf.last_seen_generation)`
 
 func (store *Store) ListScanMissingCandidates(ctx context.Context, actor uint, lease ScanLease, afterFileID string, limit int) (*ScanMissingPage, error) {
 	if limit == 0 {
@@ -724,7 +727,7 @@ func (store *Store) ListScanMissingCandidates(ctx context.Context, actor uint, l
 	if r.Checkpoint.Phase != "reconcile" {
 		return nil, ErrScanState
 	}
-	rows, err := store.db.QueryContext(ctx, `SELECT lf.source_file_id, lf.locator, f.revision, lf.last_seen_job_id, lf.last_seen_generation
+	rows, err := store.db.QueryContext(ctx, `SELECT lf.source_file_id, lf.locator, f.revision, lf.locator_revision,lf.last_seen_job_id, lf.last_seen_generation
 FROM library_file lf JOIN source_file f ON f.id = lf.source_file_id AND f.source_id = lf.source_id WHERE `+unstagedMissing+` AND lf.source_file_id > ? ORDER BY lf.source_file_id LIMIT ?`,
 		r.LibraryID, r.Binding.SourceID, r.Binding.RootLocator, r.ID, r.Generation, r.ID, r.Generation, afterFileID, limit+1)
 	if err != nil {
@@ -736,7 +739,7 @@ FROM library_file lf JOIN source_file f ON f.id = lf.source_file_id AND f.source
 		var c ScanMissingCandidate
 		var seenJob sql.NullString
 		var seenGeneration sql.NullInt64
-		if err := rows.Scan(&c.SourceFileID, &c.Locator, &c.FileRevision, &seenJob, &seenGeneration); err != nil {
+		if err := rows.Scan(&c.SourceFileID, &c.Locator, &c.FileRevision, &c.LocatorRevision, &seenJob, &seenGeneration); err != nil {
 			return nil, err
 		}
 		if len(page.Items) == limit {
@@ -767,7 +770,7 @@ func (store *Store) CommitScanMissing(ctx context.Context, actor uint, lease Sca
 	}
 	seen := make(map[string]struct{}, len(candidates))
 	for _, c := range candidates {
-		if c.SourceFileID == "" || len(c.Locator) == 0 || len(c.Locator) > 8192 || c.FileRevision < 1 || ((c.SeenJobID == "") != (c.SeenGeneration == 0)) || c.SeenGeneration < 0 {
+		if c.SourceFileID == "" || len(c.Locator) == 0 || len(c.Locator) > 8192 || c.FileRevision < 1 || c.LocatorRevision < 1 || ((c.SeenJobID == "") != (c.SeenGeneration == 0)) || c.SeenGeneration < 0 {
 			return fmt.Errorf("%w: missing confirmation", ErrInvalid)
 		}
 		if _, duplicate := seen[c.SourceFileID]; duplicate {
@@ -802,28 +805,29 @@ func (store *Store) CommitScanMissing(ctx context.Context, actor uint, lease Sca
 		for _, c := range candidates {
 			var locator []byte
 			var revision int64
+			var locatorRevision int64
 			var seenJob sql.NullString
 			var seenGeneration sql.NullInt64
 			var missing sql.NullInt64
-			err := tx.QueryRowContext(ctx, `SELECT lf.locator, f.revision, lf.last_seen_job_id, lf.last_seen_generation, lf.missing_since
+			err := tx.QueryRowContext(ctx, `SELECT lf.locator, f.revision,lf.locator_revision, lf.last_seen_job_id, lf.last_seen_generation, lf.missing_since
 FROM library_file lf JOIN source_file f ON f.id = lf.source_file_id AND f.source_id = lf.source_id
-WHERE lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ? AND lf.source_file_id = ? AND lf.binding_epoch=? AND lf.binding_epoch>0`, r.LibraryID, r.Binding.SourceID, r.Binding.RootLocator, c.SourceFileID, r.Binding.ProofEpoch).Scan(&locator, &revision, &seenJob, &seenGeneration, &missing)
+WHERE lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ? AND lf.source_file_id = ? AND lf.binding_epoch=? AND lf.binding_epoch>0`, r.LibraryID, r.Binding.SourceID, r.Binding.RootLocator, c.SourceFileID, r.Binding.ProofEpoch).Scan(&locator, &revision, &locatorRevision, &seenJob, &seenGeneration, &missing)
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrRevisionConflict
 			}
 			if err != nil {
 				return err
 			}
-			if missing.Valid || revision != c.FileRevision || !bytes.Equal(locator, c.Locator) || seenJob.String != c.SeenJobID || seenGeneration.Int64 != c.SeenGeneration || (seenJob.Valid && seenJob.String == r.ID && seenGeneration.Valid && seenGeneration.Int64 == r.Generation) {
+			if missing.Valid || revision != c.FileRevision || locatorRevision != c.LocatorRevision || !bytes.Equal(locator, c.Locator) || seenJob.String != c.SeenJobID || seenGeneration.Int64 != c.SeenGeneration || (seenJob.Valid && seenJob.String == r.ID && seenGeneration.Valid && seenGeneration.Int64 == r.Generation) {
 				return ErrRevisionConflict
 			}
 			var seenJobValue, seenGenerationValue any
 			if c.SeenJobID != "" {
 				seenJobValue, seenGenerationValue = c.SeenJobID, c.SeenGeneration
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO scan_missing_candidate(job_id, generation, source_file_id, file_revision, locator, seen_job_id, seen_generation)
-VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(job_id, generation, source_file_id) DO UPDATE SET
-file_revision = excluded.file_revision, locator = excluded.locator, seen_job_id = excluded.seen_job_id, seen_generation = excluded.seen_generation`, r.ID, r.Generation, c.SourceFileID, c.FileRevision, c.Locator, seenJobValue, seenGenerationValue); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO scan_missing_candidate(job_id, generation, source_file_id, file_revision,locator_revision, locator, seen_job_id, seen_generation)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(job_id, generation, source_file_id) DO UPDATE SET
+file_revision = excluded.file_revision,locator_revision=excluded.locator_revision, locator = excluded.locator, seen_job_id = excluded.seen_job_id, seen_generation = excluded.seen_generation`, r.ID, r.Generation, c.SourceFileID, c.FileRevision, c.LocatorRevision, c.Locator, seenJobValue, seenGenerationValue); err != nil {
 				return err
 			}
 		}
@@ -910,7 +914,7 @@ WHERE lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ? AND lf.miss
 AND lf.binding_epoch=? AND lf.binding_epoch>0
 AND NOT (lf.last_seen_job_id IS ? AND lf.last_seen_generation IS ?)
 AND EXISTS (SELECT 1 FROM scan_missing_candidate c JOIN source_file f ON f.id = c.source_file_id AND f.source_id = lf.source_id
-WHERE c.job_id = ? AND c.generation = ? AND c.source_file_id = lf.source_file_id AND c.file_revision = f.revision AND c.locator = lf.locator
+WHERE c.job_id = ? AND c.generation = ? AND c.source_file_id = lf.source_file_id AND c.file_revision = f.revision AND c.locator_revision=lf.locator_revision AND c.locator = lf.locator
 AND c.seen_job_id IS lf.last_seen_job_id AND c.seen_generation IS lf.last_seen_generation)`, now, r.LibraryID, r.Binding.SourceID, r.Binding.RootLocator, r.Binding.ProofEpoch, r.ID, r.Generation, r.ID, r.Generation)
 			if err != nil {
 				return err

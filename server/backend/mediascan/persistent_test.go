@@ -23,16 +23,16 @@ type persistentFixture struct {
 
 type racingSink struct {
 	*persistentSink
-	afterLookup func(context.Context, []byte, int64) error
+	afterLookup func(context.Context, []byte, medialibrary.FileObservationRevision) error
 }
 
-func (s *racingSink) LookupRevision(ctx context.Context, key []byte) (int64, error) {
+func (s *racingSink) LookupRevision(ctx context.Context, key []byte) (medialibrary.FileObservationRevision, error) {
 	revision, err := s.persistentSink.LookupRevision(ctx, key)
 	if err != nil {
-		return 0, err
+		return medialibrary.FileObservationRevision{}, err
 	}
 	if err := s.afterLookup(ctx, key, revision); err != nil {
-		return 0, err
+		return medialibrary.FileObservationRevision{}, err
 	}
 	return revision, nil
 }
@@ -364,11 +364,15 @@ func TestPersistentScanFinishesAfterDurableCheckpointAdvances(t *testing.T) {
 			if file.SizeBytes == nil {
 				return mediasource.LocalAuthority{}, fs.ErrInvalid
 			}
+			observed, err := f.coord.GetObservationRevision(ctx, owner, lease.Binding, file.ObjectKey)
+			if err != nil {
+				return mediasource.LocalAuthority{}, err
+			}
 			cp := job.Checkpoint
 			cp.Sequence++
 			cp.Processed++
 			_, err = f.coord.CommitScanObservation(ctx, owner, lease, medialibrary.ScanObservation{
-				ObjectKey: file.ObjectKey, Identity: file.IdentityKind, Locator: file.Locator, ExpectedRevision: file.Revision,
+				ObjectKey: file.ObjectKey, Identity: file.IdentityKind, Locator: file.Locator, ExpectedRevision: file.Revision, ExpectedLocatorRevision: observed.LocatorRevision,
 				SourceVersion: file.SourceVersion, SizeBytes: *file.SizeBytes, InitialTitle: "A", NFOStatus: string(NFOMissing),
 			}, cp)
 			if err != nil {
@@ -493,7 +497,7 @@ func TestPersistentScanRejectsStaleCrossBindingObservation(t *testing.T) {
 	checkpoint := medialibrary.ScanCheckpoint{Version: 1, Phase: "enumerate"}
 	sink := &racingSink{persistentSink: &persistentSink{coord: f.coord, actor: 7, lease: first, checkpoint: &checkpoint}}
 	var competingLocator []byte
-	sink.afterLookup = func(ctx context.Context, observedKey []byte, revision int64) error {
+	sink.afterLookup = func(ctx context.Context, observedKey []byte, revision medialibrary.FileObservationRevision) error {
 		file, err := f.store.GetSourceFile(ctx, 7, first.Binding.SourceID, key)
 		if err != nil {
 			return err
@@ -503,9 +507,13 @@ func TestPersistentScanRejectsStaleCrossBindingObservation(t *testing.T) {
 			competingLocator = []byte("/media/nested/b.mp4")
 		}
 		cp := medialibrary.ScanCheckpoint{Version: 1, Sequence: 1, Processed: 1, LastObjectKey: observedKey, Phase: "enumerate"}
+		otherRevision, err := f.coord.GetObservationRevision(ctx, 7, other.Binding, observedKey)
+		if err != nil {
+			return err
+		}
 		_, err = f.coord.CommitScanObservation(ctx, 7, *other, medialibrary.ScanObservation{
-			ObjectKey: observedKey, Identity: string(IdentityNative), Locator: competingLocator, ExpectedRevision: revision,
-			SourceVersion: fmt.Sprintf("v1:%d:%d", info.Size(), info.ModTime().UnixNano()), SizeBytes: info.Size(), InitialTitle: "competing", NFOStatus: string(NFOMissing),
+			ObjectKey: observedKey, Identity: string(IdentityNative), Locator: competingLocator, ExpectedRevision: revision.FileRevision, ExpectedLocatorRevision: otherRevision.LocatorRevision,
+			SourceVersion: fmt.Sprintf("v1:%d:%d", info.Size(), info.ModTime().UnixNano()+1), SizeBytes: info.Size(), InitialTitle: "competing", NFOStatus: string(NFOMissing),
 		}, cp)
 		return err
 	}

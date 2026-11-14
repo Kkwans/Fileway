@@ -411,3 +411,37 @@ CREATE TABLE item_external_id (
 ) STRICT;
 CREATE INDEX item_external_id_active ON item_external_id(library_id,item_id,provider,entity_kind,active);
 `
+
+// Mapping generations track only edition/item and variant/edition/file
+// relationships. Metadata edits do not alter them. Artwork generations fence
+// deactivation/reactivation and declaration changes, including ABA restores.
+const schemaV7 = `
+ALTER TABLE library ADD COLUMN access_revision INTEGER NOT NULL DEFAULT 1 CHECK(access_revision>0);
+ALTER TABLE library_file ADD COLUMN locator_revision INTEGER NOT NULL DEFAULT 1 CHECK(locator_revision>0);
+ALTER TABLE scan_missing_candidate ADD COLUMN locator_revision INTEGER NOT NULL DEFAULT 1 CHECK(locator_revision>0);
+ALTER TABLE edition ADD COLUMN mapping_revision INTEGER NOT NULL DEFAULT 1 CHECK(mapping_revision>0);
+ALTER TABLE variant ADD COLUMN mapping_revision INTEGER NOT NULL DEFAULT 1 CHECK(mapping_revision>0);
+ALTER TABLE artwork_declaration ADD COLUMN declaration_revision INTEGER NOT NULL DEFAULT 1 CHECK(declaration_revision>0);
+
+CREATE TRIGGER library_access_changed AFTER UPDATE OF archived_at,owner_user_id ON library
+WHEN NEW.archived_at IS NOT OLD.archived_at OR NEW.owner_user_id IS NOT OLD.owner_user_id
+BEGIN UPDATE library SET access_revision=OLD.access_revision+1 WHERE id=NEW.id; END;
+CREATE TRIGGER library_file_locator_changed AFTER UPDATE OF locator,missing_since,binding_epoch ON library_file
+WHEN NEW.locator IS NOT OLD.locator OR NEW.missing_since IS NOT OLD.missing_since OR NEW.binding_epoch IS NOT OLD.binding_epoch
+BEGIN UPDATE library_file SET locator_revision=OLD.locator_revision+1 WHERE library_id=NEW.library_id AND source_id=NEW.source_id AND root_locator=NEW.root_locator AND source_file_id=NEW.source_file_id; END;
+CREATE TRIGGER edition_id_immutable BEFORE UPDATE OF id ON edition WHEN NEW.id IS NOT OLD.id
+BEGIN SELECT RAISE(ABORT, 'edition ID is immutable'); END;
+CREATE TRIGGER variant_id_immutable BEFORE UPDATE OF id ON variant WHEN NEW.id IS NOT OLD.id
+BEGIN SELECT RAISE(ABORT, 'variant ID is immutable'); END;
+CREATE TRIGGER artwork_id_immutable BEFORE UPDATE OF id ON artwork_declaration WHEN NEW.id IS NOT OLD.id
+BEGIN SELECT RAISE(ABORT, 'artwork ID is immutable'); END;
+CREATE TRIGGER edition_mapping_changed AFTER UPDATE OF library_id,item_id ON edition
+WHEN NEW.library_id IS NOT OLD.library_id OR NEW.item_id IS NOT OLD.item_id
+BEGIN UPDATE edition SET mapping_revision=OLD.mapping_revision+1 WHERE id=NEW.id; END;
+CREATE TRIGGER variant_mapping_changed AFTER UPDATE OF library_id,edition_id,source_file_id ON variant
+WHEN NEW.library_id IS NOT OLD.library_id OR NEW.edition_id IS NOT OLD.edition_id OR NEW.source_file_id IS NOT OLD.source_file_id
+BEGIN UPDATE variant SET mapping_revision=OLD.mapping_revision+1 WHERE id=NEW.id; END;
+CREATE TRIGGER artwork_declaration_changed AFTER UPDATE OF library_id,item_id,binding_id,source_key,input_id,private_ref,role,status,active ON artwork_declaration
+WHEN NEW.library_id IS NOT OLD.library_id OR NEW.item_id IS NOT OLD.item_id OR NEW.binding_id IS NOT OLD.binding_id OR NEW.source_key IS NOT OLD.source_key OR NEW.input_id IS NOT OLD.input_id OR NEW.private_ref IS NOT OLD.private_ref OR NEW.role IS NOT OLD.role OR NEW.status IS NOT OLD.status OR NEW.active IS NOT OLD.active
+BEGIN UPDATE artwork_declaration SET declaration_revision=OLD.declaration_revision+1 WHERE id=NEW.id; END;
+`
