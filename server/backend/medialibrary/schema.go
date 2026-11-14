@@ -1,5 +1,22 @@
 package medialibrary
 
+const schemaV13 = `
+CREATE TABLE item_provider_match (
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    connection_id TEXT NOT NULL REFERENCES provider_connection(id),
+    provider TEXT NOT NULL CHECK(provider='tmdb'),
+    entity_kind TEXT NOT NULL CHECK(entity_kind IN ('movie','series')),
+    external_id INTEGER NOT NULL CHECK(external_id>0),
+    language TEXT NOT NULL,
+    document_json TEXT NOT NULL CHECK(json_valid(document_json) AND length(document_json)<=262144),
+    fetched_at INTEGER NOT NULL CHECK(fetched_at>0),
+    revision INTEGER NOT NULL CHECK(revision>0),
+    PRIMARY KEY(library_id,item_id),
+    FOREIGN KEY(library_id,item_id) REFERENCES library_item(library_id,id)
+) STRICT;
+`
+
 // Rebuild this leaf table to extend its mode constraint while retaining
 // connection ownership, revisions, and existing policy receipts.
 const schemaV12 = `

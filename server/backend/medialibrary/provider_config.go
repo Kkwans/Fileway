@@ -525,6 +525,14 @@ func (store *Store) GetLibraryMetadataPolicy(ctx context.Context, actor uint, li
 	return readLibraryMetadataPolicy(ctx, store.db, actor, libraryID)
 }
 
+// MetadataPolicyRevision lets authorized catalog snapshots bind the effects
+// of precedence changes without exposing a connection or secret to viewers.
+func (store *Store) MetadataPolicyRevision(ctx context.Context, libraryID string) (int64, error) {
+	var revision int64
+	err := store.db.QueryRowContext(ctx, `SELECT COALESCE((SELECT revision FROM library_metadata_policy WHERE library_id=?), 0)`, libraryID).Scan(&revision)
+	return revision, err
+}
+
 func (store *Store) SetLibraryMetadataPolicy(ctx context.Context, actor uint, libraryID, operationID string, expectedRevision int64,
 	policy LibraryMetadataPolicy) (*LibraryMetadataPolicy, error) {
 	if actor == 0 || expectedRevision < 0 || (policy.Mode != MetadataLocalOnly && !policy.OnlineEnabled()) ||
@@ -592,12 +600,16 @@ func (store *Store) CheckProviderUse(ctx context.Context, actor uint, libraryID,
 // current policy, connection revision and grant. It is an internal worker API;
 // ciphertext must never be serialized into client responses or logs.
 func (store *Store) GetProviderCredentialForUse(ctx context.Context, actor uint, libraryID, connectionID string) (*ProviderUseAuthority, []byte, error) {
+	return readProviderCredentialForUse(ctx, store.db, actor, libraryID, connectionID)
+}
+
+func readProviderCredentialForUse(ctx context.Context, reader schemaReader, actor uint, libraryID, connectionID string) (*ProviderUseAuthority, []byte, error) {
 	if actor == 0 || !providerIDPattern.MatchString(connectionID) {
 		return nil, nil, ErrInvalid
 	}
 	var value ProviderUseAuthority
 	var ciphertext []byte
-	err := store.db.QueryRowContext(ctx, `SELECT c.id,c.revision,p.revision,secret.ciphertext FROM library_metadata_policy p
+	err := reader.QueryRowContext(ctx, `SELECT c.id,c.revision,p.revision,secret.ciphertext FROM library_metadata_policy p
 JOIN library l ON l.id=p.library_id AND l.archived_at IS NULL
 LEFT JOIN library_member m ON m.library_id=l.id AND m.user_id=? AND m.revoked_at IS NULL
 JOIN provider_connection c ON c.id=? AND c.status='configured'

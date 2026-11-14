@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
+	"slices"
 	"strconv"
 
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
@@ -131,7 +132,12 @@ func loadVisibleItemDetail(ctx context.Context, d *data, library *medialibrary.L
 	if err != nil {
 		return result, err
 	}
-	ratings, err := visibleRatings(ctx, d, library, id, revision, access, "", 20)
+	ratingLimit := 20
+	match := result.providerMatch
+	if match != nil && len(match.Document.Item.Ratings) != 0 {
+		ratingLimit--
+	}
+	ratings, err := visibleRatings(ctx, d, library, id, revision, access, "", ratingLimit)
 	if err != nil {
 		return result, err
 	}
@@ -151,6 +157,25 @@ func loadVisibleItemDetail(ctx context.Context, d *data, library *medialibrary.L
 	result.Ratings, result.RatingsNextCursor = ratings.Items, ratings.NextCursor
 	result.Artwork, result.ArtworkNextCursor = artwork.Items, artwork.NextCursor
 	result.ExternalIDs, result.ExternalIDsNextCursor = externalIDs.Items, externalIDs.NextCursor
+	if match != nil {
+		externalID := strconv.FormatInt(match.ExternalID, 10)
+		result.OnlineMatch = &mediaOnlineMatch{Provider: "tmdb", Kind: match.Kind, ExternalID: externalID, FetchedAt: match.FetchedAt}
+		for _, rating := range match.Document.Item.Ratings {
+			if rating.Value == nil || rating.Count != nil && *rating.Count == 0 {
+				continue
+			}
+			scope := string(match.Document.Item.Kind)
+			index := slices.IndexFunc(result.Ratings, func(row medialibrary.MetadataRating) bool {
+				return row.Rating.Provider == rating.Provider && row.Scope == scope
+			})
+			row := medialibrary.MetadataRating{ID: "tmdb_" + externalID, Scope: scope, Origin: "online", ImportedAt: match.FetchedAt, Rating: rating}
+			if index < 0 {
+				result.Ratings = append(result.Ratings, row)
+			} else if match.OnlineFirst {
+				result.Ratings[index] = row
+			}
+		}
+	}
 	result.IssuesNextCursor = issues.NextCursor
 	seen := make(map[string]bool)
 	for _, issue := range issues.Items {

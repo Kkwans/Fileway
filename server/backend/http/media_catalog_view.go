@@ -616,6 +616,12 @@ func (v *catalogView) projectCard(ctx context.Context, library *medialibrary.Lib
 	if c.Kind == "movie" && c.MatchState != "unmatched" && card.MetadataState == "available" {
 		card.MatchState = c.MatchState
 	}
+	if match := filtered.providerMatch; match != nil {
+		card.MatchState = "provider_confirmed"
+		card.StructureKind = match.Kind
+		card.DisplayMode = "poster"
+		card.Size, card.Extension = nil, ""
+	}
 	for _, art := range detail.Artwork {
 		var target **catalogArtwork
 		switch art.Role {

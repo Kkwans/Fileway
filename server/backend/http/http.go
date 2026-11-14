@@ -121,6 +121,7 @@ func NewHandler(
 	mediaLeases := newMediaPlaybackLeases()
 	artworkPermits := make(chan struct{}, 2)
 	providerStarts := time.NewTicker(500 * time.Millisecond)
+	providerSlots := make(chan struct{}, 2)
 
 	api.Handle("/login", monkey(loginHandler(), ""))
 	api.Handle("/signup", monkey(signupHandler, ""))
@@ -150,7 +151,8 @@ func NewHandler(
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}", monkey(mediaItemGetHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/user-state", monkey(mediaUserStateHandler, "")).Methods("GET", "PATCH")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/identification", monkey(mediaIdentificationHandler, "")).Methods("GET")
-	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/match-candidates", monkey(mediaMatchCandidatesHandler(make(chan struct{}, 2), providerStarts.C), "")).Methods("POST")
+	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/match-candidates", monkey(mediaMatchCandidatesHandler(providerSlots, providerStarts.C), "")).Methods("POST")
+	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/match-confirmation", monkey(mediaMatchConfirmHandler(providerSlots, providerStarts.C), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/seasons", monkey(mediaCatalogSeasonsHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/episodes", monkey(mediaCatalogEpisodesHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/episode-counts", monkey(mediaCatalogEpisodeCountsHandler, "")).Methods("GET")

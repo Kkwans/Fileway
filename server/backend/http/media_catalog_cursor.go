@@ -136,17 +136,22 @@ func catalogScope(ctx context.Context, d *data, libraryID string) (string, error
 		Unavailable bool
 	}
 	type libraryScope struct {
-		ID       string
-		Revision int64
-		Role     medialibrary.MemberRole
-		Owner    uint
+		ID             string
+		Revision       int64
+		PolicyRevision int64
+		Role           medialibrary.MemberRole
+		Owner          uint
 	}
 	owners := map[uint]ownerScope{}
 	libraries := []libraryScope{}
-	include := func(lib medialibrary.Library) {
-		libraries = append(libraries, libraryScope{lib.ID, lib.Revision, lib.Role, lib.OwnerUserID})
+	include := func(lib medialibrary.Library) error {
+		policyRevision, err := d.store.MediaLibrary.MetadataPolicyRevision(ctx, lib.ID)
+		if err != nil {
+			return err
+		}
+		libraries = append(libraries, libraryScope{lib.ID, lib.Revision, policyRevision, lib.Role, lib.OwnerUserID})
 		if _, ok := owners[lib.OwnerUserID]; ok {
-			return
+			return nil
 		}
 		owner, getErr := d.store.Users.Get(d.server.Root, lib.OwnerUserID)
 		entry := ownerScope{ID: lib.OwnerUserID, Unavailable: getErr != nil || owner == nil}
@@ -154,6 +159,7 @@ func catalogScope(ctx context.Context, d *data, libraryID string) (string, error
 			entry.Scope, entry.Download, entry.Rules = owner.Scope, owner.Perm.Download, owner.Rules
 		}
 		owners[lib.OwnerUserID] = entry
+		return nil
 	}
 	if libraryID != "" {
 		lib, err := d.store.MediaLibrary.GetLibrary(ctx, d.user.ID, libraryID)
@@ -163,7 +169,9 @@ func catalogScope(ctx context.Context, d *data, libraryID string) (string, error
 		if lib.ArchivedAt != nil || !mediaLibraryAccessAllowed(d, lib) {
 			return "", medialibrary.ErrNotFound
 		}
-		include(*lib)
+		if err := include(*lib); err != nil {
+			return "", err
+		}
 	} else {
 		after := ""
 		for {
@@ -172,7 +180,9 @@ func catalogScope(ctx context.Context, d *data, libraryID string) (string, error
 				return "", err
 			}
 			for _, lib := range page.Items {
-				include(lib)
+				if err := include(lib); err != nil {
+					return "", err
+				}
 			}
 			if page.NextCursor == "" {
 				break
