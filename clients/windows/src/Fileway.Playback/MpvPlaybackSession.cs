@@ -50,6 +50,7 @@ internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSo
     private double _subtitleBottomInset;
     private bool _scriptSubtitleSelected;
     private bool _bitmapSubtitleSelected;
+    private bool _subtitleFullscreen;
     private double _subtitleViewportAspect;
     private double? _lastViewportSubtitlePosition;
 
@@ -603,9 +604,8 @@ internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSo
         {
             var preferences = _subtitlePreferences;
             var preserve = _scriptSubtitleSelected && !preferences.OverrideScriptStyle;
-            // Author-positioned ASS remains at its native geometry. The full-window
-            // mode deliberately includes letterboxing instead of clamping to video.
-            // Video-only mode retains the temporary control-bar safety inset.
+            // Retain the saved position while constraining the effective position
+            // to the visible window and the controls' temporary safe area.
             var position = SubtitlePosition();
             var scale = preserve ? 1 : preferences.Scale;
             return [["set", "sub-scale", scale.ToString("R", CultureInfo.InvariantCulture)],
@@ -621,13 +621,28 @@ internal sealed class MpvPlaybackSession : IPlaybackSession, IPlaybackResourceSo
     private double SubtitlePosition()
     {
         var prefs = _subtitlePreferences;
-        var position = prefs.UseWindowArea ? prefs.VerticalPositionPercent : Math.Min(prefs.VerticalPositionPercent, 100 * (1 - _subtitleBottomInset));
+        var position = prefs.VerticalPositionPercent;
         // Bitmap subtitles ignore text margin options. Move their original
         // canvas down into the observed letterbox, without stretching the bitmap.
-        if (_bitmapSubtitleSelected && prefs.UseWindowArea && _subtitleViewportAspect > 0 &&
+        if (_bitmapSubtitleSelected && prefs.UseWindowArea && _subtitleFullscreen && _subtitleViewportAspect > 0 &&
             _snapshot.DisplayAspectRatio is { } aspect && aspect > _subtitleViewportAspect)
             position += (1 - _subtitleViewportAspect / aspect) / 2 * 60 + 5;
-        return Math.Clamp(position, 0, 150);
+        // An explicit position beyond the bottom is a fullscreen-only choice.
+        // Honor it even while controls are visible; ordinary positions still
+        // move above the temporary control-bar safe area.
+        double maximum = _subtitleFullscreen && (prefs.VerticalPositionPercent > 100 || _subtitleBottomInset == 0)
+            ? 150 : 100 * (1 - _subtitleBottomInset);
+        return Math.Clamp(position, 0, maximum);
+    }
+    public Task SetSubtitleFullscreenAsync(bool fullscreen, CancellationToken cancellationToken)
+    {
+        lock (_gate)
+        {
+            if (_subtitleFullscreen == fullscreen) return Task.CompletedTask;
+            _subtitleFullscreen = fullscreen;
+            _lastViewportSubtitlePosition = null;
+        }
+        return QueueAsync(CurrentSubtitleCommands(), cancellationToken);
     }
     public Task SetSubtitleViewportAsync(double width, double height, CancellationToken cancellationToken)
     {

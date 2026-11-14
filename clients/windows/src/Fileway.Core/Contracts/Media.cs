@@ -94,6 +94,7 @@ public sealed record PlaybackDownloadState(DownloadItem Item, long? ReadablePref
 public interface ISubtitleViewportControl
 {
     Task SetSubtitleViewportAsync(double width, double height, CancellationToken cancellationToken);
+    Task SetSubtitleFullscreenAsync(bool fullscreen, CancellationToken cancellationToken);
 }
 
 public sealed record PlaybackSnapshot(

@@ -32,8 +32,8 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     private readonly UISettings _uiSettings = new();
     private PlaybackSnapshot _snapshot;
     private SubtitlePreferences _subtitlePreferences = PresentationPreferences.Subtitles;
-    private (double Width, double Height, double? Aspect)? _lastSubtitleViewport;
-    private (double Width, double Height)? _pendingSubtitleViewport;
+    private (double Width, double Height, double? Aspect, bool Fullscreen)? _lastSubtitleViewport;
+    private (double Width, double Height, bool Fullscreen)? _pendingSubtitleViewport;
     private bool _viewportUpdating;
     private static readonly string[] DefaultFontChoices = ["默认（影片 / 系统字体）"];
     private readonly Dictionary<Microsoft.UI.Input.InputSystemCursorShape, Microsoft.UI.Input.InputSystemCursor> _windowCursors = [];
@@ -252,6 +252,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     public void ApplySnapshot(PlaybackSnapshot snapshot)
     {
         if (_disposed) return;
+        var previousStatus = _snapshot.Status;
         var wasPlaying = _snapshot.Status == PlaybackStatus.Playing;
         if (_snapshot.Generation != snapshot.Generation) { _seekTarget = null; ResetSpritePreview(); }
         _snapshot = snapshot;
@@ -295,7 +296,9 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         UpdateResumePrompt();
         if (snapshot.Error is { } error) ShowError(error.Message);
         if (snapshot.Status is PlaybackStatus.Preparing or PlaybackStatus.Failed or PlaybackStatus.Ended) ShowControls();
-        else if (wasPlaying != (snapshot.Status == PlaybackStatus.Playing)) NotifyActivity();
+        else if (wasPlaying != (snapshot.Status == PlaybackStatus.Playing) ||
+            previousStatus == PlaybackStatus.Seeking && snapshot.Status is (PlaybackStatus.Paused or PlaybackStatus.Buffering))
+            NotifyActivity();
     }
 
     private void UpdateTitle()
@@ -341,6 +344,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         FullscreenIcon.IconName = fullscreen ? "minimize" : "maximize";
         AutomationProperties.SetName(FullscreenButton, fullscreen ? "退出全屏" : "全屏");
         SetTransportToolTipText(FullscreenButton, fullscreen ? "退出全屏（Esc）" : "全屏（F11）");
+        UpdateSubtitleSafeArea();
     }
 
     public void NotifyActivity()
@@ -446,7 +450,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
 
     private void HideTimer_Tick(DispatcherQueueTimer sender, object args)
     {
-        if (_audioOnly || _snapshot.Status is not (PlaybackStatus.Playing or PlaybackStatus.Paused or PlaybackStatus.Buffering) || _seeking || _menuOpen || _visibleResumePrompt is not null) return;
+        if (_audioOnly || _snapshot.Status is not (PlaybackStatus.Playing or PlaybackStatus.Paused or PlaybackStatus.Buffering) || _seeking || _seekPointerOver || _menuOpen || _visibleResumePrompt is not null) return;
         ControlsVisible = false;
         Chrome.IsHitTestVisible = false;
         ControlsVisibilityChanged?.Invoke(this, EventArgs.Empty);
@@ -464,10 +468,10 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     {
         if (!_seeking) return;
         var target = SeekSlider.Value; ++_seekEditGeneration; _seeking = false; PreviewText.Visibility = Visibility.Collapsed;
-        SeekPreviewCard.Visibility = Visibility.Collapsed;
+        if (!_seekPointerOver) HideSeekPreview();
         await CommitSeekAsync(target); NotifyActivity();
     }
-    private void Seek_PointerCanceled(object sender, PointerRoutedEventArgs args) { ++_seekEditGeneration; _seeking = false; PreviewText.Visibility = Visibility.Collapsed; SeekPreviewCard.Visibility = Visibility.Collapsed; ApplySnapshot(_session.Snapshot); NotifyActivity(); }
+    private void Seek_PointerCanceled(object sender, PointerRoutedEventArgs args) { ++_seekEditGeneration; _seeking = false; PreviewText.Visibility = Visibility.Collapsed; HideSeekPreview(); ApplySnapshot(_session.Snapshot); NotifyActivity(); }
     private void Seek_ValueChanged(object sender, RangeBaseValueChangedEventArgs args)
     {
         if (_applying) return;
@@ -497,7 +501,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         while (focus is not null) { if (focus == SeekSlider) return; focus = VisualTreeHelper.GetParent(focus); }
         _keyboardSeeking = false; _seeking = false; ++_seekEditGeneration;
         PreviewText.Visibility = Visibility.Collapsed; ApplySnapshot(_session.Snapshot); NotifyActivity();
-        SeekPreviewCard.Visibility = Visibility.Collapsed;
+        if (!_seekPointerOver) HideSeekPreview();
     }
     private async void Seek_KeyUp(object sender, KeyRoutedEventArgs args)
     {
@@ -505,7 +509,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         {
             var target = SeekSlider.Value;
             _keyboardSeeking = false; _seeking = false; ++_seekEditGeneration; PreviewText.Visibility = Visibility.Collapsed;
-            SeekPreviewCard.Visibility = Visibility.Collapsed;
+            if (!_seekPointerOver) HideSeekPreview();
             await CommitSeekAsync(target);
         }
         NotifyActivity();
@@ -797,7 +801,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         var caps = _snapshot.SubtitleCapabilities;
         var panel = new StackPanel { Spacing = 16, Width = 288, Margin = new Thickness(20) };
         panel.Children.Add(new TextBlock { Text = "字幕样式", FontSize = 16, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold });
-        var position = new Slider { Header = "垂直位置（越大越靠下）", Minimum = 0, Maximum = 150, Value = _subtitlePreferences.VerticalPositionPercent, StepFrequency = 1, IsEnabled = caps.CanPosition };
+        var position = new Slider { Header = "垂直位置（100 以上仅全屏生效）", Minimum = 0, Maximum = 150, Value = _subtitlePreferences.VerticalPositionPercent, StepFrequency = 1, IsEnabled = caps.CanPosition };
         var size = new Slider { Header = "字号", Minimum = 16, Maximum = 96, Value = _subtitlePreferences.FontSize, StepFrequency = 1, IsEnabled = caps.CanChangeFont };
         var scale = new Slider { Header = "大小比例", Minimum = 0.5, Maximum = 2, Value = _subtitlePreferences.Scale, StepFrequency = 0.05, IsEnabled = caps.CanScale };
         var delay = new NumberBox { Header = "延迟（秒）", Minimum = -60, Maximum = 60, Value = _subtitlePreferences.Delay.TotalSeconds, SmallChange = 0.1, IsEnabled = caps.CanDelay };
@@ -807,7 +811,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
         var margins = new ToggleSwitch { Header = "使用上下黑边放置字幕", IsOn = _subtitlePreferences.UseWindowArea, IsEnabled = caps.CanPosition, OnContent = "整个窗口", OffContent = "视频画面内" };
         var preserve = new CheckBox { Content = "保留 ASS 原始排版", IsChecked = !_subtitlePreferences.OverrideScriptStyle, Visibility = caps.PreservesScriptStyle ? Visibility.Visible : Visibility.Collapsed };
         panel.Children.Add(preserve); panel.Children.Add(position); panel.Children.Add(margins); panel.Children.Add(font); panel.Children.Add(size); panel.Children.Add(scale); panel.Children.Add(delay);
-        panel.Children.Add(new TextBlock { Text = caps.PreservesScriptStyle ? "保留影片字体与特效，位置可独立调整；移位可能影响特效与画面对齐。" : caps.CanChangeFont ? "调节即时生效。文字字幕优先使用黑边开关；超过 100 可能裁切文字。" : "图像字幕无法更换字体；位置可调至 100 以上，移入下黑边。", TextWrapping = TextWrapping.Wrap, Opacity = 0.7, FontSize = 12 });
+        panel.Children.Add(new TextBlock { Text = caps.PreservesScriptStyle ? "保留影片字体与特效，位置可独立调整；移位可能影响特效与画面对齐。" : "窗口模式会保持字幕在可见范围内，全屏时可向下调整到黑边。", TextWrapping = TextWrapping.Wrap, Opacity = 0.7, FontSize = 12 });
         var flyout = new Flyout { Content = new ScrollViewer { Content = panel, MaxHeight = 560 } };
         void Apply()
         {
@@ -1050,7 +1054,6 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     {
         if (_audioOnly) return;
         UpdateSubtitleViewport();
-        if (_subtitlePreferences.UseWindowArea) return;
         if (_disposed || !IsLoaded || ActualHeight <= 0 || _session.Snapshot.Status is PlaybackStatus.Closing or PlaybackStatus.Stopped) return;
         var fraction = ControlsVisible ? Math.Clamp((BottomBar.ActualHeight + 24) / ActualHeight, 0, 0.4) : 0;
         if (_lastQueuedSubtitleSafeArea == fraction) return;
@@ -1073,9 +1076,9 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     private async void UpdateSubtitleViewport()
     {
         if (_disposed || _audioOnly || !IsLoaded || ActualWidth <= 0 || ActualHeight <= 0 || _session is not ISubtitleViewportControl control) return;
-        var shape = (ActualWidth, ActualHeight, _snapshot.DisplayAspectRatio);
+        var shape = (ActualWidth, ActualHeight, _snapshot.DisplayAspectRatio, _fullscreen);
         if (_lastSubtitleViewport == shape) return;
-        _lastSubtitleViewport = shape; _pendingSubtitleViewport = (ActualWidth, ActualHeight);
+        _lastSubtitleViewport = shape; _pendingSubtitleViewport = (ActualWidth, ActualHeight, _fullscreen);
         if (_viewportUpdating) return;
         _viewportUpdating = true;
         try
@@ -1083,6 +1086,7 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
             while (!_disposed && !_audioOnly && _pendingSubtitleViewport is { } next)
             {
                 _pendingSubtitleViewport = null;
+                await control.SetSubtitleFullscreenAsync(next.Fullscreen, _lifetime.Token);
                 await control.SetSubtitleViewportAsync(next.Width, next.Height, _lifetime.Token);
             }
         }
@@ -1100,6 +1104,9 @@ public sealed partial class ScreenboxPlayerControls : UserControl, IDisposable
     {
         if (_disposed) return;
         _disposed = true; _pendingSubtitleSafeArea = null; BottomBar.SizeChanged -= BottomBar_SizeChanged;
+        SeekSlider.RemoveHandler(PointerEnteredEvent, new PointerEventHandler(Sprite_PointerEntered));
+        SeekSlider.RemoveHandler(PointerMovedEvent, new PointerEventHandler(Sprite_PointerMoved));
+        SeekSlider.RemoveHandler(PointerExitedEvent, new PointerEventHandler(Sprite_PointerExited));
         DetachTransportToolTips();
         ResetSpritePreview();
         _resumeTimer.Stop(); _resumeTimer.Tick -= ResumeTimer_Tick;

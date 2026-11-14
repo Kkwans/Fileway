@@ -6,7 +6,7 @@ using Fileway.Core.Contracts;
 namespace Fileway.Playback;
 
 /// <summary>Persists observed engine positions and presents one real remote resume offer.</summary>
-internal sealed class ProgressPlaybackSession : IPlaybackSession, IPlaybackResumeControl, IPlaybackResourceSource
+internal sealed class ProgressPlaybackSession : IPlaybackSession, IPlaybackResumeControl, IPlaybackResourceSource, ISubtitleViewportControl
 {
     RemoteResourceRef? IPlaybackResourceSource.Resource => (_inner as IPlaybackResourceSource)?.Resource;
     private static readonly TimeSpan SaveInterval = TimeSpan.FromSeconds(5);
@@ -219,6 +219,10 @@ internal sealed class ProgressPlaybackSession : IPlaybackSession, IPlaybackResum
     public Task SelectTrackAsync(MediaTrackKind kind, long? trackId, CancellationToken cancellationToken) => _inner.SelectTrackAsync(kind, trackId, cancellationToken);
     public Task SetSubtitlesAsync(SubtitlePreferences preferences, CancellationToken cancellationToken) => _inner.SetSubtitlesAsync(preferences, cancellationToken);
     public Task SetSubtitleSafeAreaAsync(double bottomInsetFraction, CancellationToken cancellationToken) => _inner.SetSubtitleSafeAreaAsync(bottomInsetFraction, cancellationToken);
+    public Task SetSubtitleViewportAsync(double width, double height, CancellationToken cancellationToken) =>
+        _inner is ISubtitleViewportControl viewport ? viewport.SetSubtitleViewportAsync(width, height, cancellationToken) : Task.CompletedTask;
+    public Task SetSubtitleFullscreenAsync(bool fullscreen, CancellationToken cancellationToken) =>
+        _inner is ISubtitleViewportControl viewport ? viewport.SetSubtitleFullscreenAsync(fullscreen, cancellationToken) : Task.CompletedTask;
     public Task AddSubtitleAsync(PlaybackInput subtitle, CancellationToken cancellationToken) => _inner.AddSubtitleAsync(subtitle, cancellationToken);
 
     public async Task RestartFromBeginningAsync(CancellationToken cancellationToken)

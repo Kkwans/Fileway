@@ -17,15 +17,24 @@ public sealed partial class ScreenboxPlayerControls
     private VideoSpriteGeometry? _spriteGeometry;
     private CancellationTokenSource? _spriteCancellation;
     private bool _spriteAttempted;
+    private bool _seekPointerOver;
     private long _spriteEpoch;
+    private long _spriteRetryAfter;
     private double _previewSeconds, _previewX;
 
     internal void SetSpriteSource(IVideoSpriteService? sprites, RemoteResourceRef? resource)
     {
         _sprites = sprites; _spriteResource = resource;
-        SeekSlider.PointerMoved += Sprite_PointerMoved;
-        SeekSlider.PointerExited += Sprite_PointerExited;
-        ControlsVisibilityChanged += (_, _) => { if (!ControlsVisible) SeekPreviewCard.Visibility = Visibility.Collapsed; };
+        SeekSlider.AddHandler(PointerEnteredEvent, new PointerEventHandler(Sprite_PointerEntered), true);
+        SeekSlider.AddHandler(PointerMovedEvent, new PointerEventHandler(Sprite_PointerMoved), true);
+        SeekSlider.AddHandler(PointerExitedEvent, new PointerEventHandler(Sprite_PointerExited), true);
+        ControlsVisibilityChanged += (_, _) => { if (!ControlsVisible) { _seekPointerOver = false; HideSeekPreview(); } };
+    }
+    private void Sprite_PointerEntered(object sender, PointerRoutedEventArgs args)
+    {
+        _seekPointerOver = true;
+        Sprite_PointerMoved(sender, args);
+        NotifyActivity();
     }
     private void Sprite_PointerMoved(object sender, PointerRoutedEventArgs args)
     {
@@ -34,7 +43,11 @@ public sealed partial class ScreenboxPlayerControls
         ShowSeekPreview(_seeking ? SeekSlider.Value : SeekSlider.Minimum + x / SeekSlider.ActualWidth * (SeekSlider.Maximum - SeekSlider.Minimum), x);
     }
     private void Sprite_PointerExited(object sender, PointerRoutedEventArgs args)
-    { if (!_seeking) SeekPreviewCard.Visibility = Visibility.Collapsed; }
+    {
+        _seekPointerOver = false;
+        if (!_seeking) HideSeekPreview();
+        NotifyActivity();
+    }
     private void ShowSeekPreview(double seconds, double? x = null)
     {
         if (_disposed || _audioOnly || !double.IsFinite(seconds)) return;
@@ -43,16 +56,31 @@ public sealed partial class ScreenboxPlayerControls
         SeekPreviewTime.Text = Clock(TimeSpan.FromSeconds(_previewSeconds));
         SeekPreviewCard.Visibility = Visibility.Visible;
         PlaceSeekPreview(); RenderSpriteTile();
-        if (!_spriteAttempted && _sprites is not null && _spriteResource is not null)
+        if (!_spriteAttempted && Environment.TickCount64 >= _spriteRetryAfter && _sprites is not null && _spriteResource is not null)
         { _spriteAttempted = true; _ = LoadSpriteAsync(); }
     }
     private void PlaceSeekPreview()
     {
         if (_disposed || XamlRoot is null) return;
         var origin = SeekSlider.TransformToVisual(Root).TransformPoint(new Point(0, 0));
-        var width = (_spriteGeometry?.Width ?? 160) + 16d;
-        var height = (_spriteGeometry?.Height ?? 90) + 48d;
+        var width = _spriteGeometry is { } geometry ? geometry.Width + 18d : 72d;
+        var height = _spriteGeometry is { } image ? image.Height + 44d : 38d;
         SeekPreviewCard.Margin = new Thickness(Math.Clamp(origin.X + _previewX - width / 2, 8, Math.Max(8, ActualWidth - width - 8)), Math.Max(8, origin.Y - height - 10), 0, 0);
+        NotifyMaterialBoundsChanged();
+    }
+    internal Rect? GetSeekPreviewBounds()
+    {
+        if (_disposed || SeekPreviewCard.Visibility != Visibility.Visible) return null;
+        var width = _spriteGeometry is { } geometry ? geometry.Width + 18d : 72d;
+        var height = _spriteGeometry is { } image ? image.Height + 44d : 38d;
+        return new Rect(SeekPreviewCard.Margin.Left, SeekPreviewCard.Margin.Top,
+            Math.Max(width, SeekPreviewCard.ActualWidth), Math.Max(height, SeekPreviewCard.ActualHeight));
+    }
+    private void HideSeekPreview()
+    {
+        if (SeekPreviewCard.Visibility != Visibility.Visible) return;
+        SeekPreviewCard.Visibility = Visibility.Collapsed;
+        NotifyMaterialBoundsChanged();
     }
     private void RenderSpriteTile()
     {
@@ -72,10 +100,9 @@ public sealed partial class ScreenboxPlayerControls
             await Task.Delay(180, cancellation.Token);
             if (!Current()) return;
             if (SeekPreviewCard.Visibility != Visibility.Visible) { _spriteAttempted = false; return; }
-            SpriteStatus.Text = "正在生成预览…";
             await using var asset = await _sprites!.OpenVideoSpriteAsync(_spriteResource!, cancellation.Token);
             if (!Current()) return;
-            if (asset is null || !asset.Geometry.IsValid) { SpriteStatus.Text = "预览暂不可用"; return; }
+            if (asset is null || !asset.Geometry.IsValid) { RetrySpriteLater(); return; }
             using var random = asset.Sheet.Content.AsRandomAccessStream();
             var decoder = await BitmapDecoder.CreateAsync(random).AsTask(cancellation.Token);
             var geometry = asset.Geometry;
@@ -91,18 +118,25 @@ public sealed partial class ScreenboxPlayerControls
             SpriteViewport.Clip = new RectangleGeometry { Rect = new Rect(0, 0, geometry.Width, geometry.Height) };
             SpriteSheetImage.Width = geometry.SheetWidth; SpriteSheetImage.Height = geometry.SheetHeight;
             SpriteSheetImage.Source = source; SpriteSheetImage.Visibility = Visibility.Visible;
-            SpriteStatus.Text = ""; RenderSpriteTile(); PlaceSeekPreview();
+            SpriteViewport.Visibility = Visibility.Visible;
+            RenderSpriteTile(); PlaceSeekPreview();
         }
         catch (OperationCanceledException) { }
-        catch (Exception) { if (Current()) SpriteStatus.Text = "预览暂不可用"; }
+        catch (Exception) { if (Current()) RetrySpriteLater(); }
         finally { if (ReferenceEquals(_spriteCancellation, cancellation)) _spriteCancellation = null; }
     }
     private void ResetSpritePreview()
     {
-        ++_spriteEpoch; _spriteAttempted = false; _spriteGeometry = null;
+        ++_spriteEpoch; _spriteAttempted = false; _spriteRetryAfter = 0; _spriteGeometry = null;
         if (_spriteCancellation is { } cancellation) _ = CancelSpriteAsync(cancellation);
-        SeekPreviewCard.Visibility = Visibility.Collapsed; SpriteSheetImage.Source = null;
+        HideSeekPreview(); SpriteSheetImage.Source = null;
         SpriteSheetImage.Visibility = Visibility.Collapsed;
+        SpriteViewport.Visibility = Visibility.Collapsed;
+    }
+    private void RetrySpriteLater()
+    {
+        _spriteAttempted = false;
+        _spriteRetryAfter = Environment.TickCount64 + 5000;
     }
     private static async Task CancelSpriteAsync(CancellationTokenSource cancellation)
     { try { await cancellation.CancelAsync(); } catch (Exception) { /* Retirement must not interrupt the player. */ } }
