@@ -57,7 +57,7 @@ class MediaSourceRoot private constructor(internal val wire: String) {
     }
 }
 
-enum class MediaSourceAccess { AVAILABLE, UNAVAILABLE }
+enum class MediaSourceAccess { AVAILABLE, OFFLINE, UNVERIFIED, REBIND_REQUIRED, UNAVAILABLE, UNKNOWN }
 
 /** Owner-only management data. Root fields never belong in catalog, image or playback state. */
 data class MediaLibrarySource(
@@ -68,12 +68,12 @@ data class MediaLibrarySource(
 
 data class MediaPage<T>(val items: List<T>, val nextCursor: String?)
 
-enum class MediaScanUnavailableReason { NOT_ENABLED, COORDINATOR_UNAVAILABLE }
+enum class MediaScanUnavailableReason { NOT_ENABLED, COORDINATOR_UNAVAILABLE, UNKNOWN }
 /** Scanner status only: neither full media-library support nor permission for a particular root. */
 data class MediaScanSupport(val localRulesRevision: Long, val available: Boolean, val reason: MediaScanUnavailableReason?)
 
-enum class MediaScanStatus { QUEUED, RUNNING, COMPLETED, FAILED, CANCELED, INTERRUPTED }
-enum class MediaScanPhase { ENUMERATE, RECONCILE, READY }
+enum class MediaScanStatus { QUEUED, RUNNING, COMPLETED, FAILED, CANCELED, INTERRUPTED, UNKNOWN }
+enum class MediaScanPhase { ENUMERATE, RECONCILE, READY, UNKNOWN }
 
 data class MediaScan(
     val id: String, val libraryId: String, val status: MediaScanStatus, val generation: Long,
@@ -142,12 +142,17 @@ internal fun parseMediaMember(row: JSONObject): MediaMemberChange = MediaMemberC
 internal fun parseMediaSource(row: JSONObject): MediaLibrarySource {
     val access = when (row.mediaString("access")) {
         "available" -> MediaSourceAccess.AVAILABLE
+        "offline" -> MediaSourceAccess.OFFLINE
+        "unverified" -> MediaSourceAccess.UNVERIFIED
+        "rebind_required" -> MediaSourceAccess.REBIND_REQUIRED
         "unavailable" -> MediaSourceAccess.UNAVAILABLE
-        else -> error("媒体库来源状态无效")
+        else -> MediaSourceAccess.UNKNOWN
     }
-    val wire = row.optionalMediaString("wireRoot")?.let(MediaSourceRoot::fromWire)
-    val display = row.optionalMediaString("displayRoot")
-    require(if (access == MediaSourceAccess.UNAVAILABLE) wire == null && display == null else wire != null && !display.isNullOrEmpty()) {
+    val usable = access == MediaSourceAccess.AVAILABLE || access == MediaSourceAccess.OFFLINE
+    // Unknown states never expose an unverified root even if a future server sends one.
+    val wire = if (usable) row.optionalMediaString("wireRoot")?.let(MediaSourceRoot::fromWire) else null
+    val display = if (usable) row.optionalMediaString("displayRoot") else null
+    require(if (usable) wire != null && !display.isNullOrEmpty() else access == MediaSourceAccess.UNKNOWN || !row.has("wireRoot") && !row.has("displayRoot")) {
         "媒体库来源响应格式无效"
     }
     return MediaLibrarySource(row.mediaId("id"), row.mediaId("sourceId"), row.mediaId("libraryId"),
@@ -162,13 +167,13 @@ internal fun parseMediaScan(row: JSONObject): MediaScan {
         "failed" -> MediaScanStatus.FAILED
         "canceled" -> MediaScanStatus.CANCELED
         "interrupted" -> MediaScanStatus.INTERRUPTED
-        else -> error("扫描状态无效")
+        else -> MediaScanStatus.UNKNOWN
     }
     val phase = when (row.mediaString("phase")) {
         "enumerate" -> MediaScanPhase.ENUMERATE
         "reconcile" -> MediaScanPhase.RECONCILE
         "ready" -> MediaScanPhase.READY
-        else -> error("扫描阶段无效")
+        else -> MediaScanPhase.UNKNOWN
     }
     val code = row.optionalMediaString("errorCode")
     require(code == null || code.matches(Regex("[a-z0-9_]{1,80}"))) { "扫描错误码无效" }
@@ -183,7 +188,7 @@ internal fun parseMediaScanSupport(row: JSONObject): MediaScanSupport {
         null -> null
         "not_enabled" -> MediaScanUnavailableReason.NOT_ENABLED
         "coordinator_unavailable" -> MediaScanUnavailableReason.COORDINATOR_UNAVAILABLE
-        else -> error("扫描服务状态无效")
+        else -> MediaScanUnavailableReason.UNKNOWN
     }
     require(available == (reason == null)) { "扫描服务状态无效" }
     return MediaScanSupport(row.mediaLong("localRulesRevision", 1), available, reason)

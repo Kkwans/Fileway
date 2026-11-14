@@ -4,7 +4,7 @@ import org.json.JSONObject
 
 internal enum class MediaMutationKind {
     CREATE_LIBRARY, UPDATE_LIBRARY, ARCHIVE_LIBRARY, RESTORE_LIBRARY, GRANT_MEMBER, REVOKE_MEMBER,
-    CREATE_SOURCE, START_SCAN, CANCEL_SCAN, RETRY_SCAN,
+    CREATE_SOURCE, START_SCAN, CANCEL_SCAN, RETRY_SCAN, ATTEST_SOURCE, PATCH_METADATA, UNDO_METADATA,
 }
 
 internal fun requireMediaRouteId(value: String) {
@@ -27,7 +27,7 @@ private fun JSONObject.strictLong(key: String, min: Long = 1): Long {
 /** The only serializable mutation forms are the known server management APIs. */
 internal class MediaMutationRequest(
     val operation: MediaOperation, val kind: MediaMutationKind, val libraryId: String? = null,
-    val scanId: String? = null, val userId: Long? = null, body: JSONObject,
+    val scanId: String? = null, val userId: Long? = null, val bindingId: String? = null, val itemId: String? = null, body: JSONObject,
 ) {
     private val json = body.toString()
     init {
@@ -37,18 +37,24 @@ internal class MediaMutationRequest(
             MediaMutationKind.UPDATE_LIBRARY -> setOf("operationId", "expectedRevision", "name")
             MediaMutationKind.ARCHIVE_LIBRARY, MediaMutationKind.RESTORE_LIBRARY, MediaMutationKind.REVOKE_MEMBER -> setOf("operationId", "expectedRevision")
             MediaMutationKind.GRANT_MEMBER -> setOf("operationId", "expectedRevision", "role")
-            MediaMutationKind.CREATE_SOURCE -> setOf("operationId", "expectedRevision", "wireRoot")
+            MediaMutationKind.CREATE_SOURCE, MediaMutationKind.ATTEST_SOURCE -> setOf("operationId", "expectedRevision", "wireRoot")
             MediaMutationKind.START_SCAN -> setOf("operationId", "expectedRevision", "bindingId", "rulesRevision")
             MediaMutationKind.CANCEL_SCAN, MediaMutationKind.RETRY_SCAN -> setOf("operationId", "expectedGeneration")
+            MediaMutationKind.PATCH_METADATA -> setOf("operationId", "expectedRevision", "fields")
+            MediaMutationKind.UNDO_METADATA -> setOf("operationId", "expectedRevision", "targetRevision")
         }
         input.exactKeys(keys)
-        require(input.strictString("operationId") == operation.id && json.toByteArray(Charsets.UTF_8).size <= 8192)
+        // Normal JNI commands are capped at 1 MiB; leave headroom for the envelope.
+        val maxBody = if (kind == MediaMutationKind.PATCH_METADATA) 768 * 1024 else 8192
+        require(input.strictString("operationId") == operation.id && json.toByteArray(Charsets.UTF_8).size <= maxBody)
         if ("expectedRevision" in keys) input.strictLong("expectedRevision")
         if ("expectedGeneration" in keys) input.strictLong("expectedGeneration")
+        if ("targetRevision" in keys) input.strictLong("targetRevision")
         if ("rulesRevision" in keys) input.strictLong("rulesRevision")
         if ("bindingId" in keys) input.strictString("bindingId").also(::requireMediaId)
         if ("wireRoot" in keys) MediaSourceRoot.fromWire(input.strictString("wireRoot"))
         if ("role" in keys) require(input.strictString("role") in setOf("viewer", "editor"))
+        if ("fields" in keys) validateMediaMetadataPatch(input.getJSONObject("fields"))
         if ("name" in keys) {
             val name = input.strictString("name").trim()
             require(name.isNotEmpty() && name.codePointCount(0, name.length) <= 200 && name.none(Char::isISOControl))
@@ -56,14 +62,16 @@ internal class MediaMutationRequest(
         if (kind == MediaMutationKind.CREATE_LIBRARY) require(libraryId == null) else requireMediaRouteId(requireNotNull(libraryId))
         if (kind in setOf(MediaMutationKind.CANCEL_SCAN, MediaMutationKind.RETRY_SCAN)) requireMediaRouteId(requireNotNull(scanId)) else require(scanId == null)
         if (kind in setOf(MediaMutationKind.GRANT_MEMBER, MediaMutationKind.REVOKE_MEMBER)) require(userId != null && userId in 1..0xffff_ffffL) else require(userId == null)
+        if (kind == MediaMutationKind.ATTEST_SOURCE) requireMediaRouteId(requireNotNull(bindingId)) else require(bindingId == null)
+        if (kind in setOf(MediaMutationKind.PATCH_METADATA, MediaMutationKind.UNDO_METADATA)) requireMediaRouteId(requireNotNull(itemId)) else require(itemId == null)
     }
 
     fun body(): JSONObject = JSONObject(json)
     fun sameRequest(other: MediaMutationRequest): Boolean = operation == other.operation && kind == other.kind &&
-        libraryId == other.libraryId && scanId == other.scanId && userId == other.userId && json == other.json
+        libraryId == other.libraryId && scanId == other.scanId && userId == other.userId && bindingId == other.bindingId && itemId == other.itemId && json == other.json
 
     val method: String get() = when (kind) {
-        MediaMutationKind.UPDATE_LIBRARY -> "PATCH"
+        MediaMutationKind.UPDATE_LIBRARY, MediaMutationKind.PATCH_METADATA -> "PATCH"
         MediaMutationKind.GRANT_MEMBER -> "PUT"
         MediaMutationKind.REVOKE_MEMBER -> "DELETE"
         else -> "POST"
@@ -78,6 +86,9 @@ internal class MediaMutationRequest(
             MediaMutationKind.RESTORE_LIBRARY -> "$library/restore"
             MediaMutationKind.GRANT_MEMBER, MediaMutationKind.REVOKE_MEMBER -> "$library/members/$userId"
             MediaMutationKind.CREATE_SOURCE -> "$library/sources/local"
+            MediaMutationKind.ATTEST_SOURCE -> "$library/sources/$bindingId/attest"
+            MediaMutationKind.PATCH_METADATA -> "$library/items/$itemId/metadata"
+            MediaMutationKind.UNDO_METADATA -> "$library/items/$itemId/metadata/undo"
             MediaMutationKind.START_SCAN -> "$library/scans"
             MediaMutationKind.CANCEL_SCAN -> "$library/scans/$scanId/cancel"
             MediaMutationKind.RETRY_SCAN -> "$library/scans/$scanId/retry"
@@ -89,7 +100,10 @@ internal class MediaMutationRequest(
         MediaMutationKind.CREATE_LIBRARY, MediaMutationKind.UPDATE_LIBRARY, MediaMutationKind.ARCHIVE_LIBRARY, MediaMutationKind.RESTORE_LIBRARY ->
             parseMediaLibrary(row).also { if (libraryId != null) require(it.id == libraryId) }
         MediaMutationKind.GRANT_MEMBER, MediaMutationKind.REVOKE_MEMBER -> parseMediaMember(row).also { require(it.userId == userId) }
-        MediaMutationKind.CREATE_SOURCE -> parseMediaSource(row).also { require(it.libraryId == libraryId) }
+        MediaMutationKind.CREATE_SOURCE, MediaMutationKind.ATTEST_SOURCE -> parseMediaSource(row).also {
+            require(it.libraryId == libraryId && (bindingId == null || it.id == bindingId))
+        }
+        MediaMutationKind.PATCH_METADATA, MediaMutationKind.UNDO_METADATA -> parseMediaMetadataReceipt(row).also { require(it.itemId == itemId) }
         MediaMutationKind.START_SCAN, MediaMutationKind.CANCEL_SCAN, MediaMutationKind.RETRY_SCAN -> parseMediaScan(row).also {
             require(it.libraryId == libraryId)
             if (kind == MediaMutationKind.CANCEL_SCAN) require(it.id == scanId)
@@ -100,6 +114,8 @@ internal class MediaMutationRequest(
         libraryId?.let { put("libraryId", it) }
         scanId?.let { put("scanId", it) }
         userId?.let { put("userId", it) }
+        bindingId?.let { put("bindingId", it) }
+        itemId?.let { put("itemId", it) }
     }
 
     companion object {
@@ -108,13 +124,53 @@ internal class MediaMutationRequest(
             val library = if (value.has("libraryId")) value.strictString("libraryId") else null
             val scan = if (value.has("scanId")) value.strictString("scanId") else null
             val user = if (value.has("userId")) value.strictLong("userId") else null
+            val binding = if (value.has("bindingId")) value.strictString("bindingId") else null
+            val item = if (value.has("itemId")) value.strictString("itemId") else null
             val expected = mutableSetOf("kind", "body").apply {
                 if (library != null) add("libraryId")
                 if (scan != null) add("scanId")
                 if (user != null) add("userId")
+                if (binding != null) add("bindingId")
+                if (item != null) add("itemId")
             }
             value.exactKeys(expected)
-            return MediaMutationRequest(operation, kind, library, scan, user, value.getJSONObject("body"))
+            return MediaMutationRequest(operation, kind, library, scan, user, binding, item, value.getJSONObject("body"))
+        }
+    }
+}
+
+private val metadataFieldLimits = mapOf(
+    "title" to 1024, "originaltitle" to 1024, "sorttitle" to 1024, "showtitle" to 1024,
+    "plot" to 65536, "outline" to 65536, "tagline" to 4096,
+    *listOf("year", "premiered", "aired", "releasedate", "season", "episode", "seasonnumber", "displayseason",
+        "displayepisode", "runtime", "mpaa", "country", "genre", "tag", "studio", "director", "credits", "writer", "status", "collectionnumber")
+        .map { it to 1024 }.toTypedArray(),
+)
+
+/** Validate both newly made and restored operations against the server's patch semantics. */
+private fun validateMediaMetadataPatch(fields: JSONObject) {
+    val names = fields.keys().asSequence().toList()
+    require(names.isNotEmpty() && names.size <= 64)
+    for (name in names) {
+        val maxLength = requireNotNull(metadataFieldLimits[name]) { "影视资料字段不受支持" }
+        val field = fields.getJSONObject(name)
+        val keys = field.keys().asSequence().toSet()
+        require(keys.all { it in setOf("values", "clear", "reset", "locked") })
+        val clear = if (field.has("clear")) field.get("clear") as? Boolean ?: error("影视资料格式无效") else false
+        val reset = if (field.has("reset")) field.get("reset") as? Boolean ?: error("影视资料格式无效") else false
+        val locked = if (field.has("locked")) field.get("locked") as? Boolean ?: error("影视资料格式无效") else null
+        val hasValues = field.has("values")
+        require(!(clear && (hasValues || reset)) && !(reset && (hasValues || locked == true)) && (reset || clear || hasValues || locked != null))
+        if (hasValues) {
+            val values = field.getJSONArray("values")
+            require(values.length() in 1..128 && (name != "title" || values.length() == 1))
+            for (index in 0 until values.length()) {
+                val value = values.get(index) as? String ?: error("影视资料格式无效")
+                require(value.isNotBlank() && value.codePointCount(0, value.length) <= maxLength &&
+                    value.none { it.isISOControl() && it !in "\n\r\t" })
+                require(runCatching { Charsets.UTF_8.newEncoder().onMalformedInput(java.nio.charset.CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT).encode(java.nio.CharBuffer.wrap(value)) }.isSuccess)
+            }
         }
     }
 }

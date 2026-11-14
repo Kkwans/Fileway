@@ -7,6 +7,7 @@ import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeout
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.URLEncoder
 
@@ -64,6 +65,40 @@ class MediaLibraryRepository(
         }
     }
 
+    suspend fun listItems(libraryId: String, limit: Int = 50, cursor: String? = null): MediaReadResult<MediaPage<MediaItemSummary>> {
+        requireMediaRouteId(libraryId)
+        val query = pageQuery(limit, cursor, 200)
+        return read { parsePage(context.api.request("GET", "${libraryEndpoint(libraryId)}/items?$query"), limit, cursor, 200) {
+            parseMediaItem(it).also { item -> require(item.libraryId == libraryId) }
+        } }
+    }
+
+    suspend fun getItem(libraryId: String, itemId: String): MediaReadResult<MediaItemDetail> {
+        requireMediaRouteId(libraryId); requireMediaRouteId(itemId)
+        return read { parseMediaItemDetail(context.api.request("GET", itemEndpoint(libraryId, itemId))).also {
+            require(it.item.id == itemId && it.item.libraryId == libraryId)
+        } }
+    }
+
+    suspend fun listItemCredits(libraryId: String, itemId: String, revision: Long, limit: Int = 20, cursor: String? = null) =
+        itemPage(libraryId, itemId, "credits", revision, limit, cursor, ::parseMediaCredit)
+    suspend fun listItemRatings(libraryId: String, itemId: String, revision: Long, limit: Int = 20, cursor: String? = null) =
+        itemPage(libraryId, itemId, "ratings", revision, limit, cursor, ::parseMediaRating)
+    suspend fun listItemArtwork(libraryId: String, itemId: String, revision: Long, limit: Int = 20, cursor: String? = null) =
+        itemPage(libraryId, itemId, "artwork", revision, limit, cursor, ::parseMediaArtwork)
+    suspend fun listItemExternalIds(libraryId: String, itemId: String, revision: Long, limit: Int = 20, cursor: String? = null) =
+        itemPage(libraryId, itemId, "external-ids", revision, limit, cursor, ::parseMediaExternalId)
+    suspend fun listItemCandidates(libraryId: String, itemId: String, revision: Long, limit: Int = 20, cursor: String? = null) =
+        itemPage(libraryId, itemId, "issues", revision, limit, cursor, ::parseMediaCandidate)
+
+    private suspend fun <T> itemPage(libraryId: String, itemId: String, kind: String, revision: Long,
+        limit: Int, cursor: String?, parse: (JSONObject) -> T): MediaReadResult<MediaRevisionPage<T>> {
+        requireMediaRouteId(libraryId); requireMediaRouteId(itemId); require(revision > 0)
+        val query = pageQuery(limit, cursor, 256) + "&revision=$revision"
+        return read { parseMediaRevisionPage(context.api.request("GET", "${itemEndpoint(libraryId, itemId)}/$kind?$query"),
+            limit, cursor, revision, parse) }
+    }
+
     /** This reports the scanner's current rule revision, not full catalog/playback capability. */
     suspend fun scanSupport(): MediaReadResult<MediaScanSupport> = read {
         parseMediaScanSupport(context.api.request("GET", "/api/media-library/v1/scan-support"))
@@ -98,6 +133,31 @@ class MediaLibraryRepository(
     suspend fun createLocalSource(operation: MediaOperation, libraryId: String, expectedRevision: Long, root: MediaSourceRoot): MediaWriteResult<MediaLibrarySource> =
         typedWrite(mutation(operation, MediaMutationKind.CREATE_SOURCE, libraryId, body = revisionBody(operation, expectedRevision).put("wireRoot", root.wire)))
 
+    /** Only a user-selected root may confirm an existing binding. */
+    suspend fun attestSource(operation: MediaOperation, libraryId: String, bindingId: String, expectedRevision: Long, root: MediaSourceRoot): MediaWriteResult<MediaLibrarySource> =
+        typedWrite(mutation(operation, MediaMutationKind.ATTEST_SOURCE, libraryId, bindingId = bindingId,
+            body = revisionBody(operation, expectedRevision).put("wireRoot", root.wire)))
+
+    suspend fun patchMetadata(operation: MediaOperation, libraryId: String, itemId: String, expectedRevision: Long,
+        fields: Map<String, MediaMetadataFieldPatch>): MediaWriteResult<MediaMetadataReceipt> {
+        val body = JSONObject()
+        fields.toSortedMap().forEach { (name, patch) ->
+            val value = JSONObject()
+            patch.values?.let { value.put("values", JSONArray(it)) }
+            if (patch.clear) value.put("clear", true)
+            if (patch.reset) value.put("reset", true)
+            patch.locked?.let { value.put("locked", it) }
+            body.put(name, value)
+        }
+        return typedWrite(mutation(operation, MediaMutationKind.PATCH_METADATA, libraryId, itemId = itemId,
+            body = revisionBody(operation, expectedRevision).put("fields", body)))
+    }
+
+    suspend fun undoMetadata(operation: MediaOperation, libraryId: String, itemId: String, expectedRevision: Long,
+        targetRevision: Long): MediaWriteResult<MediaMetadataReceipt> =
+        typedWrite(mutation(operation, MediaMutationKind.UNDO_METADATA, libraryId, itemId = itemId,
+            body = revisionBody(operation, expectedRevision).put("targetRevision", targetRevision)))
+
     suspend fun startScan(operation: MediaOperation, libraryId: String, bindingId: String, expectedRevision: Long, rulesRevision: Long): MediaWriteResult<MediaScan> =
         typedWrite(mutation(operation, MediaMutationKind.START_SCAN, libraryId,
             body = revisionBody(operation, expectedRevision).put("bindingId", bindingId).put("rulesRevision", rulesRevision)))
@@ -125,6 +185,8 @@ class MediaLibraryRepository(
         if (!started) return MediaWriteResult.Failure(scope, request.operation, MediaFailure(MediaFailureKind.STORAGE), true)
         var acknowledgement: MediaWriteResult<Any>? = null
         try {
+            // The account can change while the write-ahead record is being saved.
+            checkCurrent()
             withTimeout(30_000) {
                 context.api.actionWithAcknowledgement(request.method, request.endpoint, request.body()) { status, text ->
                     val parsed = try {
@@ -158,7 +220,13 @@ class MediaLibraryRepository(
         } catch (error: CancellationException) { throw error }
         catch (error: Exception) {
             acknowledgement?.let { return syncIncomplete(it) }
-            return failedWrite(request, mediaFailure(error, true))
+            val failure = mediaFailure(error, true)
+            // These endpoints recheck source authority after committing. A
+            // 4xx from that second check is not proof that no write occurred.
+            val postCommitCheck = request.kind in setOf(MediaMutationKind.CREATE_SOURCE, MediaMutationKind.ATTEST_SOURCE,
+                MediaMutationKind.PATCH_METADATA, MediaMutationKind.UNDO_METADATA)
+            return failedWrite(request, if (postCommitCheck && failure.status != null && failure.status in setOf(400, 403, 404, 409))
+                failure.copy(mutationMayHaveCommitted = true) else failure)
         } finally { journal.finish(request.operation) }
     }
 
@@ -176,11 +244,13 @@ private fun syncIncomplete(result: MediaWriteResult<Any>): MediaWriteResult<Any>
 }
 
 private fun mutation(operation: MediaOperation, kind: MediaMutationKind, libraryId: String? = null, scanId: String? = null,
-    userId: Long? = null, body: JSONObject) = MediaMutationRequest(operation, kind, libraryId, scanId, userId, body)
+    userId: Long? = null, bindingId: String? = null, itemId: String? = null, body: JSONObject) =
+    MediaMutationRequest(operation, kind, libraryId, scanId, userId, bindingId, itemId, body)
 private fun operationBody(operation: MediaOperation) = JSONObject().put("operationId", operation.id)
 private fun revisionBody(operation: MediaOperation, revision: Long) = operationBody(operation).put("expectedRevision", revision)
 private fun generationBody(operation: MediaOperation, generation: Long) = operationBody(operation).put("expectedGeneration", generation)
 private fun libraryEndpoint(id: String) = "/api/media-library/v1/libraries/$id"
+private fun itemEndpoint(libraryId: String, itemId: String) = "${libraryEndpoint(libraryId)}/items/$itemId"
 
 private fun pageQuery(limit: Int, cursor: String?, maxCursorBytes: Int): String {
     require(limit in 1..100)
@@ -219,5 +289,7 @@ private fun receipt(request: MediaMutationRequest, value: Any): MediaWriteReceip
     is MediaLibrarySource -> MediaWriteReceipt(value.libraryId, sourceBindingId = value.id.also(::requireMediaRouteId),
         revision = value.revision, libraryRevision = value.libraryRevision)
     is MediaScan -> MediaWriteReceipt(value.libraryId, scanId = value.id.also(::requireMediaRouteId), scanGeneration = value.generation)
+    is MediaMetadataReceipt -> MediaWriteReceipt(requireNotNull(request.libraryId), revision = value.revision,
+        itemId = value.itemId, metadataRevision = value.metadataRevision)
     else -> error("媒体库回执类型无效")
 }

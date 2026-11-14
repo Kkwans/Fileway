@@ -20,6 +20,7 @@ enum class MediaWriteState { UNKNOWN, ACKNOWLEDGED, ACKNOWLEDGED_INVALID_RESPONS
 data class MediaWriteReceipt(
     val libraryId: String, val sourceBindingId: String? = null, val scanId: String? = null,
     val memberId: Long? = null, val revision: Long? = null, val libraryRevision: Long? = null, val scanGeneration: Long? = null,
+    val itemId: String? = null, val metadataRevision: Long? = null,
 )
 
 data class MediaWriteRecord(
@@ -256,14 +257,16 @@ private fun receiptJson(value: MediaWriteReceipt) = JSONObject().put("libraryId"
     value.sourceBindingId?.let { put("sourceBindingId", it) }; value.scanId?.let { put("scanId", it) }
     value.memberId?.let { put("memberId", it) }; value.revision?.let { put("revision", it) }
     value.libraryRevision?.let { put("libraryRevision", it) }; value.scanGeneration?.let { put("scanGeneration", it) }
+    value.itemId?.let { put("itemId", it) }; value.metadataRevision?.let { put("metadataRevision", it) }
 }
 private fun readReceipt(row: JSONObject): MediaWriteReceipt {
-    val allowed = setOf("libraryId", "sourceBindingId", "scanId", "memberId", "revision", "libraryRevision", "scanGeneration")
+    val allowed = setOf("libraryId", "sourceBindingId", "scanId", "memberId", "revision", "libraryRevision", "scanGeneration", "itemId", "metadataRevision")
     require(row.keys().asSequence().all { it in allowed })
     val library = jsonString(row, "libraryId").also(::requireMediaRouteId)
     fun id(key: String) = if (row.has(key)) jsonString(row, key).also(::requireMediaRouteId) else null
     fun number(key: String) = if (row.has(key)) jsonLong(row, key, 1) else null
-    return MediaWriteReceipt(library, id("sourceBindingId"), id("scanId"), number("memberId"), number("revision"), number("libraryRevision"), number("scanGeneration"))
+    return MediaWriteReceipt(library, id("sourceBindingId"), id("scanId"), number("memberId"), number("revision"), number("libraryRevision"), number("scanGeneration"),
+        id("itemId"), if (row.has("metadataRevision")) jsonLong(row, "metadataRevision") else null)
 }
 private fun failureJson(value: MediaFailure) = JSONObject().put("kind", value.kind.name).put("mutationMayHaveCommitted", value.mutationMayHaveCommitted).apply {
     value.status?.let { put("status", it) }
