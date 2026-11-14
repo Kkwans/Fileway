@@ -69,8 +69,13 @@ var mediaProviderStatusHandler = providerConfig(func(w http.ResponseWriter, r *h
 	}
 	return renderJSON(w, r, struct {
 		CredentialStoreAvailable bool `json:"credentialStoreAvailable"`
+		CandidateSearchAvailable bool `json:"candidateSearchAvailable"`
 		NetworkJobsAvailable     bool `json:"networkJobsAvailable"`
-	}{CredentialStoreAvailable: d.store.MediaProviderVault != nil, NetworkJobsAvailable: false})
+	}{
+		CredentialStoreAvailable: d.store.MediaProviderVault != nil,
+		CandidateSearchAvailable: d.store.MediaProviderVault != nil && d.store.TMDBHTTPClient != nil,
+		NetworkJobsAvailable:     false,
+	})
 })
 
 type providerConnectionBody struct {

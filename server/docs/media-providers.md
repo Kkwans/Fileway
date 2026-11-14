@@ -5,11 +5,12 @@ media credentials cannot manage provider configuration. Configuration performs
 no provider request and does not grant access to a library's files. The normal
 catalog and local NFO paths continue to work when no credential vault exists.
 
-`GET /provider-status` returns `credentialStoreAvailable` and
-`networkJobsAvailable`. A connection with `status: "configured"` has a sealed
-credential recorded; it does **not** imply that the provider has accepted it.
-In this slice `networkJobsAvailable` is false. If the server has no configured
-protected vault key, credential writes return 503 `credential_store_unavailable`.
+`GET /provider-status` returns `credentialStoreAvailable`,
+`candidateSearchAvailable` and `networkJobsAvailable`. A connection with
+`status: "configured"` has a sealed credential recorded. Its acceptance by the
+provider is established by an authorized request. `networkJobsAvailable` is
+false until background online jobs are supported. Without a protected vault
+key, credential writes return 503 `credential_store_unavailable`.
 
 `GET /provider-connections?limit=50&cursor=...` lists the caller's personal
 connections and instance connections explicitly granted to that user or an
@@ -49,6 +50,16 @@ region is an optional two-letter uppercase code. An editor may use an instance
 connection with a valid grant or their own explicitly selected personal
 connection only when the owner has enabled editor jobs; they cannot use the
 owner's personal credential. Source-owner file access remains a separate check.
+
+`POST /libraries/{id}/items/{itemId}/match-candidates` searches for a movie or
+series using the library's approved connection. Use `itemRevision` and
+`structureRevision` from `GET .../identification`; send `kind` (`movie` or
+`series`), `page` (1–500), and optionally `title`, `year` and `connectionId`.
+An omitted title uses the parsed title or displayed title; `year` narrows the
+provider results only when supplied. Rows contain typed TMDB IDs, titles, years
+and match evidence. The lookup leaves the saved match and metadata untouched.
+Policy, permissions or source changes during lookup invalidate its result.
+The server may respond to a busy or rate-limited request with `Retry-After`.
 
 Mutations use `operationId` and optimistic revisions. An exact retry returns the
 original sanitized receipt; a different request with the same operation or a

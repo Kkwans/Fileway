@@ -38,45 +38,54 @@ type mediaIdentificationResponse struct {
 }
 
 var mediaIdentificationHandler = mediaLibraryRead(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
+	result, _, err := mediaIdentification(r, d)
+	if err != nil {
+		return catalogError(w, err)
+	}
+	return renderJSON(w, r, result)
+})
+
+func mediaIdentification(r *http.Request, d *data) (mediaIdentificationResponse, *catalogView, error) {
+	var result mediaIdentificationResponse
 	ctx := r.Context()
 	library, err := itemLibrary(r, d)
 	if err != nil {
-		return catalogError(w, err)
+		return result, nil, err
 	}
 	itemID := mux.Vars(r)["itemId"]
 	detail, err := d.store.MediaLibrary.GetItemDetail(ctx, d.user.ID, library.ID, itemID)
 	if err != nil {
-		return catalogError(w, err)
+		return result, nil, err
 	}
 	view := newCatalogView(d)
 	access, visible, complete, _, err := view.itemAccess(ctx, library, &detail.Item, nil)
 	if err != nil {
-		return catalogError(w, err)
+		return result, nil, err
 	}
 	if !complete {
-		return catalogError(w, errCatalogWorkPending)
+		return result, nil, errCatalogWorkPending
 	}
 	if !visible {
-		return catalogError(w, medialibrary.ErrNotFound)
+		return result, nil, medialibrary.ErrNotFound
 	}
 	card, err := view.structureCard(ctx, library, itemID, access)
 	if err != nil {
-		return catalogError(w, err)
+		return result, nil, err
 	}
 	if card.classificationIncomplete {
-		return catalogError(w, errCatalogWorkPending)
+		return result, nil, errCatalogWorkPending
 	}
 	if card.Revision != detail.Item.Revision {
-		return catalogError(w, medialibrary.ErrRevisionConflict)
+		return result, nil, medialibrary.ErrRevisionConflict
 	}
 	ids, err := visibleExternalIDs(ctx, d, library, itemID, card.Revision, &access.mediaItemAccess, "", 20)
 	if err != nil {
-		return catalogError(w, err)
+		return result, nil, err
 	}
 	if access.budgetExhausted {
-		return catalogError(w, errCatalogWorkPending)
+		return result, nil, errCatalogWorkPending
 	}
-	result := mediaIdentificationResponse{
+	result = mediaIdentificationResponse{
 		Ref: card.Ref, Title: card.Title, StructureKind: card.StructureKind, MatchState: card.MatchState,
 		StructureRevision: card.structureRevision, ItemRevision: card.Revision,
 		ExternalIDs: ids.Items, ExternalIDsCursor: ids.NextCursor,
@@ -87,7 +96,7 @@ var mediaIdentificationHandler = mediaLibraryRead(func(w http.ResponseWriter, r 
 	if leaf && access.sourceFileID != "" && access.sourceState != mediascan.ReferenceChanged {
 		evidence, err := d.store.MediaLibrary.GetFileIdentification(ctx, d.user.ID, library.ID, access.sourceFileID, access.bindingID, access.proofEpoch)
 		if err != nil && !errors.Is(err, medialibrary.ErrNotFound) {
-			return catalogError(w, err)
+			return result, nil, err
 		}
 		if evidence != nil {
 			name := evidence.Name
@@ -100,10 +109,10 @@ var mediaIdentificationHandler = mediaLibraryRead(func(w http.ResponseWriter, r 
 		}
 	}
 	if err = view.revalidateSources(ctx); err != nil {
-		return catalogError(w, err)
+		return result, nil, err
 	}
 	if err = verifyCatalogCards(ctx, d, []catalogCard{card}); err != nil {
-		return catalogError(w, err)
+		return result, nil, err
 	}
-	return renderJSON(w, r, result)
-})
+	return result, view, nil
+}

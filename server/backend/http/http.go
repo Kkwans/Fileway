@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/Kkwans/nas-file-browser/backend/archivefs"
 	"github.com/gorilla/mux"
@@ -33,15 +34,17 @@ const appContentSecurityPolicy = `default-src 'self'; script-src 'self' 'unsafe-
 
 type archiveCacheHandler struct {
 	http.Handler
-	cache         *archivefs.EntryCache
-	subtitlePages *subtitlePages
-	mediaScans    *mediascan.Scheduler
-	mediaLeases   *mediaPlaybackLeases
+	cache          *archivefs.EntryCache
+	subtitlePages  *subtitlePages
+	mediaScans     *mediascan.Scheduler
+	mediaLeases    *mediaPlaybackLeases
+	providerStarts *time.Ticker
 }
 
 func (handler *archiveCacheHandler) Close() error {
 	handler.subtitlePages.close()
 	handler.mediaLeases.close()
+	handler.providerStarts.Stop()
 	return errors.Join(handler.mediaScans.Close(), handler.cache.Close())
 }
 
@@ -117,6 +120,7 @@ func NewHandler(
 	subtitlePages := newSubtitlePages()
 	mediaLeases := newMediaPlaybackLeases()
 	artworkPermits := make(chan struct{}, 2)
+	providerStarts := time.NewTicker(500 * time.Millisecond)
 
 	api.Handle("/login", monkey(loginHandler(), ""))
 	api.Handle("/signup", monkey(signupHandler, ""))
@@ -146,6 +150,7 @@ func NewHandler(
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}", monkey(mediaItemGetHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/user-state", monkey(mediaUserStateHandler, "")).Methods("GET", "PATCH")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/identification", monkey(mediaIdentificationHandler, "")).Methods("GET")
+	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/match-candidates", monkey(mediaMatchCandidatesHandler(make(chan struct{}, 2), providerStarts.C), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/seasons", monkey(mediaCatalogSeasonsHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/episodes", monkey(mediaCatalogEpisodesHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/episode-counts", monkey(mediaCatalogEpisodeCountsHandler, "")).Methods("GET")
@@ -311,5 +316,5 @@ func NewHandler(
 	public.PathPrefix("/dl").Handler(monkey(publicDlHandler, "/api/public/dl/")).Methods("GET")
 	public.PathPrefix("/share").Handler(monkey(publicShareHandler, "/api/public/share/")).Methods("GET")
 
-	return &archiveCacheHandler{Handler: stripPrefix(server.BaseURL, r), cache: entryCache, subtitlePages: subtitlePages, mediaScans: mediaScans, mediaLeases: mediaLeases}, nil
+	return &archiveCacheHandler{Handler: stripPrefix(server.BaseURL, r), cache: entryCache, subtitlePages: subtitlePages, mediaScans: mediaScans, mediaLeases: mediaLeases, providerStarts: providerStarts}, nil
 }
