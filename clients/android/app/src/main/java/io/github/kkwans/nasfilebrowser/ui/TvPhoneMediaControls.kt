@@ -16,10 +16,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -35,6 +31,7 @@ import io.github.kkwans.nasfilebrowser.data.TextSubtitleAppearance
 import io.github.kkwans.nasfilebrowser.data.TextSubtitleArea
 import io.github.kkwans.nasfilebrowser.data.parsePlaybackRate
 import io.github.kkwans.nasfilebrowser.data.parseSubtitleDelayMillis
+import io.github.kkwans.nasfilebrowser.player.CachedPlaybackRange
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.collectLatest
@@ -118,7 +115,8 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
             val bufferedThrough = player.optLong("bufferedMs", -1).takeIf {
                 knownDuration > 0 && it > position && !player.optBoolean("seeking") && !player.optBoolean("preparing")
             }?.coerceAtMost(knownDuration)
-            val cached = if (knownDuration > 0) remoteCacheRanges(cache, duration) else emptyList()
+            val cachedIntervals = remoteCacheIntervals(cache, knownDuration)
+            val cached = cachedIntervals.progressFractions(duration)
             var preview by remember(owner){mutableStateOf<Float?>(null)}
             var requested by remember(owner){mutableStateOf<Long?>(null)}
             LaunchedEffect(position,player.optBoolean("seeking"),player.optBoolean("preparing"),player.optString("seekError"),requested){
@@ -126,7 +124,10 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
                 if(player.optString("seekError").let{it.isNotBlank()&&it!="null"})requested=null
             }
             LaunchedEffect(requested){if(requested!=null){delay(125000);requested=null}}
-            val shown=preview?:requested?.toFloat()?:position.toFloat()
+            val shownPosition = preview?.toLong() ?: requested ?: position
+            val shown = preview ?: shownPosition.toFloat()
+            val bufferLabel = if (preview == null && requested == null) bufferedThrough else null
+            val cacheInterval = cachedIntervals.firstOrNull { shownPosition in it.startMs..it.endMs }
             val timeline: @Composable (Modifier) -> Unit = { modifier ->
                 PlayerSlider(if (knownDuration > 0) shown else 0f, duration.toFloat(), "TV 播放进度",
                     player.optBoolean("seekable") && knownDuration > 0, { preview = it },
@@ -155,7 +156,9 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
                     Box(Modifier.widthIn(max = 176.dp)) { RemotePlaybackStatus(player, maxLines = 2) }
                 }
                 clock()
-                if (snapshot.scene == "VIDEO" && cache != null) RemoteCacheStatus(cache, bufferedThrough)
+                if (snapshot.scene == "VIDEO" && cache != null) {
+                    RemoteCacheStatus(cache, bufferLabel, cacheInterval, cachedIntervals.size)
+                }
             } else {
                 TvPhoneMediaCard {
                     if (hasPreview) TvRemoteArtwork(model, snapshot, mediaId, mediaName,
@@ -169,7 +172,7 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
                         clock()
                         if (snapshot.scene == "VIDEO" && cache != null) {
                             Spacer(Modifier.height(8.dp))
-                            RemoteCacheStatus(cache, bufferedThrough)
+                            RemoteCacheStatus(cache, bufferLabel, cacheInterval, cachedIntervals.size)
                         }
                     }
                 }
@@ -293,22 +296,35 @@ private enum class RemoteMediaPanel(val title:String, val subtitleSource: TvSubt
         color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
 }
 
-internal fun remoteCacheRanges(cache: JSONObject?, duration: Long): List<Pair<Float, Float>> {
+private fun remoteCacheIntervals(cache: JSONObject?, duration: Long): List<CachedPlaybackRange> {
+    if (duration <= 0) return emptyList()
     val rows = cache?.optJSONArray("ranges") ?: return emptyList()
     return (0 until rows.length()).mapNotNull { index ->
         val range = rows.optJSONObject(index) ?: return@mapNotNull null
         val start = range.optLong("startMs", -1)
         val end = range.optLong("endMs", -1)
         if (start < 0 || end <= start || start >= duration) null
-        else (start.toDouble() / duration).toFloat() to (end.coerceAtMost(duration).toDouble() / duration).toFloat()
+        else CachedPlaybackRange(start, end.coerceAtMost(duration))
     }
 }
+
+private fun List<CachedPlaybackRange>.progressFractions(duration: Long) = map {
+    (it.startMs.toDouble() / duration).toFloat() to (it.endMs.toDouble() / duration).toFloat()
+}
+
+internal fun remoteCacheRanges(cache: JSONObject?, duration: Long): List<Pair<Float, Float>> =
+    remoteCacheIntervals(cache, duration).progressFractions(duration)
 
 internal fun tvRemoteSpeed(bytes: Long): String = if (bytes >= 1_048_576)
     String.format(Locale.ROOT, "%.1f MB/s", bytes / 1_048_576.0)
 else "${bytes.coerceAtLeast(0) / 1024} KB/s"
 
-@Composable private fun RemoteCacheStatus(cache: JSONObject, bufferedThrough: Long?) {
+@Composable private fun RemoteCacheStatus(
+    cache: JSONObject,
+    bufferedThrough: Long?,
+    cacheInterval: CachedPlaybackRange?,
+    intervalCount: Int,
+) {
     val bytes = cache.optLong("usedBytes", -1)
     val limit = cache.optLong("limitBytes", -1)
     val rate = if (cache.has("bytesPerSecond")) tvRemoteSpeed(cache.optLong("bytesPerSecond")) else null
@@ -318,16 +334,20 @@ else "${bytes.coerceAtLeast(0) / 1024} KB/s"
         cache.optBoolean("prefetchPaused") -> "TV 后台预缓冲已暂停"
         else -> null
     }
-    val buffer = bufferedThrough?.let { "已缓冲至 ${tvRemoteTime(it)}" }
-    if (storage == null && buffer == null && feedback == null && rate == null) return
+    val buffer = bufferedThrough?.let { "播放缓冲至 ${tvRemoteTime(it)}" }
+    val cached = cacheInterval?.let { "磁盘缓存 ${tvRemoteTime(it.startMs)}–${tvRemoteTime(it.endMs)}" }
+        ?: if (intervalCount > 0) "当前时点不在已知磁盘缓存范围内" else null
+    val status = listOfNotNull(buffer, rate).joinToString("  ·  ")
+    if (storage == null && status.isEmpty() && feedback == null && cached == null) return
     val colors = MaterialTheme.colorScheme
     Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(colors.surfaceContainerLow)
         .padding(horizontal = 8.dp, vertical = 8.dp),
         horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(3.dp)) {
-        val live = listOfNotNull(buffer, rate).joinToString("  ·  ")
-        if (live.isNotEmpty()) Text(live, style = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum"),
+        val timelineStyle = MaterialTheme.typography.labelMedium.copy(fontFeatureSettings = "tnum")
+        if (cached != null) Text(cached, style = timelineStyle, color = colors.onSurface, textAlign = TextAlign.Center)
+        if (status.isNotEmpty()) Text(status, style = timelineStyle,
             color = colors.onSurface, textAlign = TextAlign.Center)
-        storage?.let { Text(it, Modifier.clearAndSetSemantics { contentDescription = listOfNotNull(it, rate).joinToString(" · ") },
+        storage?.let { Text(it,
             style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant, textAlign = TextAlign.Center) }
         feedback?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant,
             textAlign = TextAlign.Center) }
