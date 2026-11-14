@@ -1,11 +1,14 @@
 package storage
 
 import (
+	"net/http"
+
 	"github.com/Kkwans/nas-file-browser/backend/auth"
 	"github.com/Kkwans/nas-file-browser/backend/deviceauth"
 	"github.com/Kkwans/nas-file-browser/backend/favorites"
 	"github.com/Kkwans/nas-file-browser/backend/history"
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
+	"github.com/Kkwans/nas-file-browser/backend/mediaprovider"
 	"github.com/Kkwans/nas-file-browser/backend/playback"
 	"github.com/Kkwans/nas-file-browser/backend/recent"
 	"github.com/Kkwans/nas-file-browser/backend/settings"
@@ -22,19 +25,21 @@ import (
 // verifications when fetching and saving data to ensure consistency.
 type Storage struct {
 	// MediaLibrary is optional and owned by the HTTP server lifecycle, not CLI commands.
-	MediaLibrary *medialibrary.Store
-	Devices      *deviceauth.Service
-	Users        users.Store
-	Share        *share.Storage
-	Auth         *auth.Storage
-	Settings     *settings.Storage
-	Favorites    *favorites.Storage
-	History      *history.Storage
-	Playback     *playback.Storage
-	Recent       *recent.Storage
-	Tags         *tags.Storage
-	Tasks        *tasks.Storage
-	Transfers    *transfers.Storage
-	Trash        *trash.Storage
-	Uploads      *uploads.Storage
+	MediaLibrary       *medialibrary.Store
+	MediaProviderVault *mediaprovider.CredentialVault
+	TMDBHTTPClient     *http.Client
+	Devices            *deviceauth.Service
+	Users              users.Store
+	Share              *share.Storage
+	Auth               *auth.Storage
+	Settings           *settings.Storage
+	Favorites          *favorites.Storage
+	History            *history.Storage
+	Playback           *playback.Storage
+	Recent             *recent.Storage
+	Tags               *tags.Storage
+	Tasks              *tasks.Storage
+	Transfers          *transfers.Storage
+	Trash              *trash.Storage
+	Uploads            *uploads.Storage
 }

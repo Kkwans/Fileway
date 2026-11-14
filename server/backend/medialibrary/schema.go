@@ -1,5 +1,50 @@
 package medialibrary
 
+// Provider ciphertext is separate from the connection metadata. The vault key
+// is owned by the server runtime and never stored in this database.
+const schemaV11 = `
+CREATE TABLE provider_credential (
+    credential_ref TEXT PRIMARY KEY NOT NULL,
+    ciphertext BLOB NOT NULL,
+    fingerprint BLOB NOT NULL,
+    updated_at INTEGER NOT NULL CHECK(updated_at >= 0),
+    CHECK((length(ciphertext)=0 AND length(fingerprint)=0) OR (length(ciphertext)>0 AND length(fingerprint)=32))
+) STRICT;
+CREATE TABLE provider_connection (
+    id TEXT PRIMARY KEY NOT NULL,
+    provider TEXT NOT NULL CHECK(provider = 'tmdb'),
+    owner_kind TEXT NOT NULL CHECK(owner_kind IN ('user','instance')),
+    owner_user_id INTEGER CHECK(owner_user_id > 0),
+    credential_ref TEXT NOT NULL UNIQUE REFERENCES provider_credential(credential_ref),
+    status TEXT NOT NULL CHECK(status IN ('configured','invalid','missing')),
+    revision INTEGER NOT NULL CHECK(revision > 0),
+    created_at INTEGER NOT NULL CHECK(created_at >= 0),
+    updated_at INTEGER NOT NULL CHECK(updated_at >= created_at),
+    CHECK((owner_kind='user' AND owner_user_id IS NOT NULL) OR (owner_kind='instance' AND owner_user_id IS NULL))
+) STRICT;
+CREATE INDEX provider_connection_owner ON provider_connection(owner_kind,owner_user_id,id);
+CREATE TABLE provider_grant (
+    connection_id TEXT NOT NULL REFERENCES provider_connection(id),
+    subject_kind TEXT NOT NULL CHECK(subject_kind IN ('user','library')),
+    subject_id TEXT NOT NULL CHECK(length(subject_id)>0),
+    allowed INTEGER NOT NULL CHECK(allowed IN (0,1)),
+    revision INTEGER NOT NULL CHECK(revision > 0),
+    updated_at INTEGER NOT NULL CHECK(updated_at >= 0),
+    PRIMARY KEY(connection_id,subject_kind,subject_id)
+) STRICT;
+CREATE TABLE library_metadata_policy (
+    library_id TEXT PRIMARY KEY NOT NULL REFERENCES library(id),
+    mode TEXT NOT NULL CHECK(mode IN ('local_only','local_first_online')),
+    connection_id TEXT REFERENCES provider_connection(id),
+    language TEXT NOT NULL DEFAULT '',
+    region TEXT NOT NULL DEFAULT '',
+    allow_editor_jobs INTEGER NOT NULL DEFAULT 0 CHECK(allow_editor_jobs IN (0,1)),
+    revision INTEGER NOT NULL CHECK(revision > 0),
+    updated_at INTEGER NOT NULL CHECK(updated_at >= 0),
+    CHECK(mode != 'local_first_online' OR connection_id IS NOT NULL)
+) STRICT;
+`
+
 // Manual user state is scoped to one catalog item. A missing row is revision
 // zero; explicit unwatched is retained as a reset fence for future events.
 // No cross-database foreign key or cross-library identity is implied.

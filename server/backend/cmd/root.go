@@ -95,6 +95,8 @@ func init() {
 	flags.Uint32("socketPerm", 0666, "unix socket file permissions")
 	flags.String("cacheDir", "", "file cache directory (disabled if empty)")
 	flags.String("mediaLibraryDatabase", "", "absolute local catalog path inside a dedicated .fileway-media directory (disabled if empty)")
+	flags.String("mediaProviderKeyFile", "", "absolute path to a private 32-byte media provider vault key")
+	flags.String("mediaTMDBHostsFile", "", "optional TMDB-only hosts-format routing file")
 	flags.Bool("disableMediaLibrarySharing", false, "disable shared media-library access and new member grants")
 	flags.Uint64("cacheMaxBytes", uint64(diskcache.DefaultMaxBytes), "file preview cache limit in bytes")
 	flags.String("redisCacheUrl", "", "redis cache URL (for multi-instance deployments), e.g. redis://user:pass@host:port")
@@ -241,6 +243,8 @@ user created with the credentials from options "username" and "password".`,
 		setupLog(server.Log)
 		closeMediaLibrary := startMediaLibrary(context.Background(), st.Storage, v.GetString("mediaLibraryDatabase"))
 		defer closeMediaLibrary()
+		closeProvider := startMediaProvider(st.Storage, v.GetString("mediaLibraryDatabase"), v.GetString("mediaProviderKeyFile"), v.GetString("mediaTMDBHostsFile"))
+		defer closeProvider()
 
 		if !files.IsVirtualComputerRoot(server.Root) {
 			root, err := filepath.Abs(server.Root)
