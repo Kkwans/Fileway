@@ -12,13 +12,20 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.data.*
+import io.github.kkwans.nasfilebrowser.ui.FilewayIcon
+import io.github.kkwans.nasfilebrowser.ui.FilewayIconButton
 import io.github.kkwans.nasfilebrowser.ui.SettingsAction
 import io.github.kkwans.nasfilebrowser.ui.SettingsGroup
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusBanner
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusKind
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 @Composable
@@ -51,82 +58,267 @@ private fun MediaSettingsPage(title: String, onBack: () -> Unit, footer: @Compos
 internal fun PhoneMediaProviderSettings(repository: MediaLibraryRepository, onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     var status by remember(repository) { mutableStateOf<MediaProviderStatus?>(null) }
-    var connection by remember(repository) { mutableStateOf<MediaProviderConnection?>(null) }
-    // A credential draft never enters saved instance state or the durable write journal.
+    var statusLoading by remember(repository) { mutableStateOf(true) }
+    var statusError by remember(repository) { mutableStateOf<MediaFailure?>(null) }
+    var statusRefresh by remember(repository) { mutableIntStateOf(0) }
+    var connections by remember(repository) { mutableStateOf<List<MediaProviderConnection>?>(null) }
+    var connectionsLoading by remember(repository) { mutableStateOf(true) }
+    var connectionsError by remember(repository) { mutableStateOf<MediaFailure?>(null) }
+    var connectionsRefresh by remember(repository) { mutableIntStateOf(0) }
+    var selectedId by remember(repository) { mutableStateOf<String?>(null) }
+    // Never save a credential draft in instance state or the durable write journal.
     var key by remember(repository) { mutableStateOf("") }
-    var busy by remember { mutableStateOf(true) }
-    var message by remember { mutableStateOf<String?>(null) }
-    var problem by remember { mutableStateOf<String?>(null) }
-    var refresh by remember { mutableIntStateOf(0) }
-    var retry by remember(repository) { mutableStateOf<MediaOperation?>(null) }
-    LaunchedEffect(repository, refresh) {
-        busy = true
+    var keyRevision by remember(repository) { mutableLongStateOf(0L) }
+    var keyVisible by remember(repository) { mutableStateOf(false) }
+    var saving by remember(repository) { mutableStateOf(false) }
+    var checking by remember(repository) { mutableStateOf(false) }
+    var unknownSave by remember(repository) { mutableStateOf(false) }
+    var confirmUnknownSave by remember(repository) { mutableStateOf(false) }
+    var actionError by remember(repository) { mutableStateOf<String?>(null) }
+    var feedback by remember(repository) { mutableStateOf<String?>(null) }
+    var feedbackRevision by remember(repository) { mutableIntStateOf(0) }
+    var actionJob by remember(repository) { mutableStateOf<Job?>(null) }
+
+    DisposableEffect(repository) { onDispose { actionJob?.cancel() } }
+    LaunchedEffect(repository, feedbackRevision) {
+        if (feedback != null) { delay(4_000); feedback = null }
+    }
+    LaunchedEffect(repository, statusRefresh) {
+        statusLoading = true
+        status = null
+        statusError = null
         try {
             when (val result = repository.providerStatus()) {
-                is MediaReadResult.Success -> status = result.value
-                is MediaReadResult.Failure -> problem = providerProblem(result.error)
+                is MediaReadResult.Success -> if (result.scope == repository.scope) status = result.value
+                is MediaReadResult.Failure -> if (result.scope == repository.scope) statusError = result.error
             }
-            when (val result = repository.providerConnections()) {
-                is MediaReadResult.Success -> connection = result.value.items.firstOrNull { it.owner == MediaProviderOwner.USER }
-                is MediaReadResult.Failure -> problem = providerProblem(result.error)
-            }
-        } finally { busy = false }
+        } finally { statusLoading = false }
     }
-    val saved = connection?.state == MediaProviderConnectionState.CONFIGURED
-    val valid = key.isNotBlank() && key.length <= 4096 && key.none { it.isWhitespace() || it.isISOControl() }
-    MediaSettingsPage("TMDB 数据源", onBack, footer = {
-        Button(onClick = {
-            val operation = retry ?: repository.newOperation()
-            val value = key
-            val current = connection
-            busy = true; problem = null; message = null
-            scope.launch {
+    LaunchedEffect(repository, connectionsRefresh) {
+        connectionsLoading = true
+        connections = null
+        connectionsError = null
+        try {
+            when (val result = readAllProviderConnections(repository)) {
+                is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                    connections = result.value
+                    val own = result.value.filter {
+                        it.provider == "tmdb" && it.owner == MediaProviderOwner.USER && it.ownerUserId == repository.scope.account.userId
+                    }
+                    selectedId = selectedId?.takeIf { id -> own.any { it.id == id } } ?: own.singleOrNull()?.id
+                }
+                is MediaReadResult.Failure -> if (result.scope == repository.scope) connectionsError = result.error
+            }
+        } finally { connectionsLoading = false }
+    }
+    val personal = connections.orEmpty().filter {
+        it.provider == "tmdb" && it.owner == MediaProviderOwner.USER && it.ownerUserId == repository.scope.account.userId
+    }
+    val ambiguous = connections.orEmpty().any {
+        it.provider == "tmdb" && (it.owner == MediaProviderOwner.UNKNOWN ||
+            it.owner == MediaProviderOwner.USER && (it.ownerUserId != repository.scope.account.userId || it.state == MediaProviderConnectionState.UNKNOWN))
+    }
+    val selected = personal.firstOrNull { it.id == selectedId }
+    val valid = remember(key) { validProviderDraft(key) }
+    val canSave = valid && !saving && !checking && !statusLoading && status?.credentialStoreAvailable == true &&
+        !connectionsLoading && connections != null && !ambiguous && (personal.isEmpty() || selected != null)
+    val canCheck = !saving && !checking && !connectionsLoading && connections != null && !ambiguous &&
+        status?.credentialStoreAvailable == true && selected?.state == MediaProviderConnectionState.CONFIGURED
+
+    val saveCredential: () -> Unit = {
+        if (canSave) {
+            val operation = repository.newOperation()
+            val submitted = key
+            val submittedRevision = keyRevision
+            val target = selected
+            saving = true
+            actionError = null
+            feedback = null
+            actionJob = scope.launch {
                 try {
-                    val result = if (current == null) repository.createPersonalProvider(operation, value)
-                        else repository.rotatePersonalProvider(operation, current, value)
+                    val result = if (target == null) repository.createPersonalProvider(operation, submitted)
+                        else repository.rotatePersonalProvider(operation, target, submitted)
                     when (result) {
-                        is MediaProviderCredentialResult.Success -> {
-                            connection = result.connection; key = ""; retry = null; message = "密钥已保存，可检测连接。"
+                        is MediaProviderCredentialResult.Success -> if (result.scope == repository.scope) {
+                            val unchanged = keyRevision == submittedRevision
+                            if (unchanged) { key = ""; keyRevision++; keyVisible = false }
+                            selectedId = result.connection.id
+                            unknownSave = false
+                            if (result.sessionSyncIncomplete) {
+                                actionError = "密钥已保存，但会话同步未完成，请重新登录后检测连接。"
+                            } else {
+                                feedback = if (!unchanged) "密钥已保存，输入框中的新内容尚未保存。" else "密钥已保存，可以检测连接。"
+                                feedbackRevision++
+                            }
+                            connections = null
+                            connectionsLoading = true
+                            connectionsRefresh++
                         }
-                        is MediaProviderCredentialResult.Failure -> {
-                            retry = operation.takeIf { result.error.mutationMayHaveCommitted }
-                            problem = if (retry != null) "保存结果待确认。可重试同一次保存，或刷新查看当前连接。" else providerProblem(result.error)
+                        is MediaProviderCredentialResult.Failure -> if (result.scope == repository.scope) {
+                            if (result.error.mutationMayHaveCommitted) {
+                                unknownSave = true
+                                actionError = null
+                                connections = null
+                                connectionsLoading = true
+                                connectionsRefresh++
+                            } else {
+                                actionError = providerProblem(result.error)
+                                if (result.error.kind == MediaFailureKind.CONFLICT) {
+                                    connections = null
+                                    connectionsLoading = true
+                                    connectionsRefresh++
+                                }
+                            }
                         }
                     }
-                } finally { busy = false }
+                } finally { saving = false }
             }
-        }, enabled = valid && !busy && status?.credentialStoreAvailable == true,
+        }
+    }
+    val checkConnection: () -> Unit = {
+        val target = selected
+        if (canCheck && target != null) {
+            checking = true
+            actionError = null
+            feedback = null
+            actionJob = scope.launch {
+                try {
+                    when (val result = repository.checkProviderConnection(target.id)) {
+                        is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                            feedback = if (result.value.revision != target.revision) {
+                                connections = null
+                                connectionsLoading = true
+                                connectionsRefresh++
+                                "TMDB 连接正常，连接配置已变化，正在刷新。"
+                            } else "TMDB 连接正常。"
+                            feedbackRevision++
+                        }
+                        is MediaReadResult.Failure -> if (result.scope == repository.scope) {
+                            actionError = if (result.error.status == 422) "TMDB 拒绝了已保存的密钥，请检查或更换后再检测。"
+                                else providerProblem(result.error)
+                        }
+                    }
+                } finally { checking = false }
+            }
+        }
+    }
+
+    BackHandler(enabled = saving) { }
+    MediaSettingsPage("TMDB 数据源", { if (!saving) onBack() }, footer = {
+        Button(onClick = { if (unknownSave) confirmUnknownSave = true else saveCredential() }, enabled = canSave,
             modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(16.dp).heightIn(min = 48.dp),
-            shape = MaterialTheme.shapes.medium) { Text("保存密钥") }
+            shape = MaterialTheme.shapes.medium) { Text(if (saving) "正在保存" else if (unknownSave) "重新保存密钥" else "保存密钥") }
     }) {
         SettingsGroup("TMDB API 密钥") {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text(if (saved) "当前账号已保存密钥" else "当前账号还没有密钥", style = MaterialTheme.typography.bodyLarge)
-                OutlinedTextField(key, { key = it; retry = null }, Modifier.fillMaxWidth(), singleLine = true,
-                    label = { Text(if (saved) "输入新密钥" else "输入密钥") }, enabled = !busy && status?.credentialStoreAvailable == true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password), visualTransformation = PasswordVisualTransformation(),
+                Text("输入或粘贴 TMDB API 密钥或读取访问令牌。保存后密钥不会回显。", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedTextField(key, { key = it; keyRevision++ }, Modifier.fillMaxWidth(), singleLine = true,
+                    label = { Text("输入密钥") },
+                    isError = key.isNotEmpty() && !valid,
+                    supportingText = if (key.isNotEmpty() && !valid)
+                        ({ Text("密钥不能包含空白或控制字符，且不能超过 4096 字节。") }) else null,
+                    trailingIcon = {
+                        FilewayIconButton(onClick = { keyVisible = !keyVisible }) {
+                            FilewayIcon(if (keyVisible) R.drawable.ic_visibility_off else R.drawable.ic_visibility,
+                                if (keyVisible) "隐藏密钥" else "显示密钥")
+                        }
+                    },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                    visualTransformation = if (keyVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     shape = MaterialTheme.shapes.medium)
             }
         }
-        SettingsGroup("连接") {
-            SettingsAction("检测连接", message ?: "使用保存在当前服务器上的密钥", R.drawable.ic_settings, enabled = saved && !busy, navigation = false) {
-                val savedConnection = connection ?: return@SettingsAction
-                busy = true; problem = null; message = null
-                scope.launch {
-                    try {
-                        when (val result = repository.checkProviderConnection(savedConnection.id)) {
-                            is MediaReadResult.Success -> message = if (result.value.reachable) "连接正常" else "暂时无法连接"
-                            is MediaReadResult.Failure -> problem = if (result.error.status == 422) "TMDB 拒绝了当前密钥，请更换后再检测。" else providerProblem(result.error)
-                        }
-                    } finally { busy = false }
+        SettingsGroup("服务端状态") {
+            when {
+                statusLoading -> MediaLoading("正在读取服务端状态")
+                statusError != null -> MediaProblemCard(MediaProblem("无法读取服务端状态", providerProblem(statusError!!),
+                    if (!saving && !checking) "重新读取" else null), { statusRefresh++ }, Modifier.padding(16.dp))
+                status?.credentialStoreAvailable == true -> Text("服务端已启用凭据存储。", Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+                status?.credentialStoreAvailable == false -> Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("服务端尚未启用 TMDB 凭据存储。可先输入密钥，启用后重新读取。", style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = { statusRefresh++ }, enabled = !saving && !checking, modifier = Modifier.heightIn(min = 48.dp)) { Text("重新读取") }
                 }
+                else -> Text("服务端状态未知，请重新读取。", Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
             }
         }
-        if (busy) MediaLoading("正在读取或更新连接")
-        if (status?.credentialStoreAvailable == false) Text("当前 Fileway 服务端尚未启用 TMDB 凭据存储。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-        problem?.let { MediaProblemCard(MediaProblem("无法完成操作", it, "刷新"), { problem = null; key = ""; retry = null; refresh++ }) }
+        SettingsGroup("个人连接") {
+            when {
+                connectionsLoading -> MediaLoading("正在读取完整连接列表")
+                connectionsError != null -> MediaProblemCard(MediaProblem("无法读取完整连接列表", providerConnectionsProblem(connectionsError!!),
+                    if (!saving && !checking) "重新读取" else null), { connectionsRefresh++ }, Modifier.padding(16.dp))
+                ambiguous -> Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("存在无法识别的 TMDB 连接或连接状态，暂不能保存。请更新客户端或服务端后重新读取。", style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = { connectionsRefresh++ }, enabled = !saving && !checking, modifier = Modifier.heightIn(min = 48.dp)) { Text("重新读取") }
+                }
+                connections != null && personal.isEmpty() -> Text("当前账号尚未保存个人连接。", Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+                personal.size == 1 -> Text("个人连接 · ${providerConnectionState(personal.single().state)}", Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+                personal.size > 1 -> {
+                    Text("选择要更新或检测的个人连接", Modifier.padding(start = 16.dp, top = 16.dp, end = 16.dp), style = MaterialTheme.typography.bodyMedium)
+                    personal.forEachIndexed { index, item ->
+                        FilewaySelectionRow("个人连接 ${index + 1}（${item.id.takeLast(6)}）", subtitle = providerConnectionState(item.state),
+                            selected = selectedId == item.id, enabled = !saving && !checking, onClick = { selectedId = item.id })
+                    }
+                }
+                else -> Text("连接状态未知，请重新读取。", Modifier.padding(16.dp), style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+        SettingsGroup("连接") {
+            SettingsAction("检测连接", if (checking) "正在检测" else "使用保存在当前服务器上的密钥", R.drawable.ic_settings,
+                enabled = canCheck, navigation = false, action = checkConnection)
+        }
+        if (saving) MediaLoading("正在保存密钥")
+        if (unknownSave) MediaProblemCard(MediaProblem("保存结果待确认",
+            "服务器可能已保存密钥。刷新后的连接状态不能证明本次输入是否生效，请先检测连接；再次保存会发起新的操作。"), {})
+        actionError?.let { MediaProblemCard(MediaProblem("无法完成操作", it), {}) }
+        feedback?.let { FilewayStatusBanner(it, FilewayStatusKind.SUCCESS, onDismiss = { feedback = null }) }
         Text("如果服务器无法访问 TMDB，可在服务端配置 HOST 映射后重新检测。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+    if (confirmUnknownSave) AlertDialog(
+        onDismissRequest = { confirmUnknownSave = false },
+        title = { Text("再次保存密钥？") },
+        text = { Text("上次操作可能已经成功。" + if (selected == null)
+            "继续将为当前账号新建个人连接。" else "继续将更新所选个人连接。") },
+        confirmButton = { TextButton(onClick = { confirmUnknownSave = false; saveCredential() }, enabled = canSave) { Text("确认保存") } },
+        dismissButton = { TextButton(onClick = { confirmUnknownSave = false }) { Text("取消") } },
+        shape = MaterialTheme.shapes.medium,
+    )
+}
+
+private fun providerConnectionState(state: MediaProviderConnectionState): String = when (state) {
+    MediaProviderConnectionState.CONFIGURED -> "已保存，尚需检测"
+    MediaProviderConnectionState.MISSING -> "尚未保存密钥"
+    MediaProviderConnectionState.UNKNOWN -> "状态未知"
+}
+
+private fun providerConnectionsProblem(error: MediaFailure): String = if (error.kind == MediaFailureKind.INVALID_RESPONSE) {
+    "连接列表未能完整读取或响应无法识别，请检查客户端和服务端版本后重试。"
+} else providerProblem(error)
+
+private fun validProviderDraft(value: String): Boolean = value.isNotEmpty() &&
+    value.none { it.isWhitespace() || Character.isSpaceChar(it) || it.isISOControl() } &&
+    value.toByteArray(Charsets.UTF_8).size <= 4096 && Charsets.UTF_8.newEncoder().canEncode(value)
+
+/** Never infer that a personal connection is absent from a partial page. */
+private suspend fun readAllProviderConnections(repository: MediaLibraryRepository): MediaReadResult<List<MediaProviderConnection>> {
+    val items = mutableListOf<MediaProviderConnection>()
+    val ids = mutableSetOf<String>()
+    var cursor: MediaProviderConnectionCursor? = null
+    repeat(100) {
+        when (val result = repository.providerConnections(limit = 100, cursor = cursor)) {
+            is MediaReadResult.Failure -> return result
+            is MediaReadResult.Success -> {
+                if (result.scope != repository.scope || result.value.items.any { !ids.add(it.id) } ||
+                    result.value.nextCursor != null && result.value.items.isEmpty()) {
+                    return MediaReadResult.Failure(repository.scope, MediaFailure(MediaFailureKind.INVALID_RESPONSE))
+                }
+                items.addAll(result.value.items)
+                cursor = result.value.nextCursor
+                if (cursor == null) return MediaReadResult.Success(repository.scope, items, result.sessionHealth)
+            }
+        }
+    }
+    return MediaReadResult.Failure(repository.scope, MediaFailure(MediaFailureKind.INVALID_RESPONSE))
 }
 
 @Composable
@@ -134,28 +326,43 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
     onSaved: () -> Unit) {
     val scope = rememberCoroutineScope()
     var policy by remember(repository, libraryId) { mutableStateOf<MediaProviderPolicy?>(null) }
-    var mode by remember { mutableStateOf(MediaProviderPolicyMode.LOCAL_ONLY) }
-    var connections by remember { mutableStateOf<List<MediaProviderConnection>>(emptyList()) }
-    var chosen by remember { mutableStateOf<String?>(null) }
-    var busy by remember { mutableStateOf(true) }
-    var error by remember { mutableStateOf<String?>(null) }
-    var pending by remember { mutableStateOf<MediaOperation?>(null) }
-    var refresh by remember { mutableIntStateOf(0) }
+    var mode by remember(repository, libraryId) { mutableStateOf(MediaProviderPolicyMode.LOCAL_ONLY) }
+    var connections by remember(repository, libraryId) { mutableStateOf<List<MediaProviderConnection>?>(null) }
+    var connectionsLoading by remember(repository, libraryId) { mutableStateOf(true) }
+    var connectionsError by remember(repository, libraryId) { mutableStateOf<MediaFailure?>(null) }
+    var connectionsRefresh by remember(repository, libraryId) { mutableIntStateOf(0) }
+    var chosen by remember(repository, libraryId) { mutableStateOf<String?>(null) }
+    var busy by remember(repository, libraryId) { mutableStateOf(true) }
+    var error by remember(repository, libraryId) { mutableStateOf<String?>(null) }
+    var pending by remember(repository, libraryId) { mutableStateOf<MediaOperation?>(null) }
+    var refresh by remember(repository, libraryId) { mutableIntStateOf(0) }
     LaunchedEffect(repository, libraryId, refresh) {
         busy = true
         try {
             pending = repository.pendingMetadataPolicyOperation(libraryId)
             when (val result = repository.metadataPolicy(libraryId)) {
-                is MediaReadResult.Success -> { policy = result.value; mode = result.value.mode; chosen = result.value.connectionId }
-                is MediaReadResult.Failure -> error = providerProblem(result.error)
-            }
-            when (val result = repository.providerConnections()) {
-                is MediaReadResult.Success -> connections = result.value.items.filter { it.state == MediaProviderConnectionState.CONFIGURED }
-                is MediaReadResult.Failure -> error = providerProblem(result.error)
+                is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                    policy = result.value; mode = result.value.mode; chosen = result.value.connectionId
+                }
+                is MediaReadResult.Failure -> if (result.scope == repository.scope) error = providerProblem(result.error)
             }
         } finally { busy = false }
     }
-    val valid = policy != null && mode != MediaProviderPolicyMode.UNKNOWN && (mode == MediaProviderPolicyMode.LOCAL_ONLY || chosen != null)
+    LaunchedEffect(repository, libraryId, connectionsRefresh) {
+        connectionsLoading = true
+        connections = null
+        connectionsError = null
+        try {
+            when (val result = readAllProviderConnections(repository)) {
+                is MediaReadResult.Success -> if (result.scope == repository.scope) connections = result.value.filter {
+                    it.provider == "tmdb" && it.state == MediaProviderConnectionState.CONFIGURED
+                }
+                is MediaReadResult.Failure -> if (result.scope == repository.scope) connectionsError = result.error
+            }
+        } finally { connectionsLoading = false }
+    }
+    val valid = policy != null && mode != MediaProviderPolicyMode.UNKNOWN && (mode == MediaProviderPolicyMode.LOCAL_ONLY ||
+        !connectionsLoading && connections?.any { it.id == chosen } == true)
     BackHandler(enabled = busy && policy != null) { }
     MediaSettingsPage("资料优先级", { if (!busy) onBack() }, footer = {
         Button(onClick = {
@@ -187,12 +394,19 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
             }
         }
         if (mode != MediaProviderPolicyMode.LOCAL_ONLY) SettingsGroup("TMDB 连接") {
-            connections.forEachIndexed { index, item ->
-                FilewaySelectionRow(if (item.owner == MediaProviderOwner.USER) "个人连接 ${index + 1}" else "服务器共享连接 ${index + 1}",
-                    selected = chosen == item.id, enabled = !busy && pending == null, onClick = { chosen = item.id })
+            when {
+                connectionsLoading -> MediaLoading("正在读取完整连接列表")
+                connectionsError != null -> MediaProblemCard(MediaProblem("无法读取完整连接列表", providerConnectionsProblem(connectionsError!!),
+                    if (!busy) "重新读取" else null), { connectionsRefresh++ }, Modifier.padding(16.dp))
+                connections != null -> {
+                    connections.orEmpty().forEachIndexed { index, item ->
+                        FilewaySelectionRow(if (item.owner == MediaProviderOwner.USER) "个人连接 ${index + 1}" else "服务器共享连接 ${index + 1}",
+                            selected = chosen == item.id, enabled = !busy && pending == null, onClick = { chosen = item.id })
+                    }
+                    if (connections.orEmpty().isEmpty()) SettingsAction("配置 TMDB", "保存个人密钥后选择连接", R.drawable.ic_settings, enabled = !busy, action = onProvider)
+                    else SettingsAction("管理密钥", "保存新密钥或检测连接", R.drawable.ic_settings, enabled = !busy, action = onProvider)
+                }
             }
-            if (connections.isEmpty()) SettingsAction("配置 TMDB", "保存个人密钥后选择连接", R.drawable.ic_settings, enabled = !busy, action = onProvider)
-            else SettingsAction("管理密钥", "保存新密钥或检测连接", R.drawable.ic_settings, enabled = !busy, action = onProvider)
         }
         if (busy) MediaLoading("正在读取或保存设置")
         error?.let { MediaProblemCard(MediaProblem("无法保存设置", it, "刷新"), { error = null; refresh++ }) }
