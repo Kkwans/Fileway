@@ -153,8 +153,8 @@ authorized for this request; otherwise it remains a playable unmatched video.
 The underlying item and playback identifiers are unchanged. Hero includes
 only currently confirmed and visible movies or series. `canActions` and
 `actionReasons` reflect the actual role and credential scope: TV media-only
-sessions cannot claim metadata or library-management writes. Watch-state and
-online matching actions are `feature_unavailable` until implemented.
+sessions cannot claim metadata or library-management writes. Available
+watch-state and matching actions depend on the negotiated server capabilities.
 
 ## Identification evidence
 
@@ -171,6 +171,29 @@ evidence. A series or season never uses a descendant's filename as its own
 evidence. A revoked NFO stops contributing IDs and classification even if
 the associated video is still visible. The response contains no source
 locator, credential or provider request.
+
+### Explicit series mapping
+
+An authorized editor can use `POST /libraries/{id}/items/{itemId}/mapping-previews`
+with `action: assign_series`, an operation ID, item and structure revisions,
+an explicit season number and ordered episode numbers. Choose an existing
+`seriesId` or a new series title; a new TMDB series may instead supply
+`kind: series` and its `externalId`, under the library's enabled provider policy.
+The preview returns its expiry, affected mapping, retained manual fields and
+whether a combined file has independent starts. Confirmation uses
+`POST .../mapping-commands` with a new operation ID and the preview ID.
+`POST .../mapping-undo` accepts the returned mapping revision and a new operation
+ID; subsequent edits can make the undo conflict. Identification exposes a
+currently available `undoMappingRevision` to authorized editors.
+
+This slice accepts a single unmatched video with one file and one active
+binding and unoccupied episode positions. Other shapes return
+`mapping_shape_unsupported` instead of inferring a merge or split. The original
+file, variant and playback state remain attached; a combined file does not
+acquire invented episode offsets. Expired unconfirmed previews are removed when
+a later preview is created; committed previews remain available for authorized
+operation-receipt replay. This server interface does not imply that a client
+has implemented the corresponding interaction.
 
 ## Series and playback
 

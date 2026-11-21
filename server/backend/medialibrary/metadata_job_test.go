@@ -19,7 +19,7 @@ func TestWatchSchemaUpgradeKeepsExistingUserState(t *testing.T) {
 	if _, err := store.SetUserState(ctx, 7, library.ID, item.ID, 0, "legacy-unwatched", UserStatePatch{ManualWatched: &watched}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.db.ExecContext(ctx, `DROP TABLE user_watch_progress; PRAGMA user_version=15`); err != nil {
+	if _, err := store.db.ExecContext(ctx, `DROP TABLE manual_mapping_revision; DROP TABLE manual_mapping_preview; DROP TABLE user_watch_progress; PRAGMA user_version=15`); err != nil {
 		t.Fatal(err)
 	}
 	if err := store.Close(); err != nil {

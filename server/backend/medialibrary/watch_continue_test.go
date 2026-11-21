@@ -17,7 +17,7 @@ func TestWatchContinueUpgradeAndIndexedPagination(t *testing.T) {
 	library := createLibrary(t, store, 7, "Films")
 	item := catalogItem(t, store, 7, library.ID, "Fixture")
 	// Reproduce the v16 checkpoint shape on a disposable database.
-	_, err = store.db.ExecContext(ctx, `DROP TABLE user_watch_progress;`+schemaV16+`
+	_, err = store.db.ExecContext(ctx, `DROP TABLE manual_mapping_revision; DROP TABLE manual_mapping_preview; DROP TABLE user_watch_progress;`+schemaV16+`
 INSERT INTO source(id,kind,owner_user_id,configuration_ref,created_at) VALUES ('s','local',7,'cfg',1);
 INSERT INTO source_file(id,source_id,object_key,identity_kind,source_version,locator,observed_at) VALUES ('f','s',X'01','native','fixture',X'2F66',1);
 INSERT INTO edition(id,library_id,item_id,name) VALUES ('e',?,?,'Fixture');

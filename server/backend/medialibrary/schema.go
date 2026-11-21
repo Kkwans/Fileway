@@ -1,5 +1,34 @@
 package medialibrary
 
+// Manual mappings retain bounded server-side previews and conditional history.
+// Existing catalog, source, playback and user-state identities are unchanged.
+const schemaV18 = `
+CREATE TABLE manual_mapping_preview (
+    id TEXT PRIMARY KEY NOT NULL,
+    actor_user_id INTEGER NOT NULL CHECK(actor_user_id>0),
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    request_json TEXT NOT NULL CHECK(json_valid(request_json)),
+    snapshot_json TEXT NOT NULL CHECK(json_valid(snapshot_json)),
+    document_json TEXT CHECK(document_json IS NULL OR json_valid(document_json)),
+    expires_at INTEGER NOT NULL,
+    committed INTEGER NOT NULL DEFAULT 0 CHECK(committed IN (0,1)),
+    FOREIGN KEY(library_id,item_id) REFERENCES library_item(library_id,id)
+) STRICT;
+CREATE INDEX manual_mapping_preview_expiry ON manual_mapping_preview(committed, expires_at);
+CREATE TABLE manual_mapping_revision (
+    id TEXT PRIMARY KEY NOT NULL,
+    actor_user_id INTEGER NOT NULL CHECK(actor_user_id>0),
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    before_json TEXT NOT NULL CHECK(json_valid(before_json)),
+    after_digest BLOB NOT NULL CHECK(length(after_digest)=32),
+    result_json TEXT NOT NULL CHECK(json_valid(result_json)),
+    undone INTEGER NOT NULL DEFAULT 0 CHECK(undone IN (0,1)),
+    FOREIGN KEY(library_id,item_id) REFERENCES library_item(library_id,id)
+) STRICT;
+`
+
 const schemaV17 = `
 ALTER TABLE user_watch_progress ADD COLUMN continue_hidden INTEGER NOT NULL DEFAULT 0 CHECK(continue_hidden IN (0,1));
 CREATE INDEX watch_continue_recent ON user_watch_progress(user_id, updated_at DESC, variant_id DESC)

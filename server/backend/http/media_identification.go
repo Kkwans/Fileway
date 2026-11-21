@@ -27,17 +27,18 @@ type mediaIdentificationFile struct {
 }
 
 type mediaIdentificationResponse struct {
-	Ref                catalogRef                        `json:"ref"`
-	Title              string                            `json:"title"`
-	StructureKind      string                            `json:"structureKind"`
-	MatchState         string                            `json:"matchState"`
-	StructureRevision  int64                             `json:"structureRevision"`
-	ItemRevision       int64                             `json:"itemRevision"`
-	UndoMatchRevision  int64                             `json:"undoMatchRevision,omitempty"`
-	ExternalIDs        []medialibrary.MetadataExternalID `json:"externalIds"`
-	ExternalIDsCursor  string                            `json:"externalIdsNextCursor,omitempty"`
-	File               *mediaIdentificationFile          `json:"file,omitempty"`
-	incompleteEvidence bool
+	Ref                 catalogRef                        `json:"ref"`
+	Title               string                            `json:"title"`
+	StructureKind       string                            `json:"structureKind"`
+	MatchState          string                            `json:"matchState"`
+	StructureRevision   int64                             `json:"structureRevision"`
+	ItemRevision        int64                             `json:"itemRevision"`
+	UndoMatchRevision   int64                             `json:"undoMatchRevision,omitempty"`
+	UndoMappingRevision string                            `json:"undoMappingRevision,omitempty"`
+	ExternalIDs         []medialibrary.MetadataExternalID `json:"externalIds"`
+	ExternalIDsCursor   string                            `json:"externalIdsNextCursor,omitempty"`
+	File                *mediaIdentificationFile          `json:"file,omitempty"`
+	incompleteEvidence  bool
 }
 
 var mediaIdentificationHandler = mediaLibraryRead(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
@@ -51,6 +52,11 @@ var mediaIdentificationHandler = mediaLibraryRead(func(w http.ResponseWriter, r 
 			return catalogError(w, err)
 		}
 		result.UndoMatchRevision = revision
+		mappingRevision, err := d.store.MediaLibrary.CurrentSeriesMappingRevision(r.Context(), d.user.ID, result.Ref.LibraryID, result.Ref.ItemID)
+		if err != nil && !errors.Is(err, medialibrary.ErrNotFound) && !errors.Is(err, medialibrary.ErrForbidden) {
+			return catalogError(w, err)
+		}
+		result.UndoMappingRevision = mappingRevision
 	}
 	if err := view.revalidateSources(r.Context()); err != nil {
 		return catalogError(w, err)
