@@ -64,7 +64,7 @@ class MediaProviderIdentification internal constructor(
     val ref: MediaCatalogRef, val title: String, val structureKind: MediaItemKind, val matchState: MediaCatalogMatchState,
     val itemRevision: Long, val structureRevision: Long, val externalIds: List<MediaExternalId>,
     val externalIdsNextCursor: String?, val file: MediaProviderIdentificationFile?,
-    val undoMatchRevision: Long? = null,
+    val undoMatchRevision: Long? = null, val undoMappingRevision: String? = null,
 ) {
     override fun toString(): String = "MediaProviderIdentification(redacted)"
 }
@@ -198,7 +198,8 @@ internal fun parseProviderIdentification(row: JSONObject, ref: MediaCatalogRef):
             }
         },
         row.providerOptionalText("externalIdsNextCursor", 256)?.also(::mediaCursor), file,
-        if (row.has("undoMatchRevision")) row.providerLong("undoMatchRevision", 1) else null)
+        if (row.has("undoMatchRevision")) row.providerLong("undoMatchRevision", 1) else null,
+        row.providerOptionalText("undoMappingRevision", 200)?.also(::requireMediaRouteId))
 }
 
 internal fun parseProviderUndoReceipt(row: JSONObject) = MediaProviderUndoReceipt(

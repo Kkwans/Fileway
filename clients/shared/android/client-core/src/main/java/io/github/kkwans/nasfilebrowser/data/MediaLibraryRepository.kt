@@ -393,6 +393,57 @@ class MediaLibraryRepository(
                 .put("connectionId", candidate.connectionId ?: "")))
     }
 
+    /** Preview only: a server-side draft cannot alter the item's structure. */
+    suspend fun previewSeriesMapping(operation: MediaOperation, item: MediaProviderIdentification,
+        title: String, season: Int, episodes: List<Int>, candidate: MediaProviderCandidate? = null): MediaReadResult<MediaSeriesMappingPreview> {
+        item.ref.requireBound(scope, catalogDeviceSession)
+        require(operation.account == scope.account && item.structureKind == MediaItemKind.VIDEO)
+        require(season in 0..999 && episodes.size in 1..100 && episodes == episodes.distinct().sorted() && episodes.all { it in 0..9999 })
+        require(title.isNotBlank() && title.toByteArray(Charsets.UTF_8).size <= 4096 && title.none(Char::isISOControl))
+        candidate?.let {
+            require(it.ref == item.ref && it.kind == MediaProviderMatchKind.SERIES &&
+                it.itemRevision == item.itemRevision && it.structureRevision == item.structureRevision)
+        }
+        val body = JSONObject().put("operationId", operation.id).put("action", "assign_series")
+            .put("itemRevision", item.itemRevision).put("structureRevision", item.structureRevision)
+            .put("seasonNumber", season).put("episodeNumbers", JSONArray(episodes))
+        if (candidate == null) body.put("newSeriesTitle", title.trim())
+        else body.put("kind", "series").put("externalId", candidate.externalId).put("connectionId", candidate.connectionId ?: "")
+        return catalogRead(null) {
+            val row = context.api.request("POST", "${itemEndpoint(item.ref.libraryId, item.ref.itemId)}/mapping-previews", body)
+            val mapping = row.getJSONObject("mapping")
+            require(mapping.getString("libraryId") == item.ref.libraryId && mapping.getString("itemId") == item.ref.itemId &&
+                mapping.getLong("itemRevision") == item.itemRevision && mapping.getLong("structureRevision") == item.structureRevision &&
+                mapping.getInt("seasonNumber") == season)
+            val received = mapping.getJSONArray("episodeNumbers")
+            require((0 until received.length()).map { received.getInt(it) } == episodes)
+            if (candidate != null) require(mapping.getString("externalId") == candidate.externalId)
+            val fields = row.getJSONArray("preservedManualFields")
+            require(fields.length() <= 100)
+            val preserved = (0 until fields.length()).map { fields.getString(it).also { value -> require(value.length <= 128) } }
+            val mode = row.getString("playMode")
+            val independent = row.getBoolean("independentStart")
+            require(mode == if (episodes.size == 1) "single" else "combined_file")
+            require(independent == (episodes.size == 1))
+            MediaSeriesMappingPreview(item.ref, row.getString("previewId").also(::requireMediaRouteId),
+                mapping.getString("newSeriesTitle"), season, episodes, !independent, preserved,
+                row.getLong("expiresAt").also { require(it > 0) })
+        }
+    }
+
+    suspend fun confirmSeriesMapping(operation: MediaOperation, preview: MediaSeriesMappingPreview): MediaWriteResult<MediaSeriesMappingResult> {
+        preview.ref.requireBound(scope, catalogDeviceSession)
+        return providerWrite(mutation(operation, MediaMutationKind.CONFIRM_SERIES_MAPPING, preview.ref.libraryId, itemId = preview.ref.itemId,
+            body = operationBody(operation).put("action", "assign_series").put("previewId", preview.id)))
+    }
+
+    suspend fun undoSeriesMapping(operation: MediaOperation, item: MediaProviderIdentification): MediaWriteResult<MediaSeriesMappingResult> {
+        item.ref.requireBound(scope, catalogDeviceSession)
+        val revision = requireNotNull(item.undoMappingRevision)
+        return providerWrite(mutation(operation, MediaMutationKind.UNDO_SERIES_MAPPING, item.ref.libraryId, itemId = item.ref.itemId,
+            body = operationBody(operation).put("mappingRevision", revision)))
+    }
+
     suspend fun pendingMetadataPolicyOperation(libraryId: String): MediaOperation? {
         requireMediaRouteId(libraryId); checkCurrent(); checkCatalogCredential()
         return journal.firstUnresolved(scope.account, setOf(MediaMutationKind.UPDATE_METADATA_POLICY), libraryId)
@@ -400,7 +451,8 @@ class MediaLibraryRepository(
 
     suspend fun pendingMatchConfirmation(ref: MediaCatalogRef): MediaOperation? {
         ref.requireBound(scope, catalogDeviceSession); checkCurrent(); checkCatalogCredential()
-        return journal.firstUnresolved(scope.account, setOf(MediaMutationKind.CONFIRM_PROVIDER_MATCH, MediaMutationKind.UNDO_PROVIDER_MATCH), ref.libraryId, ref.itemId)
+        return journal.firstUnresolved(scope.account, setOf(MediaMutationKind.CONFIRM_PROVIDER_MATCH, MediaMutationKind.UNDO_PROVIDER_MATCH,
+            MediaMutationKind.CONFIRM_SERIES_MAPPING, MediaMutationKind.UNDO_SERIES_MAPPING), ref.libraryId, ref.itemId)
     }
 
     suspend fun undoMatch(operation: MediaOperation, item: MediaProviderIdentification): MediaWriteResult<MediaProviderUndoReceipt> {
@@ -761,8 +813,10 @@ private fun receipt(request: MediaMutationRequest, value: Any): MediaWriteReceip
     is MediaProviderPolicy -> MediaWriteReceipt(value.libraryId, revision = value.revision.takeIf { it > 0 })
     is MediaProviderMatchReceipt -> MediaWriteReceipt(value.libraryId, revision = value.itemRevision, itemId = value.itemId)
     is MediaProviderUndoReceipt -> MediaWriteReceipt(value.libraryId, revision = value.itemRevision, itemId = value.itemId)
+    is MediaSeriesMappingResult -> MediaWriteReceipt(value.libraryId, revision = value.itemRevision, itemId = value.itemId)
     else -> error("媒体库回执类型无效")
 }
 
 private val providerMutationKinds = setOf(MediaMutationKind.UPDATE_METADATA_POLICY,
-    MediaMutationKind.CONFIRM_PROVIDER_MATCH, MediaMutationKind.UNDO_PROVIDER_MATCH)
+    MediaMutationKind.CONFIRM_PROVIDER_MATCH, MediaMutationKind.UNDO_PROVIDER_MATCH,
+    MediaMutationKind.CONFIRM_SERIES_MAPPING, MediaMutationKind.UNDO_SERIES_MAPPING)

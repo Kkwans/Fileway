@@ -433,6 +433,75 @@ class MediaCatalogBrowseContractTest {
         journal.close()
     }
 
+    @Test fun explicitSeriesMappingRetainsUnknownConfirmationForReplay() = runBlocking<Unit> {
+        val profile = ServerProfile(name = "fixture", address = "https://example.invalid")
+        val base = "/api/media-library/v1/libraries/lib_1/items/video_1"
+        var attempts = 0
+        var originalOperation: String? = null
+        val session = bound(profile) { command -> when (command.getString("op")) {
+            "open" -> "mapping-fixture"
+            "token" -> token()
+            "request" -> {
+                val endpoint = command.getString("endpoint")
+                when (endpoint) {
+                    "$base/identification" -> reply(200, JSONObject()
+                        .put("ref", JSONObject().put("libraryId", "lib_1").put("itemId", "video_1"))
+                        .put("title", "Fixture").put("structureKind", "video").put("matchState", "unmatched")
+                        .put("itemRevision", 3).put("structureRevision", 4).put("externalIds", JSONArray()))
+                    "$base/mapping-previews" -> {
+                        val body = command.getJSONObject("body")
+                        assertEquals("assign_series", body.getString("action"))
+                        assertEquals(0, body.getInt("seasonNumber"))
+                        assertEquals(listOf(1, 2), (0 until body.getJSONArray("episodeNumbers").length()).map { body.getJSONArray("episodeNumbers").getInt(it) })
+                        reply(200, JSONObject().put("previewId", "mp_1").put("expiresAt", 2000000000000L)
+                            .put("mapping", JSONObject().put("libraryId", "lib_1").put("itemId", "video_1")
+                                .put("itemRevision", 3).put("structureRevision", 4).put("seasonNumber", 0)
+                                .put("episodeNumbers", JSONArray().put(1).put(2)).put("newSeriesTitle", "Fixture series"))
+                            .put("preservedManualFields", JSONArray().put("title"))
+                            .put("playMode", "combined_file").put("independentStart", false))
+                    }
+                    "$base/mapping-commands" -> {
+                        val body = command.getJSONObject("body")
+                        assertEquals("mp_1", body.getString("previewId"))
+                        if (attempts++ == 0) {
+                            originalOperation = body.getString("operationId")
+                            reply(503, JSONObject().put("code", "write_outcome_unknown"))
+                        } else {
+                            assertEquals(originalOperation, body.getString("operationId"))
+                            reply(200, JSONObject().put("libraryId", "lib_1").put("itemId", "video_1")
+                                .put("seriesId", "series_1").put("seasonId", "season_1")
+                                .put("episodeIds", JSONArray().put("video_1").put("episode_2"))
+                                .put("mappingRevision", "mr_1").put("itemRevision", 5).put("structureRevision", 6)
+                                .put("playMode", "combined_file").put("independentStart", false))
+                        }
+                    }
+                    else -> reply(404)
+                }
+            }
+            else -> null
+        } }
+        val context = isolatedContext()
+        val first = MediaWriteJournal.open(context)
+        val repo = MediaLibraryRepository(session, { true }, first)
+        val ref = repo.catalogRef("lib_1", "video_1")
+        val item = (repo.identification(ref) as MediaReadResult.Success).value
+        val preview = (repo.previewSeriesMapping(repo.newOperation(), item, "Fixture series", 0, listOf(1, 2)) as MediaReadResult.Success).value
+        assertTrue(preview.combined)
+        val operation = repo.newOperation()
+        val uncertain = repo.confirmSeriesMapping(operation, preview) as MediaWriteResult.Failure
+        assertTrue(uncertain.error.mutationMayHaveCommitted)
+        first.close()
+        val restoredJournal = MediaWriteJournal.open(context)
+        try {
+            val restored = MediaLibraryRepository(session, { true }, restoredJournal)
+            assertEquals(operation, restored.pendingMatchConfirmation(restored.catalogRef("lib_1", "video_1")))
+            val result = (restored.retryOperation(operation) as MediaWriteResult.Success).value as MediaSeriesMappingResult
+            assertEquals("video_1", result.episodeIds.first())
+            assertFalse(result.independentStart)
+            restored.forgetResolvedOperation(operation)
+        } finally { restoredJournal.close() }
+    }
+
     @Test fun changedDeviceSessionCancelsAResultButOrdinaryRenewalDoesNot() = runBlocking<Unit> {
         var currentToken = token("device_a")
         var nextToken = token("device_a", "renewed")

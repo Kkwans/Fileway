@@ -6,6 +6,7 @@ internal enum class MediaMutationKind {
     CREATE_LIBRARY, UPDATE_LIBRARY, ARCHIVE_LIBRARY, RESTORE_LIBRARY, GRANT_MEMBER, REVOKE_MEMBER,
     CREATE_SOURCE, START_SCAN, CANCEL_SCAN, RETRY_SCAN, ATTEST_SOURCE, PATCH_METADATA, UNDO_METADATA, PATCH_USER_STATE,
     UPDATE_METADATA_POLICY, CONFIRM_PROVIDER_MATCH, UNDO_PROVIDER_MATCH, START_SCAN_BATCH,
+    CONFIRM_SERIES_MAPPING, UNDO_SERIES_MAPPING,
 }
 
 internal fun requireMediaRouteId(value: String) {
@@ -56,6 +57,8 @@ internal class MediaMutationRequest(
             MediaMutationKind.UPDATE_METADATA_POLICY -> setOf("operationId", "expectedRevision", "mode", "connectionId", "language", "region", "allowEditorJobs")
             MediaMutationKind.CONFIRM_PROVIDER_MATCH -> setOf("operationId", "itemRevision", "structureRevision", "kind", "externalId", "connectionId")
             MediaMutationKind.UNDO_PROVIDER_MATCH -> setOf("operationId", "itemRevision", "structureRevision", "matchRevision")
+            MediaMutationKind.CONFIRM_SERIES_MAPPING -> setOf("operationId", "action", "previewId")
+            MediaMutationKind.UNDO_SERIES_MAPPING -> setOf("operationId", "mappingRevision")
         }
         input.exactKeys(keys)
         // Normal JNI commands are capped at 1 MiB; leave headroom for the envelope.
@@ -84,6 +87,11 @@ internal class MediaMutationRequest(
             requireProviderExternalId(input.strictString("externalId"))
             input.strictString("connectionId").takeIf(String::isNotEmpty)?.let(::requireProviderConnectionId)
         }
+        if (kind == MediaMutationKind.CONFIRM_SERIES_MAPPING) {
+            require(input.strictString("action") == "assign_series")
+            requireMediaRouteId(input.strictString("previewId"))
+        }
+        if (kind == MediaMutationKind.UNDO_SERIES_MAPPING) requireMediaRouteId(input.strictString("mappingRevision"))
         if ("name" in keys) {
             val name = input.strictString("name").trim()
             require(name.isNotEmpty() && name.codePointCount(0, name.length) <= 200 && name.none(Char::isISOControl))
@@ -93,7 +101,8 @@ internal class MediaMutationRequest(
         if (kind in setOf(MediaMutationKind.GRANT_MEMBER, MediaMutationKind.REVOKE_MEMBER)) require(userId != null && userId in 1..0xffff_ffffL) else require(userId == null)
         if (kind == MediaMutationKind.ATTEST_SOURCE) requireMediaRouteId(requireNotNull(bindingId)) else require(bindingId == null)
         if (kind in setOf(MediaMutationKind.PATCH_METADATA, MediaMutationKind.UNDO_METADATA, MediaMutationKind.PATCH_USER_STATE,
-                MediaMutationKind.CONFIRM_PROVIDER_MATCH, MediaMutationKind.UNDO_PROVIDER_MATCH)) requireMediaRouteId(requireNotNull(itemId)) else require(itemId == null)
+                MediaMutationKind.CONFIRM_PROVIDER_MATCH, MediaMutationKind.UNDO_PROVIDER_MATCH,
+                MediaMutationKind.CONFIRM_SERIES_MAPPING, MediaMutationKind.UNDO_SERIES_MAPPING)) requireMediaRouteId(requireNotNull(itemId)) else require(itemId == null)
     }
 
     fun body(): JSONObject = JSONObject(json)
@@ -123,6 +132,8 @@ internal class MediaMutationRequest(
             MediaMutationKind.UPDATE_METADATA_POLICY -> "$library/metadata-policy"
             MediaMutationKind.CONFIRM_PROVIDER_MATCH -> "$library/items/$itemId/match-confirmation"
             MediaMutationKind.UNDO_PROVIDER_MATCH -> "$library/items/$itemId/match-confirmation/undo"
+            MediaMutationKind.CONFIRM_SERIES_MAPPING -> "$library/items/$itemId/mapping-commands"
+            MediaMutationKind.UNDO_SERIES_MAPPING -> "$library/items/$itemId/mapping-undo"
             MediaMutationKind.START_SCAN -> "$library/scans"
             MediaMutationKind.START_SCAN_BATCH -> "$library/scan-batches"
             MediaMutationKind.CANCEL_SCAN -> "$library/scans/$scanId/cancel"
@@ -154,6 +165,9 @@ internal class MediaMutationRequest(
             require(it.libraryId == libraryId && it.itemId == itemId && it.kind.wire == input.strictString("kind") && it.externalId == input.strictString("externalId"))
         }
         MediaMutationKind.UNDO_PROVIDER_MATCH -> parseProviderUndoReceipt(row).also { require(it.libraryId == libraryId && it.itemId == itemId) }
+        MediaMutationKind.CONFIRM_SERIES_MAPPING, MediaMutationKind.UNDO_SERIES_MAPPING -> parseSeriesMappingResult(row).also {
+            require(it.libraryId == libraryId && it.itemId == itemId && it.episodeIds.first() == itemId)
+        }
         MediaMutationKind.START_SCAN, MediaMutationKind.CANCEL_SCAN, MediaMutationKind.RETRY_SCAN -> parseMediaScan(row).also {
             require(it.libraryId == libraryId)
             if (kind == MediaMutationKind.CANCEL_SCAN) require(it.id == scanId)
