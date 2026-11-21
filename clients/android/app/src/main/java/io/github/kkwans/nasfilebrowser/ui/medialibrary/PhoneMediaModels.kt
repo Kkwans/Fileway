@@ -62,7 +62,10 @@ internal data class PhoneMediaMatchState(val itemId: String, val revision: Strin
     val evidence: List<String>, val query: String, val candidates: MediaSection<MediaMatchCandidate>,
     val selectedCandidate: String? = null, val impact: MediaMatchImpact? = null, val busy: Boolean = false,
     val canApply: Boolean = false, val suggestionOnly: Boolean = false, val conflict: MediaProblem? = null,
-    val problem: MediaProblem? = null, val canUndo: Boolean = false)
+    val problem: MediaProblem? = null, val canUndo: Boolean = false,
+    val canChooseSeries: Boolean = false, val seriesMode: Boolean = false,
+    val seasonNumber: String = "1", val episodeNumbers: String = "1", val canUndoMapping: Boolean = false,
+    val searched: Boolean = false)
 
 internal data class MediaSourceRoot(val id: String, val name: String, val description: String,
     val available: Boolean, val unavailableReason: String? = null)
@@ -107,6 +110,11 @@ internal sealed interface PhoneMediaAction {
     data class JumpToEpisode(val seasonId: String, val number: Int) : PhoneMediaAction
     data class ReviewMatch(val id: String) : PhoneMediaAction
     data class MatchQuery(val query: String) : PhoneMediaAction
+    data class MatchSeriesMode(val series: Boolean) : PhoneMediaAction
+    data class MatchSeason(val value: String) : PhoneMediaAction
+    data class MatchEpisodes(val value: String) : PhoneMediaAction
+    data object PreviewSeriesMapping : PhoneMediaAction
+    data object UndoSeriesMapping : PhoneMediaAction
     data class SearchMatches(val query: String) : PhoneMediaAction
     data class PreviewMatch(val candidateId: String, val expectedRevision: String) : PhoneMediaAction
     data class ApplyMatch(val candidateId: String, val expectedRevision: String, val suggestion: Boolean) : PhoneMediaAction

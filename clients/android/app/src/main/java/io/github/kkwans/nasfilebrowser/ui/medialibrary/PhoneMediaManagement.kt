@@ -18,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
 import io.github.kkwans.nasfilebrowser.R
@@ -32,6 +33,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
     listState: LazyListState = rememberLazyListState()) {
     val focus = LocalFocusManager.current
     var confirmUndo by remember(state.itemId, state.revision) { mutableStateOf(false) }
+    var confirmMappingUndo by remember(state.itemId, state.revision) { mutableStateOf(false) }
     Column(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).imePadding()) {
         FilewayTopAppBar(if (state.suggestionOnly) "提交识别建议" else "纠正识别", leadingIcon = R.drawable.ic_arrow_back,
             leadingDescription = "返回", onLeadingClick = { onAction(PhoneMediaAction.Back) })
@@ -43,17 +45,29 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                 state.evidence.forEach { Text(it, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp)) }
                 if (state.canUndo) TextButton(onClick = { confirmUndo = true }, enabled = !state.busy) { Text("撤销 TMDB 匹配") }
+                if (state.canUndoMapping) TextButton(onClick = { confirmMappingUndo = true }, enabled = !state.busy) { Text("撤销剧集关联") }
+            }
+            if (state.canChooseSeries) item(key = "kind") {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("内容类型", style = MaterialTheme.typography.titleMedium)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(selected = !state.seriesMode, onClick = { onAction(PhoneMediaAction.MatchSeriesMode(false)) },
+                            enabled = !state.busy, label = { Text("电影") }, modifier = Modifier.heightIn(min = 48.dp))
+                        FilterChip(selected = state.seriesMode, onClick = { onAction(PhoneMediaAction.MatchSeriesMode(true)) },
+                            enabled = !state.busy, label = { Text("剧集") }, modifier = Modifier.heightIn(min = 48.dp))
+                    }
+                }
             }
             item(key = "search") {
-                OutlinedTextField(state.query, { onAction(PhoneMediaAction.MatchQuery(it)) }, modifier = Modifier.fillMaxWidth(),
+                OutlinedTextField(state.query, { onAction(PhoneMediaAction.MatchQuery(it)) }, modifier = Modifier.fillMaxWidth(), enabled = !state.busy,
                     label = { Text("片名") }, singleLine = true,
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = {
-                        if (state.query.isNotBlank() && !state.busy) {
+                        if (state.query.isNotBlank() && !state.busy && !state.candidates.loading) {
                             focus.clearFocus(); onAction(PhoneMediaAction.SearchMatches(state.query))
                         }
                     }), shape = MaterialTheme.shapes.medium)
                 TextButton(onClick = { focus.clearFocus(); onAction(PhoneMediaAction.SearchMatches(state.query)) },
-                    enabled = state.query.isNotBlank() && !state.busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("搜索候选") }
+                    enabled = state.query.isNotBlank() && !state.busy && !state.candidates.loading, modifier = Modifier.heightIn(min = 48.dp)) { Text("搜索候选") }
             }
             state.conflict?.let { conflict -> item(key = "conflict") {
                 // No force-overwrite button. Reload must preserve the query and candidate selection.
@@ -65,9 +79,10 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
             state.candidates.problem?.let { problem -> item(key = "candidate-problem") {
                 MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("match-candidates")) })
             } }
-            item(key = "candidate-heading") { MediaHeading("匹配候选") }
-            if (state.candidates.entries.isEmpty() && !state.candidates.loading && state.candidates.problem == null) item(key = "empty") {
-                FilewayEmptyState(R.drawable.ic_search, "暂无候选", "可用中文片名或原名查找作品。")
+            if (state.searched || state.candidates.entries.isNotEmpty() || state.candidates.loading) item(key = "candidate-heading") { MediaHeading("匹配候选") }
+            if (state.searched && state.candidates.entries.isEmpty() && !state.candidates.loading && state.candidates.problem == null && state.problem == null) item(key = "empty") {
+                Text("没有找到候选，可以修改片名后重试。", style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             items(state.candidates.entries, key = { "candidate/${it.id}" }) { candidate ->
                 Surface(shape = MaterialTheme.shapes.medium,
@@ -87,6 +102,24 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                 }
             }
             item(key = "paging") { MediaPaging("match-candidates", state.candidates.loading, state.candidates.hasMore, onAction) }
+            if (state.seriesMode) item(key = "series-structure") {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("确定季集", style = MaterialTheme.typography.titleMedium)
+                    Text("选择 TMDB 候选，或直接使用输入的剧名创建本地剧集。多个集号用英文逗号分隔。",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedTextField(state.seasonNumber, { onAction(PhoneMediaAction.MatchSeason(it)) },
+                            label = { Text("季号") }, singleLine = true, enabled = !state.busy,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), modifier = Modifier.weight(1f))
+                        OutlinedTextField(state.episodeNumbers, { onAction(PhoneMediaAction.MatchEpisodes(it)) },
+                            label = { Text("集号，如 1,2") }, singleLine = true, enabled = !state.busy,
+                            modifier = Modifier.weight(2f))
+                    }
+                    TextButton(onClick = { focus.clearFocus(); onAction(PhoneMediaAction.PreviewSeriesMapping) },
+                        enabled = !state.busy && !state.candidates.loading && state.query.isNotBlank(),
+                        modifier = Modifier.heightIn(min = 48.dp)) { Text("预览剧集关联") }
+                }
+            }
             state.impact?.takeIf { it.candidateId == state.selectedCandidate }?.let { impact -> item(key = "impact") {
                 Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -111,6 +144,12 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
         text = { Text("将恢复上一次 TMDB 匹配或回到未匹配。手动修改和观看记录会保留。") },
         confirmButton = { TextButton(onClick = { confirmUndo = false; onAction(PhoneMediaAction.UndoMatch) }) { Text("撤销匹配") } },
         dismissButton = { TextButton(onClick = { confirmUndo = false }) { Text("取消") } },
+    )
+    if (confirmMappingUndo) AlertDialog(
+        onDismissRequest = { confirmMappingUndo = false }, title = { Text("撤销剧集关联？") },
+        text = { Text("将恢复原视频的未分类关联。原视频、手动资料和观看记录会保留。") },
+        confirmButton = { TextButton(onClick = { confirmMappingUndo = false; onAction(PhoneMediaAction.UndoSeriesMapping) }) { Text("撤销关联") } },
+        dismissButton = { TextButton(onClick = { confirmMappingUndo = false }) { Text("取消") } },
     )
 }
 

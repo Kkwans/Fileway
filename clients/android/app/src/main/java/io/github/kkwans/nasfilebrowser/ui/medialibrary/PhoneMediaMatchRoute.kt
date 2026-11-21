@@ -1,6 +1,7 @@
 package io.github.kkwans.nasfilebrowser.ui.medialibrary
 
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import coil3.ImageLoader
 import io.github.kkwans.nasfilebrowser.data.*
 import kotlinx.coroutines.Job
@@ -13,19 +14,25 @@ internal fun PhoneMediaMatchRoute(repository: MediaLibraryRepository, ref: Media
         val scope = rememberCoroutineScope()
         var identification by remember { mutableStateOf<MediaProviderIdentification?>(null) }
         var policy by remember { mutableStateOf<MediaProviderPolicy?>(null) }
-        var query by remember { mutableStateOf("") }
+        var query by rememberSaveable { mutableStateOf("") }
         var searchedQuery by remember { mutableStateOf("") }
         var candidates by remember { mutableStateOf<List<MediaProviderCandidate>>(emptyList()) }
         var selected by remember { mutableStateOf<MediaProviderCandidate?>(null) }
+        var seriesMode by rememberSaveable { mutableStateOf(false) }
+        var seasonNumber by rememberSaveable { mutableStateOf("1") }
+        var episodeNumbers by rememberSaveable { mutableStateOf("1") }
+        var seriesPreview by remember { mutableStateOf<MediaSeriesMappingPreview?>(null) }
         var nextPage by remember { mutableStateOf<Int?>(null) }
         var error by remember { mutableStateOf<MediaProblem?>(null) }
         var busy by remember { mutableStateOf(false) }
         var loading by remember { mutableStateOf(false) }
         var pending by remember { mutableStateOf<MediaOperation?>(null) }
         var searchJob by remember { mutableStateOf<Job?>(null) }
+        var searchGeneration by remember { mutableIntStateOf(0) }
         var refresh by remember { mutableIntStateOf(0) }
         LaunchedEffect(refresh) {
-            loading = true; error = null; candidates = emptyList(); selected = null
+            searchGeneration++; searchJob?.cancel()
+            loading = true; error = null; candidates = emptyList(); selected = null; seriesPreview = null; searchedQuery = ""
             try {
                 pending = repository.pendingMatchConfirmation(ref)
                 when (val result = repository.identification(ref)) {
@@ -52,32 +59,62 @@ internal fun PhoneMediaMatchRoute(repository: MediaLibraryRepository, ref: Media
                 return
             }
             searchJob?.cancel()
-            if (page == 1) { candidates = emptyList(); selected = null; nextPage = null }
+            val requestGeneration = ++searchGeneration
+            if (page == 1) { candidates = emptyList(); selected = null; nextPage = null; seriesPreview = null }
             searchedQuery = value
-            val kind = if (item.structureKind == MediaItemKind.SERIES) MediaProviderMatchKind.SERIES else MediaProviderMatchKind.MOVIE
+            val kind = if (item.structureKind == MediaItemKind.SERIES || seriesMode) MediaProviderMatchKind.SERIES else MediaProviderMatchKind.MOVIE
             searchJob = scope.launch {
                 loading = true; error = null
                 try {
                     when (val result = repository.searchMatchCandidates(item, kind, page = page, title = value.trim(), connectionId = policy?.connectionId)) {
                         is MediaReadResult.Success -> {
-                            candidates = (candidates + result.value.items).distinctBy { it.externalId }
-                            nextPage = if (result.value.hasMore) result.value.page + 1 else null
+                            if (requestGeneration == searchGeneration) {
+                                candidates = (candidates + result.value.items).distinctBy { it.externalId }
+                                nextPage = if (result.value.hasMore) result.value.page + 1 else null
+                            }
                         }
-                        is MediaReadResult.Failure -> error = MediaProblem("查询失败", providerProblem(result.error), "重试")
+                        is MediaReadResult.Failure -> if (requestGeneration == searchGeneration) error = MediaProblem("查询失败", providerProblem(result.error), "重试")
                     }
-                } finally { loading = false }
+                } finally { if (requestGeneration == searchGeneration) loading = false }
             }
         }
-        fun submit(candidate: MediaProviderCandidate? = null, undo: MediaProviderIdentification? = null) {
+        fun previewSeries() {
+            val item = identification ?: return
+            if (busy || pending != null || item.structureKind != MediaItemKind.VIDEO) return
+            val season = seasonNumber.toIntOrNull()
+            val episodes = episodeNumbers.split(',').map { it.trim().toIntOrNull() }
+            if (season == null || season !in 0..999 || episodes.isEmpty() || episodes.size > 100 ||
+                episodes.any { it == null || it !in 0..9999 } || query.isBlank() ||
+                query.codePointCount(0, query.length) > 1024 || query.toByteArray(Charsets.UTF_8).size > 4096 ||
+                query.any(Char::isISOControl) || !Charsets.UTF_8.newEncoder().canEncode(query)) {
+                error = MediaProblem("请填写季集", "季号为 0–999，集号为 0–9999；多个集号用英文逗号分隔。")
+                return
+            }
+            val numbers = episodes.filterNotNull().distinct().sorted()
+            busy = true; error = null; seriesPreview = null
+            scope.launch {
+                try {
+                    when (val result = repository.previewSeriesMapping(repository.newOperation(), item, query.trim(), season, numbers, selected)) {
+                        is MediaReadResult.Success -> seriesPreview = result.value
+                        is MediaReadResult.Failure -> error = MediaProblem("无法预览关联", providerProblem(result.error), "刷新资料")
+                    }
+                } finally { busy = false }
+            }
+        }
+        fun submit(candidate: MediaProviderCandidate? = null, undo: MediaProviderIdentification? = null, undoMapping: Boolean = false) {
             val previous = pending
-            if (busy || previous == null && candidate?.canConfirm != true && undo?.undoMatchRevision == null) return
+            val mapping = seriesPreview
+            if (busy || previous == null && candidate?.canConfirm != true && mapping == null &&
+                undo?.undoMatchRevision == null && !(undoMapping && undo?.undoMappingRevision != null)) return
             val operation = previous ?: repository.newOperation()
             busy = true; error = null
             scope.launch {
                 try {
                     val result = when {
                         previous != null -> repository.retryOperation(previous)
+                        undoMapping && undo != null -> repository.undoSeriesMapping(operation, undo)
                         undo != null -> repository.undoMatch(operation, undo)
+                        mapping != null -> repository.confirmSeriesMapping(operation, mapping)
                         else -> repository.confirmMatch(operation, requireNotNull(candidate))
                     }
                     when (result) {
@@ -102,17 +139,32 @@ internal fun PhoneMediaMatchRoute(repository: MediaLibraryRepository, ref: Media
                         "explicit_id_match" -> "编号相符"; "explicit_id_difference", "explicit_id_conflict" -> "编号有冲突"
                         else -> null
                     } }.joinToString(" · ").ifBlank { null })
-            }, loading = loading, hasMore = nextPage != null), selected?.externalId,
-            selected?.let { MediaMatchImpact(it.externalId, revision, "为此条目使用《${it.title}》的 TMDB 资料。", listOf("原视频和已经锁定的字段会保留。"), it.canConfirm) },
+            }, loading = loading, hasMore = nextPage != null), selected?.externalId ?: if (seriesPreview != null) "local-series" else null,
+            if (seriesMode) seriesPreview?.let { preview ->
+                MediaMatchImpact(selected?.externalId ?: "local-series", revision,
+                    "将此视频关联到《${preview.title}》第 ${preview.season} 季第 ${preview.episodes.joinToString("、")} 集。",
+                    listOf("原视频和观看记录保留。") +
+                        (if (preview.combined) listOf("这是多集合并文件，不会虚构单集起点。") else emptyList()) +
+                        (if (preview.preservedFields.isNotEmpty()) listOf("已锁定和手工修改的资料会保留。") else emptyList()), true)
+            } else selected?.let { MediaMatchImpact(it.externalId, revision, "为此条目使用《${it.title}》的 TMDB 资料。", listOf("原视频和已经锁定的字段会保留。"), it.canConfirm) },
             busy = busy, canApply = pending == null, problem = error ?: pending?.let { MediaProblem("结果待确认", "可以确认上次的匹配操作。", "确认上次操作") },
-            canUndo = pending == null && !loading && item?.undoMatchRevision != null),
+            canUndo = pending == null && !loading && item?.undoMatchRevision != null,
+            canChooseSeries = item?.structureKind == MediaItemKind.VIDEO, seriesMode = seriesMode,
+            seasonNumber = seasonNumber, episodeNumbers = episodeNumbers,
+            canUndoMapping = pending == null && !loading && item?.undoMappingRevision != null,
+            searched = searchedQuery.isNotBlank()),
             imageLoader, onAction = { action ->
                 when (action) {
                     PhoneMediaAction.Back -> if (!busy) onBack()
-                    is PhoneMediaAction.MatchQuery -> { query = action.query; selected = null }
+                    is PhoneMediaAction.MatchQuery -> { searchGeneration++; searchJob?.cancel(); loading = false; query = action.query; searchedQuery = ""; selected = null; candidates = emptyList(); nextPage = null; seriesPreview = null }
+                    is PhoneMediaAction.MatchSeriesMode -> { searchGeneration++; searchJob?.cancel(); loading = false; seriesMode = action.series; searchedQuery = ""; selected = null; candidates = emptyList(); nextPage = null; seriesPreview = null; error = null }
+                    is PhoneMediaAction.MatchSeason -> { seasonNumber = action.value; seriesPreview = null }
+                    is PhoneMediaAction.MatchEpisodes -> { episodeNumbers = action.value; seriesPreview = null }
+                    PhoneMediaAction.PreviewSeriesMapping -> previewSeries()
+                    PhoneMediaAction.UndoSeriesMapping -> submit(undo = identification, undoMapping = true)
                     is PhoneMediaAction.SearchMatches -> if (!busy && pending == null) search(action.query, 1)
-                    is PhoneMediaAction.PreviewMatch -> selected = candidates.firstOrNull { it.externalId == action.candidateId }
-                    is PhoneMediaAction.ApplyMatch -> submit(selected?.takeIf { it.externalId == action.candidateId })
+                    is PhoneMediaAction.PreviewMatch -> { selected = candidates.firstOrNull { it.externalId == action.candidateId }; seriesPreview = null }
+                    is PhoneMediaAction.ApplyMatch -> if (seriesMode) submit() else submit(selected?.takeIf { it.externalId == action.candidateId })
                     PhoneMediaAction.UndoMatch -> submit(undo = identification)
                     is PhoneMediaAction.LoadMore -> nextPage?.let { search(searchedQuery, it) }
                     is PhoneMediaAction.Retry -> if (pending != null) submit() else refresh++
