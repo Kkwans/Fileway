@@ -162,16 +162,22 @@ class MediaLibraryRepository(
 
     /** Explicit selection creates a short-lived server lease; never auto-retry an unknown outcome. */
     suspend fun resolvePlayback(variant: MediaCatalogVariant, trackProgress: Boolean = false,
-        fromStart: Boolean = false): MediaReadResult<MediaCatalogPlaybackResolution> {
+        fromStart: Boolean = false, checkpoint: MediaCatalogContinue? = null): MediaReadResult<MediaCatalogPlaybackResolution> {
         variant.ref.requireBound(scope, catalogDeviceSession)
+        require(checkpoint == null || checkpoint.variant === variant)
         val endpoint = "${itemEndpoint(variant.ref.libraryId, variant.ref.itemId)}/playback-resolutions"
         val body = JSONObject().put("editionId", variant.editionId).put("variantId", variant.variantId).put("bindingId", variant.bindingId)
-        val progressSupported = trackProgress && !variant.weakIdentity && supportsWatchProgress()
+        val progressSupported = checkpoint != null || trackProgress && !variant.weakIdentity && supportsWatchProgress()
         if (progressSupported) {
             body.put("watchProgress", true)
             if (fromStart) body.put("fromStart", true)
+            checkpoint?.let { body.put("continueRevision", it.revision) }
         }
-        return when (val result = catalogRead(null) { parseCatalogPlayback(context.api.request("POST", endpoint, body), variant) }) {
+        return when (val result = catalogRead(null) {
+            parseCatalogPlayback(context.api.request("POST", endpoint, body), variant).also {
+                if (checkpoint != null) require(it.watchProgress != null)
+            }
+        }) {
             is MediaReadResult.Success -> result
             is MediaReadResult.Failure -> {
                 // The response may have been lost after the server created a short lease.
@@ -180,6 +186,16 @@ class MediaLibraryRepository(
                 result.copy(error = result.error.copy(mutationMayHaveCommitted = unknown))
             }
         }
+    }
+
+    suspend fun removeContinue(checkpoint: MediaCatalogContinue): MediaReadResult<Unit> {
+        val variant = checkpoint.variant
+        variant.ref.requireBound(scope, catalogDeviceSession)
+        require(checkpoint.card.actions.can(MediaCatalogAction.REMOVE_FROM_CONTINUE))
+        val endpoint = "${itemEndpoint(variant.ref.libraryId, variant.ref.itemId)}/remove-continue"
+        val body = JSONObject().put("editionId", variant.editionId).put("variantId", variant.variantId)
+            .put("bindingId", variant.bindingId).put("expectedRevision", checkpoint.revision)
+        return catalogRead(null) { context.api.action("POST", endpoint, body); Unit }
     }
 
     private suspend fun supportsWatchProgress(): Boolean {

@@ -10,6 +10,7 @@ import io.github.kkwans.nasfilebrowser.data.*
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -500,6 +501,76 @@ class MediaCatalogBrowseContractTest {
             assertFalse(result.independentStart)
             restored.forgetResolvedOperation(operation)
         } finally { restoredJournal.close() }
+    }
+
+    @Test fun continuePagingRetriesTheFailedCursorAndClearsRevokedData() = runBlocking<Unit> {
+        fun continuation(id: String) = JSONObject().put("card", card(id, "episode").apply {
+            getJSONObject("canActions").put("resume", true)
+        }).put("variant", variant().put("itemId", id).put("variantId", "variant_$id"))
+            .put("revision", "a".repeat(43)).put("positionMs", 2_000).put("durationMs", 10_000)
+        fun firstRow() = row("continue", "partial", "cursor_fixture")
+            .put("continuing", JSONArray().put(continuation("episode_1")))
+        val seen = mutableListOf<String>()
+        var mode = "network"
+        val profile = ServerProfile(name = "fixture", address = "https://example.invalid")
+        val session = bound(profile) { command -> when (command.getString("op")) {
+            "open" -> "continue-paging"
+            "token" -> token()
+            "request" -> {
+                val endpoint = command.getString("endpoint")
+                seen += endpoint
+                when {
+                    endpoint == "/api/media-library/v1/home" -> reply(200, home()
+                        .put("rows", JSONArray().put(firstRow())).put("capabilities", JSONObject().put("watchState", true)))
+                    mode == "network" -> reply(503)
+                    mode == "expired" -> reply(410)
+                    mode == "revoked" -> reply(403)
+                    mode == "refresh" -> reply(200, firstRow())
+                    else -> reply(200, row("continue").put("continuing", JSONArray().put(continuation("episode_2"))))
+                }
+            }
+            else -> null
+        } }
+        val journal = MediaWriteJournal.open(isolatedContext())
+        val repo = MediaLibraryRepository(session, { true }, journal)
+        val watch = ContinueWatching(repo, this)
+        try {
+            val home = (repo.home() as MediaReadResult.Success).value
+            watch.seed(home)
+            watch.load(reset = false)
+            val failed = withTimeout(5_000) { watch.state.first { it.error != null } }
+            assertEquals("episode_1", failed.items.single().card.ref.itemId)
+            assertTrue(failed.hasMore)
+            val failedEndpoint = seen.last()
+            assertTrue(failedEndpoint.contains("cursor=cursor_fixture"))
+            mode = "success"
+            watch.retry()
+            val resumed = withTimeout(5_000) { watch.state.first { it.items.size == 2 } }
+            assertEquals(failedEndpoint, seen.last())
+            assertEquals(listOf("episode_1", "episode_2"), resumed.items.map { it.card.ref.itemId })
+            assertFalse(resumed.hasMore)
+
+            watch.seed(home)
+            mode = "expired"
+            watch.load(reset = false)
+            val expired = withTimeout(5_000) { watch.state.first { it.error != null } }
+            assertEquals("episode_1", expired.items.single().card.ref.itemId)
+            assertFalse(expired.hasMore)
+            mode = "refresh"
+            watch.retry()
+            withTimeout(5_000) { watch.state.first { it.error == null && it.hasMore } }
+            assertEquals("/api/media-library/v1/home/rows/continue", seen.last())
+
+            watch.seed(home)
+            mode = "revoked"
+            watch.load(reset = false)
+            val revoked = withTimeout(5_000) { watch.state.first { it.error != null } }
+            assertTrue(revoked.items.isEmpty())
+            assertFalse(revoked.hasMore)
+        } finally {
+            watch.clear()
+            journal.close()
+        }
     }
 
     @Test fun changedDeviceSessionCancelsAResultButOrdinaryRenewalDoesNot() = runBlocking<Unit> {

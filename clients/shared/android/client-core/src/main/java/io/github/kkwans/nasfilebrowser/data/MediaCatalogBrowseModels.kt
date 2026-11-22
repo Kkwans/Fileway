@@ -127,7 +127,16 @@ data class MediaCatalogPage<T>(
 data class MediaCatalogHomeRow(
     val id: MediaCatalogRowId, val kind: String, val state: MediaCatalogPageState,
     val items: List<MediaCatalogCard>, val nextCursor: MediaCatalogCursor?, val hasMore: Boolean, val revision: String,
+    val continuing: List<MediaCatalogContinue> = emptyList(),
 )
+class MediaCatalogContinue internal constructor(
+    val card: MediaCatalogCard, val variant: MediaCatalogVariant, internal val revision: String,
+    val positionMs: Long, val durationMs: Long?,
+) {
+    val id: String get() = "${card.ref.libraryId}/${card.ref.itemId}/${variant.variantId}"
+    val progress: Float? get() = durationMs?.let { positionMs.toFloat() / it }
+    override fun toString(): String = "MediaCatalogContinue(redacted)"
+}
 data class MediaCatalogHome(
     val schemaVersion: Long, val state: MediaCatalogHomeState, val libraries: List<MediaLibrarySummary>,
     val hero: MediaCatalogHomeRow?, val rows: List<MediaCatalogHomeRow>,
@@ -375,7 +384,20 @@ private fun parseRow(row: JSONObject, scope: MediaSessionScope, deviceSession: S
     require(hasMore == (next != null) && (state != MediaCatalogPageState.PARTIAL || hasMore))
     val max = if (id == MediaCatalogRowId.HERO) 5 else 12
     val items = if (row.has("items")) row.getJSONArray("items").catalogRows(max) { parseCatalogCard(it, scope, deviceSession) } else emptyList()
-    return MediaCatalogHomeRow(id, kind, state, items, next, hasMore, revision)
+    val continuing = if (!row.has("continuing")) emptyList() else {
+        require(id == MediaCatalogRowId.CONTINUE)
+        row.getJSONArray("continuing").catalogRows(max) { entry ->
+            val card = parseCatalogCard(entry.getJSONObject("card"), scope, deviceSession)
+            val variant = parseCatalogVariant(entry.getJSONObject("variant"), card.ref)
+            val checkpoint = entry.textValue("revision").also { require(it.matches(Regex("[A-Za-z0-9_-]{43}"))) }
+            val position = entry.integerValue("positionMs", 1)
+            val duration = entry.optionalIntegerValue("durationMs")
+            require(!variant.weakIdentity && card.actions.can(MediaCatalogAction.RESUME) &&
+                position <= MAX_WATCH_MEDIA_MS && (duration == null || duration in position..MAX_WATCH_MEDIA_MS))
+            MediaCatalogContinue(card, variant, checkpoint, position, duration)
+        }.also { entries -> require(entries.map { it.id }.distinct().size == entries.size) }
+    }
+    return MediaCatalogHomeRow(id, kind, state, items, next, hasMore, revision, continuing)
 }
 
 internal fun parseCatalogHome(row: JSONObject, scope: MediaSessionScope, deviceSession: String): MediaCatalogHome {
