@@ -18,10 +18,12 @@ internal data class MediaPoster(val id: String, val title: String, val subtitle:
     val poster: MediaArtwork? = null, val backdrop: MediaArtwork? = null,
     val primaryRating: MediaRating? = null, val availability: String? = null)
 internal data class MediaContinue(val id: String, val item: MediaPoster, val progressLabel: String,
-    val progress: Float? = null, val playable: Boolean = true)
+    val progress: Float? = null, val playable: Boolean = true, val removing: Boolean = false,
+    val canStartOver: Boolean = true, val canRemove: Boolean = true)
 internal data class MediaCategory(val id: String, val label: String)
 internal data class PhoneMediaHomeState(val scopeKey: String, val featured: MediaSection<MediaPoster> = MediaSection(),
     val continuing: MediaSection<MediaContinue> = MediaSection(), val catalog: MediaSection<MediaPoster> = MediaSection(),
+    val updatedSeries: MediaSection<MediaPoster> = MediaSection(),
     val categories: List<MediaCategory> = emptyList(), val selectedCategory: String? = null,
     val catalogTitle: String = "全部影视", val filterSummary: String? = null, val libraryExists: Boolean = true,
     val canManage: Boolean = false, val carouselAutoAdvance: Boolean = true, val interactionBlocked: Boolean = false,
@@ -35,7 +37,8 @@ internal data class MediaEpisode(val id: String, val numberLabel: String, val ti
     val playable: Boolean = true, val unavailableReason: String? = null)
 internal data class PhoneMediaDetailState(val scopeKey: String, val id: String, val revision: String,
     val title: String, val originalTitle: String? = null, val metadata: String = "",
-    val backdrop: MediaArtwork? = null, val ratings: List<MediaRating> = emptyList(), val overview: String? = null,
+    val backdrop: MediaArtwork? = null, val poster: MediaArtwork? = null,
+    val ratings: List<MediaRating> = emptyList(), val overview: String? = null,
     val playLabel: String = "播放", val canPlay: Boolean = false, val canHandoff: Boolean = false,
     val canChangeUserState: Boolean = false, val canReviewMatch: Boolean = false,
     val userStateRevision: Long? = null, val userStateBusy: Boolean = false, val userStateProblem: MediaProblem? = null,

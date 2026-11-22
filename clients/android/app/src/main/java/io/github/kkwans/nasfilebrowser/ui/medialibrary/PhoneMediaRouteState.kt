@@ -19,6 +19,7 @@ internal class PhoneMediaRouteState(
     private val scope: CoroutineScope,
 ) {
     var checking by mutableStateOf(true); private set
+    var homeRefreshing by mutableStateOf(false); private set
     var supported by mutableStateOf(false); private set
     var home by mutableStateOf<MediaCatalogHome?>(null); private set
     var homeProblem by mutableStateOf<MediaProblem?>(null); private set
@@ -26,7 +27,9 @@ internal class PhoneMediaRouteState(
     var catalogLoading by mutableStateOf(false); private set
     var catalogProblem by mutableStateOf<MediaProblem?>(null); private set
     var catalogCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
+    var catalogPageState by mutableStateOf<MediaCatalogPageState?>(null); private set
     var filter by mutableStateOf("all"); private set
+    var libraryFilter by mutableStateOf<String?>(null); private set
     var detail by mutableStateOf<MediaCatalogDetail.Complete?>(null); private set
     var detailLoading by mutableStateOf(false); private set
     var detailProblem by mutableStateOf<MediaProblem?>(null); private set
@@ -52,6 +55,8 @@ internal class PhoneMediaRouteState(
     private var detailCursor: MediaCatalogCursor? = null
     private var desiredSeason: String? = null
     private var homeJob: Job? = null
+    private var capabilityKnown = false
+    private var retryCatalogPage = false
     private var catalogJob: Job? = null
     private var detailJob: Job? = null
     private var seasonsJob: Job? = null
@@ -70,21 +75,28 @@ internal class PhoneMediaRouteState(
 
     fun refreshHome() {
         homeJob?.cancel(); catalogJob?.cancel()
-        checking = true; supported = false; home = null; homeProblem = null
-        catalog = emptyList(); catalogCursor = null; catalogProblem = null; catalogLoading = false
+        checking = home == null; homeProblem = null; catalogLoading = false; homeRefreshing = true
         homeJob = scope.launch {
             try {
-                if (session.api.clientCapabilities().mediaLibraryVersion < 1) {
+                if (!capabilityKnown && session.api.clientCapabilities().mediaLibraryVersion < 1) {
                     checking = false
                     homeProblem = MediaProblem("影视中心暂不可用", "当前服务器尚未启用或暂时无法读取影视中心。", "重试")
                     return@launch
                 }
+                capabilityKnown = true
+                supported = true
+                // The list does not depend on the home projection. Read both in parallel.
+                loadCatalog(reset = true)
                 when (val result = repository.home()) {
                     is MediaReadResult.Success -> if (result.scope == repository.scope) {
                         home = result.value; supported = true; checking = false
-                        if (result.value.state != MediaCatalogHomeState.NO_LIBRARIES) loadCatalog(reset = true)
                     }
                     is MediaReadResult.Failure -> if (result.scope == repository.scope) {
+                        if (result.error.invalidatesVisibleData()) {
+                            catalogJob?.cancel(); catalogLoading = false
+                            supported = false; closeDetail()
+                            home = null; catalog = emptyList(); catalogCursor = null; catalogPageState = null
+                        }
                         checking = false; homeProblem = problem(result.error, "无法加载影视中心")
                     }
                 }
@@ -92,24 +104,36 @@ internal class PhoneMediaRouteState(
             catch (_: Exception) {
                 checking = false
                 homeProblem = MediaProblem("无法连接影视中心", "无法读取服务器能力，请检查连接或账号后重试。", "重试")
-            }
+            } finally { homeRefreshing = false }
         }
     }
 
     fun chooseFilter(value: String) {
         val next = value.takeIf { it in setOf("all", "movie", "series", "video") } ?: return
-        if (filter == next) return
-        filter = next
-        loadCatalog(reset = true)
+        chooseQuery(libraryFilter, next)
     }
 
-    fun loadCatalog(reset: Boolean) {
+    fun chooseLibrary(id: String?) {
+        chooseQuery(id, filter)
+    }
+
+    fun chooseQuery(id: String?, kind: String) {
+        if (kind !in setOf("all", "movie", "series", "video")) return
+        if (libraryFilter == id && filter == kind) return
+        libraryFilter = id
+        filter = kind
+        loadCatalog(reset = true, discardCurrent = true)
+    }
+
+    fun retryCatalog() = loadCatalog(reset = !retryCatalogPage)
+
+    fun loadCatalog(reset: Boolean, discardCurrent: Boolean = false) {
         if (!supported || (!reset && (catalogLoading || catalogCursor == null))) return
         catalogJob?.cancel()
         val continuation = if (reset) null else catalogCursor
-        if (reset) { catalog = emptyList(); catalogCursor = null }
+        if (discardCurrent) { catalog = emptyList(); catalogCursor = null; catalogPageState = null }
         catalogLoading = true; catalogProblem = null
-        val query = MediaCatalogQuery(structureKind = when (filter) {
+        val query = MediaCatalogQuery(libraryId = libraryFilter, structureKind = when (filter) {
             "movie" -> MediaCatalogFilterKind.MOVIE; "series" -> MediaCatalogFilterKind.SERIES
             "video" -> MediaCatalogFilterKind.VIDEO; else -> null
         }, sort = MediaCatalogSort.NEWEST, limit = 24)
@@ -119,10 +143,13 @@ internal class PhoneMediaRouteState(
                     val page = result.value
                     catalog = (if (reset) page.items else catalog + page.items).distinctBy { key(it.ref) }
                     catalogCursor = page.nextCursor
+                    catalogPageState = page.state
+                    retryCatalogPage = false
                     catalogProblem = pageProblem(page.state, page.nextCursor != null)
                 }
                 is MediaReadResult.Failure -> if (result.scope == repository.scope) {
-                    if (result.error.invalidatesVisibleData()) { catalog = emptyList(); catalogCursor = null }
+                    if (result.error.invalidatesVisibleData()) { catalog = emptyList(); catalogCursor = null; catalogPageState = null }
+                    retryCatalogPage = !reset && catalogCursor != null
                     catalogProblem = problem(result.error, "无法加载影视列表")
                 }
             }

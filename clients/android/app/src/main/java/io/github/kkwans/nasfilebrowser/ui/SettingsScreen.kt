@@ -59,8 +59,8 @@ import kotlinx.coroutines.launch
     NavigationBar(containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp,
         modifier = Modifier.height(barHeight)) {
         listOf(Triple(ClientMainDestination.FILES, "文件", R.drawable.ic_nav_files_077),
-            Triple(ClientMainDestination.RECENT, "最近", R.drawable.ic_nav_history_077),
             Triple(ClientMainDestination.MEDIA, "影视", R.drawable.ic_video),
+            Triple(ClientMainDestination.RECENT, "最近", R.drawable.ic_nav_history_077),
             Triple(ClientMainDestination.LIBRARY, "资料", R.drawable.ic_library),
             Triple(ClientMainDestination.TASKS, "任务", R.drawable.ic_tasks)).forEach { (tab, label, icon) ->
             NavigationBarItem(selected = active == tab, onClick = { navigationPulse?.let { it.value = tab.name to (it.value.second + 1) }; model.navigateMain(tab) },

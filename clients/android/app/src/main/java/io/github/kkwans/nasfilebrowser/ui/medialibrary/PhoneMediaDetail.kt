@@ -3,266 +3,380 @@ package io.github.kkwans.nasfilebrowser.ui.medialibrary
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.*
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.ui.FilewayIcon
-import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayEmptyState
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMenuItem
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import io.github.kkwans.fileway.design.R as Art
 
-/** Parent supplies safe insets and an account-scoped state. A revoked item must be removed
- * from the state, not retained under an error banner. listState may be held by the route. */
-@Composable internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLoader,
+/** Insets and account-scoped data belong to the route; only local presentation lives here. */
+@Composable
+internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLoader,
     onAction: (PhoneMediaAction) -> Unit, modifier: Modifier = Modifier,
     listState: LazyListState = rememberLazyListState()) {
     key(state.scopeKey, state.id) {
         var expanded by rememberSaveable { mutableStateOf(false) }
+        var fullTitle by rememberSaveable { mutableStateOf(false) }
         var compact by rememberSaveable { mutableStateOf(false) }
         var menu by remember { mutableStateOf(false) }
-        var jump by remember { mutableStateOf(false) }
         val background = MaterialTheme.colorScheme.background
-        Column(modifier.fillMaxSize().background(background)) {
-            FilewayTopAppBar("影视详情", leadingIcon = R.drawable.ic_arrow_back, leadingDescription = "返回",
-                onLeadingClick = { onAction(PhoneMediaAction.Back) }, actions = {
-                    if (state.canReviewMatch) Box {
-                        MediaIconAction(R.drawable.ic_more_vert, "更多操作", { menu = true })
-                        DropdownMenu(menu, { menu = false }) {
-                            if (state.canReviewMatch) FilewayMenuItem("纠正识别", {
-                                menu = false; onAction(PhoneMediaAction.ReviewMatch(state.id))
-                            }, icon = R.drawable.ic_edit, enabled = !state.busy)
+        BoxWithConstraints(modifier.fillMaxSize().background(background), contentAlignment = Alignment.TopCenter) {
+            val contentWidth = maxWidth.coerceAtMost(640.dp)
+            val inset = if (maxWidth < 600.dp) 16.dp else 24.dp
+            val density = LocalDensity.current
+            val episodeColumns = (contentWidth / (72.dp * density.fontScale.coerceAtLeast(1f))).toInt().coerceIn(1, 6)
+            val heroHeight = if (state.backdrop != null) contentWidth * 9f / 16f
+                else if (state.poster != null) 240.dp else 104.dp
+            val collapseOffset = with(density) { (heroHeight - 64.dp).roundToPx() }
+            val collapsed by remember(listState, collapseOffset) { derivedStateOf {
+                listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > collapseOffset
+            } }
+            LazyColumn(Modifier.widthIn(max = 640.dp).fillMaxSize(), state = listState,
+                contentPadding = PaddingValues(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+                item(key = "hero") {
+                    DetailHero(state, imageLoader, heroHeight, inset, fullTitle, { fullTitle = !fullTitle })
+                }
+                if (state.loading) item(key = "loading") {
+                    PhoneDetailLoading("正在加载影视详情", Modifier.padding(horizontal = inset))
+                }
+                state.problem?.let { problem -> item(key = "problem") {
+                    MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("detail")) }, Modifier.padding(horizontal = inset))
+                } }
+                if (state.ratings.any { it.value.isNotBlank() }) item(key = "ratings") {
+                    LazyRow(contentPadding = PaddingValues(horizontal = inset), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                        items(state.ratings.filter { it.value.isNotBlank() }, key = { it.id }) { RatingColumn(it) }
+                    }
+                }
+                if (state.canSelectSources || state.canHandoff) item(key = "play") {
+                    DetailPlayback(state, onAction, Modifier.padding(horizontal = inset))
+                }
+                if (state.canSelectSources) item(key = "sources") {
+                    DetailSourceRow(state, onAction, Modifier.padding(horizontal = inset))
+                }
+                if (state.canChangeUserState) item(key = "user-state") {
+                    Column(Modifier.padding(horizontal = inset), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                            PhoneDetailAction(if (state.favorite) "已收藏" else "收藏", Art.drawable.fileway_ic_bookmark,
+                                { onAction(PhoneMediaAction.Favorite(state.id, !state.favorite, state.userStateRevision)) },
+                                Modifier.semantics { selected = state.favorite }, enabled = !state.userStateBusy)
+                            PhoneDetailAction(if (state.watched) "已看过" else "标记已看", Art.drawable.fileway_ic_check,
+                                { onAction(PhoneMediaAction.Watched(state.id, !state.watched, state.userStateRevision)) },
+                                Modifier.semantics { selected = state.watched }, enabled = !state.userStateBusy)
+                        }
+                        if (state.userStateBusy) PhoneDetailLoading("正在更新观看状态")
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
+                state.userStateProblem?.let { issue -> item(key = "user-state-recovery") {
+                    MediaProblemCard(issue, { onAction(PhoneMediaAction.Retry("user-state")) }, Modifier.padding(horizontal = inset))
+                } }
+                if (state.seasons.isNotEmpty() || state.seasonsLoading || state.seasonsProblem != null ||
+                    state.episodes.entries.isNotEmpty() || state.episodes.loading || state.episodes.problem != null) {
+                    item(key = "seasons") {
+                        Column(Modifier.padding(horizontal = inset), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            PhoneDetailHeading("剧集") {
+                                PhoneDetailAction(if (compact) "卡片视图" else "序号视图", Art.drawable.fileway_ic_more_horiz,
+                                    { compact = !compact })
+                            }
+                            state.episodeSummary?.takeIf(String::isNotBlank)?.let {
+                                Text(it, style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                items(state.seasons, key = { it.id }) { season ->
+                                    FilterChip(state.selectedSeason == season.id,
+                                        { onAction(PhoneMediaAction.SelectSeason(season.id)) },
+                                        label = { Text(season.label, style = PhoneDetailType.action) },
+                                        shape = MaterialTheme.shapes.medium, modifier = Modifier.heightIn(min = 48.dp))
+                                }
+                            }
+                            state.seasonsProblem?.let { MediaProblemCard(it, { onAction(PhoneMediaAction.Retry("seasons")) }) }
+                            DetailPaging("seasons", state.seasonsLoading, state.seasonsHasMore, onAction)
                         }
                     }
-                })
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.TopCenter) {
-                LazyColumn(Modifier.widthIn(max = 640.dp).fillMaxSize(), state = listState,
-                    contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    if (state.loading) item(key = "loading") { MediaLoading("正在加载影视详情") }
-                    state.problem?.let { problem -> item(key = "problem") {
-                        MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("detail")) }, Modifier.padding(horizontal = 16.dp))
+                    state.episodes.problem?.let { problem -> item(key = "episodes-error") {
+                        MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("episodes")) }, Modifier.padding(horizontal = inset))
                     } }
-                    item(key = "hero") {
-                        Column {
-                            if (state.backdrop != null) Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)) {
-                                MediaImage(state.backdrop, imageLoader, Modifier.fillMaxSize())
-                                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-                                    0f to Color.Transparent, .55f to Color.Transparent, 1f to background)))
-                            }
-                            Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(state.title, style = MaterialTheme.typography.headlineMedium,
-                                    maxLines = 2, overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.semantics { heading() })
-                                state.originalTitle?.takeIf { it.isNotBlank() && it != state.title }?.let {
-                                    Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                if (state.metadata.isNotBlank()) Text(state.metadata, style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
-                    }
-                    item(key = "ratings") {
-                        if (state.ratings.isEmpty()) Text("暂无评分", Modifier.padding(horizontal = 16.dp),
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        else LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(state.ratings, key = { it.id }) { rating -> RatingCard(rating) }
-                        }
-                    }
-                    if (state.canSelectSources) item(key = "play") {
-                        Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Button(onClick = { onAction(PhoneMediaAction.Play(state.id)) }, enabled = state.canPlay && !state.busy,
-                                    modifier = Modifier.weight(1f).heightIn(min = 56.dp), shape = MaterialTheme.shapes.medium,
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)) {
-                                    FilewayIcon(R.drawable.art_play, null, Modifier.size(22.dp)); Spacer(Modifier.width(8.dp))
-                                    Text(state.playLabel)
-                                }
-                                if (state.canHandoff) FilledTonalButton(onClick = { onAction(PhoneMediaAction.Handoff(state.id)) },
-                                    enabled = state.canHandoff && !state.busy, modifier = Modifier.weight(1f).heightIn(min = 56.dp),
-                                    shape = MaterialTheme.shapes.medium, contentPadding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)) {
-                                    FilewayIcon(Art.drawable.fileway_ic_cast, null, Modifier.size(22.dp)); Spacer(Modifier.width(8.dp))
-                                    Text("在 TV 播放")
-                                }
-                            }
-                            TextButton(onClick = { onAction(PhoneMediaAction.Play(state.id, fromStart = true)) },
-                                enabled = state.canPlay && !state.busy, modifier = Modifier.heightIn(min = 48.dp)) {
-                                Text("从头播放")
-                            }
-                            if (state.busy) MediaLoading("正在处理")
-                            state.playProblem?.let { MediaProblemCard(it, { onAction(PhoneMediaAction.Retry("playback")) }) }
-                            if (!state.canPlay && state.playProblem == null && !state.loading) Text("暂无可播放片源",
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                    if (state.canSelectSources) item(key = "sources") {
-                        Surface(onClick = { onAction(PhoneMediaAction.Sources(state.id)) }, enabled = !state.busy,
-                            modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(), shape = MaterialTheme.shapes.medium,
-                            color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                            Row(Modifier.heightIn(min = 72.dp).padding(16.dp), verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                    Text(state.sourceCount?.let { "片源与版本 · $it" } ?: "片源与版本", style = MaterialTheme.typography.titleMedium)
-                                    Text(state.sourceSummary ?: "查看可用片源", style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
-                                FilewayIcon(R.drawable.ic_arrow_forward, "选择片源", Modifier.size(20.dp))
-                            }
-                        }
-                    }
-                    if (state.canChangeUserState) item(key = "user-state") {
-                        Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { onAction(PhoneMediaAction.Favorite(state.id, !state.favorite, state.userStateRevision)) },
-                                enabled = !state.userStateBusy, modifier = Modifier.weight(1f).heightIn(min = 48.dp)
-                                    .semantics { selected = state.favorite }, shape = MaterialTheme.shapes.medium) {
-                                FilewayIcon(R.drawable.ic_bookmark, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp))
-                                Text(if (state.favorite) "已收藏" else "收藏")
-                            }
-                            OutlinedButton(onClick = { onAction(PhoneMediaAction.Watched(state.id, !state.watched, state.userStateRevision)) },
-                                enabled = !state.userStateBusy, modifier = Modifier.weight(1f).heightIn(min = 48.dp)
-                                    .semantics { selected = state.watched }, shape = MaterialTheme.shapes.medium) {
-                                FilewayIcon(R.drawable.ic_check, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp))
-                                Text(if (state.watched) "已看过" else "标记已看")
-                            }
-                        }
-                    }
-                    state.userStateProblem?.let { issue -> item(key = "user-state-recovery") {
-                        MediaProblemCard(issue, { onAction(PhoneMediaAction.Retry("user-state")) }, Modifier.padding(horizontal = 16.dp))
-                    } }
-                    item(key = "overview") {
-                        Column(Modifier.padding(horizontal = 16.dp)) {
-                            MediaHeading("剧情简介")
-                            Text(state.overview?.takeIf { it.isNotBlank() } ?: "暂无简介", style = MaterialTheme.typography.bodyLarge,
-                                maxLines = if (expanded) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis)
-                            if (!state.overview.isNullOrBlank()) TextButton(onClick = { expanded = !expanded },
-                                modifier = Modifier.heightIn(min = 48.dp)) { Text(if (expanded) "收起简介" else "展开简介") }
-                        }
-                    }
-                    if (state.seasons.isNotEmpty() || state.seasonsLoading || state.seasonsProblem != null) {
-                        item(key = "seasons") {
-                            Column(Modifier.padding(horizontal = 16.dp)) {
-                                MediaHeading("剧集", actionLabel = if (compact) "卡片视图" else "序号视图", onAction = { compact = !compact })
-                                state.episodeSummary?.let { Text(it, style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    items(state.seasons, key = { it.id }) { season ->
-                                        FilterChip(state.selectedSeason == season.id,
-                                            { onAction(PhoneMediaAction.SelectSeason(season.id)) }, label = { Text(season.label) },
-                                            modifier = Modifier.heightIn(min = 48.dp))
+                    if (compact) {
+                        items(state.episodes.entries.chunked(episodeColumns), key = { "episode-row/${it.first().id}" }) { row ->
+                            Row(Modifier.padding(horizontal = inset), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                row.forEach { episode ->
+                                    OutlinedButton(onClick = { onAction(PhoneMediaAction.Play(episode.id, kind = MediaTargetKind.EPISODE)) },
+                                        enabled = episode.playable && !state.busy,
+                                        modifier = Modifier.weight(1f).heightIn(min = 56.dp).semantics {
+                                            contentDescription = listOfNotNull(episode.numberLabel, episode.title, episode.unavailableReason).joinToString("，")
+                                        }, shape = MaterialTheme.shapes.medium,
+                                        contentPadding = PaddingValues(horizontal = 4.dp, vertical = 12.dp)) {
+                                        Text(episode.numberLabel, style = PhoneDetailType.action)
                                     }
                                 }
-                                state.seasonsProblem?.let { MediaProblemCard(it, { onAction(PhoneMediaAction.Retry("seasons")) }) }
-                                MediaPaging("seasons", state.seasonsLoading, state.seasonsHasMore, onAction)
+                                repeat(episodeColumns - row.size) { Spacer(Modifier.weight(1f)) }
                             }
                         }
-                        state.episodes.problem?.let { problem -> item(key = "episodes-error") {
-                            MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("episodes")) }, Modifier.padding(horizontal = 16.dp))
-                        } }
-                        if (compact) {
-                            items(state.episodes.entries.chunked(4), key = { "episode-row/${it.first().id}" }) { row ->
-                                Row(Modifier.padding(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    row.forEach { episode ->
-                                        OutlinedButton(onClick = { onAction(PhoneMediaAction.Play(episode.id, kind = MediaTargetKind.EPISODE)) }, enabled = episode.playable,
-                                            modifier = Modifier.weight(1f).heightIn(min = 56.dp).semantics {
-                                                contentDescription = listOfNotNull(episode.numberLabel, episode.title, episode.unavailableReason).joinToString("，")
-                                            }, shape = MaterialTheme.shapes.medium,
-                                            contentPadding = PaddingValues(horizontal = 4.dp, vertical = 8.dp)) { Text(episode.numberLabel) }
-                                    }
-                                    repeat(4 - row.size) { Spacer(Modifier.weight(1f)) }
-                                }
+                        // Disabled numbers retain an adjacent readable reason and source-details action.
+                        state.episodes.entries.filter { !it.playable }.forEach { episode ->
+                            item(key = "episode-unavailable/${episode.id}") {
+                                EpisodeRow(episode, imageLoader, onAction, state.busy, inset)
                             }
-                        } else items(state.episodes.entries, key = { "episode/${it.id}" }) { episode ->
-                            EpisodeCard(episode, imageLoader, onAction)
                         }
-                        if (state.episodes.entries.isEmpty() && !state.episodes.loading && state.episodes.problem == null) item(key = "episodes-empty") {
-                            FilewayEmptyState(R.drawable.ic_video, "本季尚未收录单集", "切换其他季，或在媒体库中查看扫描进度。")
-                        }
-                        item(key = "episodes-paging") { MediaPaging("episodes", state.episodes.loading, state.episodes.hasMore, onAction) }
+                    } else items(state.episodes.entries, key = { "episode/${it.id}" }) { episode ->
+                        EpisodeRow(episode, imageLoader, onAction, state.busy, inset)
                     }
-                    item(key = "credits") {
-                        Column {
-                            MediaHeading("演职人员", Modifier.padding(horizontal = 16.dp),
-                                if (state.credits.hasMore) "全部" else null,
-                                if (state.credits.hasMore) ({ onAction(PhoneMediaAction.AllCredits(state.id)) }) else null)
-                            state.credits.problem?.let { MediaProblemCard(it, { onAction(PhoneMediaAction.Retry("credits")) }, Modifier.padding(horizontal = 16.dp)) }
-                            if (state.credits.loading && state.credits.entries.isEmpty()) MediaLoading("正在加载演职人员")
-                            if (state.credits.entries.isEmpty() && !state.credits.loading && state.credits.problem == null) Text("暂无演职员资料",
-                                Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodyMedium,
+                    if (state.episodes.entries.isEmpty() && !state.episodes.loading && state.episodes.problem == null) item(key = "episodes-empty") {
+                        Text("本季尚未收录单集", Modifier.padding(horizontal = inset),
+                            style = PhoneDetailType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    item(key = "episodes-paging") {
+                        DetailPaging("episodes", state.episodes.loading, state.episodes.hasMore, onAction, Modifier.padding(horizontal = inset))
+                    }
+                }
+                item(key = "overview") {
+                    Column(Modifier.padding(horizontal = inset), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        PhoneDetailHeading("剧情简介")
+                        val overview = state.overview?.takeIf(String::isNotBlank)
+                        var overflows by remember(overview) { mutableStateOf(false) }
+                        Text(overview ?: "暂无简介", style = PhoneDetailType.body,
+                            color = if (overview == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onBackground,
+                            maxLines = if (expanded) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
+                            onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow })
+                        if (overflows || expanded) PhoneDetailAction(if (expanded) "收起简介" else "展开简介",
+                            if (expanded) Art.drawable.fileway_ic_expand_less else Art.drawable.fileway_ic_expand_more,
+                            { expanded = !expanded })
+                    }
+                }
+                item(key = "credits") {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        PhoneDetailHeading("演职人员", Modifier.padding(horizontal = inset))
+                        state.credits.problem?.let {
+                            MediaProblemCard(it, { onAction(PhoneMediaAction.Retry("credits")) }, Modifier.padding(horizontal = inset))
+                        }
+                        if (state.credits.loading && state.credits.entries.isEmpty()) {
+                            PhoneDetailLoading("正在加载演职人员", Modifier.padding(horizontal = inset))
+                        }
+                        if (state.credits.entries.isEmpty() && !state.credits.loading && state.credits.problem == null) {
+                            Text("暂无演职员资料", Modifier.padding(horizontal = inset), style = PhoneDetailType.metadata,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            LazyRow(contentPadding = PaddingValues(horizontal = 16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                items(state.credits.entries, key = { it.id }) { credit ->
-                                    Card(modifier = Modifier.width(104.dp),
-                                        colors = CardDefaults.cardColors(containerColor = background)) {
-                                        MediaImage(credit.portrait, imageLoader, Modifier.fillMaxWidth().aspectRatio(1f), person = true)
-                                        Text(credit.name, Modifier.padding(top = 8.dp), style = MaterialTheme.typography.titleSmall,
-                                            minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        Text(credit.role, style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                    }
-                                }
-                            }
+                        }
+                        LazyRow(contentPadding = PaddingValues(horizontal = inset), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            items(state.credits.entries, key = { it.id }) { credit -> CreditColumn(credit, imageLoader) }
                         }
                     }
                 }
             }
-        }
-        if (jump) EpisodeJumpDialog(state.selectedSeason, { jump = false }, onAction)
-    }
-}
-
-@Composable private fun RatingCard(rating: MediaRating) {
-    Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-        Column(Modifier.widthIn(min = 108.dp, max = 220.dp).padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(listOfNotNull(rating.source, rating.metric).joinToString(" · "), style = MaterialTheme.typography.labelLarge)
-            Text(rating.value, color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.headlineSmall)
-            rating.count?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            rating.scope?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            DetailAppBar(state, collapsed, menu, { menu = it }, onAction,
+                Modifier.widthIn(max = 640.dp).fillMaxWidth(), overArtwork = state.backdrop != null && !collapsed)
         }
     }
 }
 
-@Composable private fun EpisodeCard(episode: MediaEpisode, loader: ImageLoader, onAction: (PhoneMediaAction) -> Unit) {
-    Card(onClick = { onAction(if (episode.playable) PhoneMediaAction.Play(episode.id, kind = MediaTargetKind.EPISODE)
-        else PhoneMediaAction.Sources(episode.id, MediaTargetKind.EPISODE)) },
-        modifier = Modifier.padding(horizontal = 16.dp).fillMaxWidth(), shape = MaterialTheme.shapes.medium,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-        Row(Modifier.padding(8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            Column(Modifier.width(112.dp)) {
-                MediaImage(episode.image, loader, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
-                MediaProgress(episode.progress)
+@Composable
+private fun DetailHero(state: PhoneMediaDetailState, imageLoader: ImageLoader, heroHeight: Dp, inset: Dp,
+    fullTitle: Boolean, onFullTitle: () -> Unit) {
+    val canvas = MaterialTheme.colorScheme.background
+    Box(Modifier.fillMaxWidth()) {
+        if (state.backdrop != null) Box(Modifier.fillMaxWidth().height(heroHeight)) {
+            MediaImage(state.backdrop, imageLoader, Modifier.fillMaxSize())
+            Box(Modifier.matchParentSize().background(Brush.verticalGradient(
+                0f to Color.Black.copy(alpha = .38f), .28f to Color.Transparent,
+                .55f to canvas.copy(alpha = .12f), .8f to canvas.copy(alpha = .92f), 1f to canvas)))
+        } else if (state.poster != null) Box(Modifier.fillMaxWidth().height(heroHeight)) {
+            MediaImage(state.poster, imageLoader, Modifier.align(Alignment.Center).padding(top = 64.dp, bottom = 32.dp)
+                .width(96.dp).aspectRatio(2f / 3f))
+        }
+        Column(Modifier.fillMaxWidth().padding(top = heroHeight - 32.dp).padding(horizontal = inset),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            var overflows by remember(state.title) { mutableStateOf(false) }
+            Text(state.title, style = PhoneDetailType.title, color = MaterialTheme.colorScheme.onBackground,
+                maxLines = if (fullTitle) Int.MAX_VALUE else 2, overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.semantics { heading() }, onTextLayout = { if (!fullTitle) overflows = it.hasVisualOverflow })
+            if (overflows || fullTitle) PhoneDetailAction(if (fullTitle) "收起片名" else "完整片名",
+                if (fullTitle) Art.drawable.fileway_ic_expand_less else Art.drawable.fileway_ic_expand_more, onFullTitle)
+            state.originalTitle?.takeIf { it.isNotBlank() && it != state.title }?.let {
+                Text(it, style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text("${episode.numberLabel} · ${episode.title}", style = MaterialTheme.typography.titleSmall,
-                    maxLines = 3, overflow = TextOverflow.Ellipsis)
-                Text(episode.unavailableReason ?: episode.subtitle, style = MaterialTheme.typography.bodySmall,
-                    color = if (episode.unavailableReason != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            MediaIconAction(R.drawable.ic_more_vert, "${episode.numberLabel}片源与版本", {
-                onAction(PhoneMediaAction.Sources(episode.id, MediaTargetKind.EPISODE)) })
+            if (state.metadata.isNotBlank()) Text(state.metadata, style = PhoneDetailType.metadata,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
 
-@Composable private fun EpisodeJumpDialog(seasonId: String?, dismiss: () -> Unit, onAction: (PhoneMediaAction) -> Unit) {
-    var number by rememberSaveable { mutableStateOf("") }
-    val parsed = number.toIntOrNull()
-    AlertDialog(onDismissRequest = dismiss, title = { Text("跳转到指定集") }, text = {
-        OutlinedTextField(number, { number = it.filter(Char::isDigit).take(6) }, label = { Text("集数") },
-            singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-            supportingText = { Text("特别篇请先切换到对应季。") }, modifier = Modifier.fillMaxWidth())
-    }, confirmButton = {
-        TextButton(onClick = { if (parsed != null && seasonId != null) {
-            onAction(PhoneMediaAction.JumpToEpisode(seasonId, parsed)); dismiss()
-        } }, enabled = parsed != null && parsed > 0 && seasonId != null, modifier = Modifier.heightIn(min = 48.dp)) { Text("跳转") }
-    }, dismissButton = { TextButton(onClick = dismiss, modifier = Modifier.heightIn(min = 48.dp)) { Text("取消") } })
+@Composable
+private fun DetailAppBar(state: PhoneMediaDetailState, collapsed: Boolean, menu: Boolean, onMenu: (Boolean) -> Unit,
+    onAction: (PhoneMediaAction) -> Unit, modifier: Modifier, overArtwork: Boolean) {
+    Box(modifier) {
+        if (collapsed) FilewayTopAppBar(state.title, leadingIcon = Art.drawable.fileway_ic_arrow_back, leadingDescription = "返回",
+            onLeadingClick = { onAction(PhoneMediaAction.Back) }, actions = { DetailMoreMenu(state, menu, onMenu, onAction) })
+        else Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            val ink = if (overArtwork) Color.White else MaterialTheme.colorScheme.onBackground
+            CompositionLocalProvider(LocalContentColor provides ink) {
+                IconButton({ onAction(PhoneMediaAction.Back) }, Modifier.size(48.dp)) {
+                    FilewayIcon(Art.drawable.fileway_ic_arrow_back, "返回", Modifier.size(24.dp), tint = ink)
+                }
+                Spacer(Modifier.weight(1f))
+                DetailMoreMenu(state, menu, onMenu, onAction)
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailMoreMenu(state: PhoneMediaDetailState, menu: Boolean, onMenu: (Boolean) -> Unit,
+    onAction: (PhoneMediaAction) -> Unit) {
+    if (state.canReviewMatch) Box {
+        IconButton({ onMenu(true) }, Modifier.size(48.dp)) {
+            FilewayIcon(Art.drawable.fileway_ic_more_vert, "更多操作", Modifier.size(24.dp), tint = LocalContentColor.current)
+        }
+        DropdownMenu(menu, { onMenu(false) }) {
+            FilewayMenuItem("纠正识别", { onMenu(false); onAction(PhoneMediaAction.ReviewMatch(state.id)) },
+                icon = R.drawable.ic_edit, enabled = !state.busy)
+        }
+    }
+}
+
+@Composable
+private fun DetailPlayback(state: PhoneMediaDetailState, onAction: (PhoneMediaAction) -> Unit, modifier: Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val stack = maxWidth < 340.dp || LocalDensity.current.fontScale > 1.3f
+            val play: @Composable (Modifier) -> Unit = { actionModifier ->
+                Button({ onAction(PhoneMediaAction.Play(state.id)) }, actionModifier.heightIn(min = 52.dp),
+                    enabled = state.canPlay && !state.busy, shape = MaterialTheme.shapes.medium,
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)) {
+                    FilewayIcon(Art.drawable.fileway_ic_play_arrow, null, Modifier.size(24.dp))
+                    Spacer(Modifier.width(8.dp)); Text(if (state.busy) "正在准备…" else state.playLabel, style = PhoneDetailType.item)
+                }
+            }
+            val handoff: @Composable (Modifier) -> Unit = { actionModifier ->
+                FilledTonalButton({ onAction(PhoneMediaAction.Handoff(state.id)) }, actionModifier.heightIn(min = 52.dp),
+                    enabled = !state.busy, shape = MaterialTheme.shapes.medium,
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 14.dp)) {
+                    FilewayIcon(Art.drawable.fileway_ic_cast, null, Modifier.size(24.dp))
+                    Spacer(Modifier.width(8.dp)); Text("在 TV 播放", style = PhoneDetailType.action)
+                }
+            }
+            if (stack) Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (state.canSelectSources) play(Modifier.fillMaxWidth())
+                if (state.canHandoff) handoff(Modifier.fillMaxWidth())
+            } else Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (state.canSelectSources) play(Modifier.weight(1f))
+                if (state.canHandoff) handoff(Modifier.weight(1f))
+            }
+        }
+        if (state.canSelectSources && state.playLabel != "播放") PhoneDetailAction("从头播放", Art.drawable.fileway_ic_restore,
+            { onAction(PhoneMediaAction.Play(state.id, fromStart = true)) }, enabled = state.canPlay && !state.busy)
+        state.playProblem?.let { MediaProblemCard(it, { onAction(PhoneMediaAction.Retry("playback")) }) }
+        if (!state.canPlay && state.playProblem == null && !state.loading) Text("暂无可播放片源",
+            style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun DetailSourceRow(state: PhoneMediaDetailState, onAction: (PhoneMediaAction) -> Unit, modifier: Modifier) {
+    Column(modifier) {
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+        Surface(onClick = { onAction(PhoneMediaAction.Sources(state.id)) }, enabled = !state.busy,
+            shape = MaterialTheme.shapes.medium, color = Color.Transparent) {
+            Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(state.sourceCount?.let { "片源与版本 · $it" } ?: "片源与版本", style = PhoneDetailType.item)
+                    Text(state.sourceSummary?.takeIf(String::isNotBlank) ?: "查看可用片源与版本",
+                        style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                FilewayIcon(Art.drawable.fileway_ic_arrow_forward, null, Modifier.size(24.dp))
+            }
+        }
+        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+    }
+}
+
+@Composable
+private fun RatingColumn(rating: MediaRating) {
+    Column(Modifier.widthIn(max = 220.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(listOfNotNull(rating.source, rating.metric).filter(String::isNotBlank).joinToString(" · "),
+                Modifier.alignByBaseline(), style = PhoneDetailType.action)
+            Text(rating.value, Modifier.alignByBaseline(), style = MaterialTheme.typography.headlineMedium,
+                color = FilewayTheme.status.warning)
+        }
+        listOfNotNull(rating.count, rating.scope).filter(String::isNotBlank).forEach {
+            Text(it, style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
+@Composable
+private fun CreditColumn(credit: MediaCredit, loader: ImageLoader) {
+    val width = 96.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
+    Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        MediaImage(credit.portrait, loader, Modifier.fillMaxWidth().aspectRatio(1f), person = true)
+        Text(credit.name, style = PhoneDetailType.item, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(credit.role, style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+@Composable
+private fun EpisodeRow(episode: MediaEpisode, loader: ImageLoader, onAction: (PhoneMediaAction) -> Unit, busy: Boolean, inset: Dp) {
+    var menu by remember(episode.id) { mutableStateOf(false) }
+    Surface(onClick = { onAction(if (episode.playable) PhoneMediaAction.Play(episode.id, kind = MediaTargetKind.EPISODE)
+        else PhoneMediaAction.Sources(episode.id, MediaTargetKind.EPISODE)) }, enabled = !busy,
+        modifier = Modifier.padding(horizontal = inset).fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = Color.Transparent) {
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val stack = maxWidth < 300.dp || LocalDensity.current.fontScale > 1.3f
+            val artwork: @Composable (Modifier) -> Unit = { imageModifier ->
+                Box(imageModifier.clip(MaterialTheme.shapes.medium)) {
+                    MediaImage(episode.image, loader, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+                    MediaProgress(episode.progress, Modifier.align(Alignment.BottomCenter))
+                }
+            }
+            val information: @Composable (Modifier) -> Unit = { infoModifier ->
+                Row(infoModifier, verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("${episode.numberLabel} · ${episode.title}", style = PhoneDetailType.item,
+                            maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        Text(episode.unavailableReason ?: episode.subtitle, style = PhoneDetailType.metadata,
+                            color = if (episode.unavailableReason != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Box {
+                        MediaIconAction(Art.drawable.fileway_ic_more_vert, "${episode.numberLabel}的更多操作", { menu = true }, enabled = !busy)
+                        DropdownMenu(menu, { menu = false }) {
+                            FilewayMenuItem("查看剧集详情", { menu = false; onAction(PhoneMediaAction.OpenItem(episode.id)) })
+                            FilewayMenuItem("片源与版本", { menu = false; onAction(PhoneMediaAction.Sources(episode.id, MediaTargetKind.EPISODE)) })
+                        }
+                    }
+                }
+            }
+            if (stack) Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                artwork(Modifier.fillMaxWidth()); information(Modifier.fillMaxWidth())
+            } else Row(verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                artwork(Modifier.width(120.dp)); information(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun DetailPaging(section: String, loading: Boolean, hasMore: Boolean,
+    onAction: (PhoneMediaAction) -> Unit, modifier: Modifier = Modifier) {
+    if (loading) PhoneDetailLoading("正在加载", modifier)
+    else if (hasMore) TextButton({ onAction(PhoneMediaAction.LoadMore(section)) }, modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+        Text("加载更多", style = PhoneDetailType.action)
+    }
 }

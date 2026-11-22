@@ -43,6 +43,7 @@ import io.github.kkwans.nasfilebrowser.ui.medialibrary.PhoneMediaRoute
 import io.github.kkwans.nasfilebrowser.ui.medialibrary.MediaLoading
 import io.github.kkwans.nasfilebrowser.ui.medialibrary.MediaProblem
 import io.github.kkwans.nasfilebrowser.ui.medialibrary.MediaProblemCard
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -239,7 +240,7 @@ import java.util.Locale
 @Composable
 private fun MediaCatalogDestination(model: ClientModel) {
     val session = model.tvAuthorizationContext() ?: return
-    val openDrawer = LocalFilewayDrawer.current
+    val onExit = LocalFilewayBack.current ?: { model.back(); Unit }
     var attempt by remember(session) { mutableIntStateOf(0) }
     val result by produceState<Result<MediaLibraryRepository>?>(null, session, attempt) {
         value = null
@@ -249,11 +250,11 @@ private fun MediaCatalogDestination(model: ClientModel) {
     }
     val repository = result?.getOrNull()
     if (repository != null) {
-        PhoneMediaRoute(session, repository, model.previewImageLoader, openDrawer) { variant, fromStart ->
-            model.openCatalogVideo(repository, variant, fromStart)
+        PhoneMediaRoute(session, repository, model.previewImageLoader, onExit) { variant, fromStart, checkpoint ->
+            model.openCatalogVideo(repository, variant, fromStart, checkpoint)
         }
     } else Column(Modifier.fillMaxSize().statusBarsPadding().consumeWindowInsets(WindowInsets.statusBars)) {
-        FilewayPageHeader("影视")
+        FilewayTopAppBar("影视中心", leadingIcon = R.drawable.ic_arrow_back, leadingDescription = "返回", onLeadingClick = onExit)
         if (result == null) MediaLoading("正在打开影视中心")
         else MediaProblemCard(
             MediaProblem("影视中心暂时无法打开", "无法读取本机媒体库操作记录。", "重试"),

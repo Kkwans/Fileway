@@ -81,6 +81,10 @@ private data class TemporaryMediaBinding(val context: SessionContext, val file: 
 private data class CatalogMediaBinding(
     val connection: CatalogPlaybackLease, val progress: CatalogWatchReporter, val maintenance: Job,
 )
+private data class CatalogSelection(
+    val repository: MediaLibraryRepository, val variant: MediaCatalogVariant,
+    val fromStart: Boolean, val checkpoint: MediaCatalogContinue?,
+)
 private sealed interface DecoderSubtitleSource {
     val key: String
     val name: String
@@ -546,7 +550,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         archiveEntry.open(state.file ?: return, state.listing ?: return, entry, sourceScope)
     }
     private var catalogPlayback: CatalogMediaBinding? = null
-    private var catalogSelection: Pair<MediaLibraryRepository, MediaCatalogVariant>? = null
+    private var catalogSelection: CatalogSelection? = null
 
     fun isTemporaryContent(file: ResourceRef): Boolean =
         temporaryMedia?.file?.mediaKey == file.mediaKey || isCatalogContent(file)
@@ -554,7 +558,8 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     internal fun isCatalogContent(file: ResourceRef): Boolean =
         catalogSelection != null && mutable.value.selected?.mediaKey == file.mediaKey
 
-    internal fun openCatalogVideo(repository: MediaLibraryRepository, selected: MediaCatalogVariant, fromStart: Boolean = false) {
+    internal fun openCatalogVideo(repository: MediaLibraryRepository, selected: MediaCatalogVariant,
+        fromStart: Boolean = false, checkpoint: MediaCatalogContinue? = null) {
         val bound = context ?: return
         if (catalogRepository?.first !== bound || catalogRepository?.second !== repository ||
             selected.ref.scope != repository.scope) return
@@ -568,20 +573,24 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         // file paths or used to create a file-history record.
         val display = ResourceRef("", "/@catalog/${selected.ref.libraryId}/${selected.variantId}",
             selected.displayName, false, selected.contentType, selected.size)
-        catalogSelection = repository to selected
+        catalogSelection = CatalogSelection(repository, selected, fromStart, checkpoint)
         mutable.value = mutable.value.copy(selected = display, image = null, mediaQueue = null,
             busy = true, stage = "正在打开片源", error = null, progressStatus = null)
         operation = viewModelScope.launch {
             var acquired: CatalogPlaybackLease? = null
             try {
                 mediaClosing?.join()
-                val resolved = when (val result = repository.resolvePlayback(selected, trackProgress = true, fromStart = fromStart)) {
+                val resolved = when (val result = repository.resolvePlayback(selected, trackProgress = true,
+                    fromStart = fromStart, checkpoint = checkpoint)) {
                     is MediaReadResult.Success -> result.value
                     is MediaReadResult.Failure -> {
                         if (sessionCurrent(bound) && mediaRequest == request) {
                             mutable.value = mutable.value.copy(busy = false, stage = "",
-                                error = if (result.error.mutationMayHaveCommitted) "未收到片源确认，请重试"
-                                else "片源暂不可用，请重试或选择其他片源")
+                                error = when {
+                                    checkpoint != null && result.error.kind == MediaFailureKind.CONFLICT -> "续播进度已更新，请返回影视首页刷新后再试"
+                                    result.error.mutationMayHaveCommitted -> "未收到片源确认，请重试"
+                                    else -> "片源暂不可用，请重试或选择其他片源"
+                                })
                         }
                         return@launch
                     }
@@ -592,6 +601,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
                 if (!sessionCurrent(bound) || mediaRequest != request) return@launch
                 player.open(connection.url, connection.startPositionMs, autoplay = foreground,
                     videoDecodePolicy = playbackPreferences.videoDecodePolicy.value)
+                catalogSelection = CatalogSelection(repository, selected, fromStart = false, checkpoint = null)
                 val progress = CatalogWatchReporter(connection, player.state.value.mediaGeneration)
                 val maintenance = launch {
                     launch {
@@ -781,7 +791,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     fun previousMedia() { mutable.value.mediaQueue?.let { navigateMedia(it.index - 1) } }
     fun nextMedia() { mutable.value.mediaQueue?.let { navigateMedia(it.index + 1) } }
     fun retryPlayback() {
-        catalogSelection?.let { (repo, item) -> openCatalogVideo(repo, item); return }
+        catalogSelection?.let { openCatalogVideo(it.repository, it.variant, it.fromStart, it.checkpoint); return }
         val file = mutable.value.selected ?: return
         openQueued(file, mutable.value.mediaQueue)
     }
@@ -1305,6 +1315,16 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
             taskCenterSection = TaskCenterSection.forRoute(target) ?: mutable.value.taskCenterSection)
     }
     fun navigateMain(destination: ClientMainDestination) {
+        if (destination == ClientMainDestination.MEDIA) {
+            if (!mutable.value.connected || mutable.value.tab == "media") return
+            // Media is a separate workspace. Preserve the exact main page and directory
+            // context so leaving its root returns to the place from which it was opened.
+            returnNavigation.clear()
+            rememberNavigationSource(ClientReturnKind.AUXILIARY)
+            search.close()
+            tab(destination.route)
+            return
+        }
         returnNavigation.clear()
         search.close()
         if (destination != ClientMainDestination.TASKS) tasks.closeDetail()
@@ -1634,7 +1654,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         if (catalogPlayback != null) {
             if (foreground) {
                 val selection = catalogSelection
-                if (player.state.value.ended && selection != null) openCatalogVideo(selection.first, selection.second, fromStart = true)
+                if (player.state.value.ended && selection != null) openCatalogVideo(selection.repository, selection.variant, fromStart = true)
                 else player.toggle()
             }
             return

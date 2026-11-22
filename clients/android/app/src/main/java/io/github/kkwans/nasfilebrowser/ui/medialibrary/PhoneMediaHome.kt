@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -34,10 +35,14 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayEmptyState
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMenuItem
 import io.github.kkwans.fileway.design.R as Art
 
-/** Embedded tab: parent owns status/navigation-bar insets; do not apply them twice. */
+internal enum class PhoneMediaPage { HOME, LIBRARIES, CATEGORIES }
+
+/** The media workspace owns its system-bar insets and navigation. */
 @Composable internal fun PhoneMediaHome(state: PhoneMediaHomeState, imageLoader: ImageLoader,
     onAction: (PhoneMediaAction) -> Unit, modifier: Modifier = Modifier,
-    gridState: LazyGridState = rememberLazyGridState(), onDrawer: (() -> Unit)? = null) {
+    gridState: LazyGridState = rememberLazyGridState(), page: PhoneMediaPage = PhoneMediaPage.HOME,
+    libraries: List<io.github.kkwans.nasfilebrowser.data.MediaLibrarySummary> = emptyList(),
+    selectedLibrary: String? = null, onLibrary: (String?) -> Unit = {}, onBack: () -> Unit = {}) {
     key(state.scopeKey) {
         var continueMenuOpen by remember { mutableStateOf(false) }
         BoxWithConstraints(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
@@ -47,9 +52,11 @@ import io.github.kkwans.fileway.design.R as Art
                 horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 item(key = "heading", span = { GridItemSpan(maxLineSpan) }) {
                     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (onDrawer != null) MediaIconAction(Art.drawable.fileway_ic_menu, "打开导航菜单", onDrawer)
-                        Text("影视", Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.headlineMedium)
-                        MediaIconAction(R.drawable.ic_settings, "影视设置", { onAction(PhoneMediaAction.Settings) })
+                        MediaIconAction(Art.drawable.fileway_ic_arrow_back, "返回", onBack)
+                        Text(when (page) { PhoneMediaPage.HOME -> "影视中心"; PhoneMediaPage.LIBRARIES -> "媒体库"; PhoneMediaPage.CATEGORIES -> "分类" },
+                            Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.headlineSmall)
+                        if (page == PhoneMediaPage.LIBRARIES && state.canManage)
+                            MediaIconAction(R.drawable.ic_settings, "管理媒体库", { onAction(PhoneMediaAction.ManageLibraries) })
                     }
                 }
                 state.problem?.let { problem -> item(key = "problem", span = { GridItemSpan(maxLineSpan) }) {
@@ -60,16 +67,16 @@ import io.github.kkwans.fileway.design.R as Art
                         if (state.canManage) "创建媒体库" else null,
                         if (state.canManage) ({ onAction(PhoneMediaAction.CreateLibrary) }) else null)
                 }
-                if (state.featured.entries.isNotEmpty()) item(key = "featured", span = { GridItemSpan(maxLineSpan) }) {
+                if (page == PhoneMediaPage.HOME && state.featured.entries.isNotEmpty()) item(key = "featured", span = { GridItemSpan(maxLineSpan) }) {
                     FeaturedCarousel(state, imageLoader, gridState.isScrollInProgress || continueMenuOpen, onAction)
                 }
-                state.featured.problem?.let { problem -> item(key = "featured-error", span = { GridItemSpan(maxLineSpan) }) {
+                if (page == PhoneMediaPage.HOME) state.featured.problem?.let { problem -> item(key = "featured-error", span = { GridItemSpan(maxLineSpan) }) {
                     MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("featured")) })
                 } }
-                if (state.featured.loading && state.featured.entries.isEmpty()) item(key = "featured-loading", span = { GridItemSpan(maxLineSpan) }) {
+                if (page == PhoneMediaPage.HOME && state.featured.loading && state.featured.entries.isEmpty()) item(key = "featured-loading", span = { GridItemSpan(maxLineSpan) }) {
                     MediaLoading("正在加载新入库影视")
                 }
-                if (state.continuing.entries.isNotEmpty() || state.continuing.loading || state.continuing.problem != null) {
+                if (page == PhoneMediaPage.HOME && (state.continuing.entries.isNotEmpty() || state.continuing.loading || state.continuing.problem != null || state.continuing.hasMore)) {
                     item(key = "continue", span = { GridItemSpan(maxLineSpan) }) {
                         Column {
                             MediaHeading("继续观看")
@@ -80,10 +87,33 @@ import io.github.kkwans.fileway.design.R as Art
                                     ContinueCard(entry, imageLoader, onAction) { continueMenuOpen = it }
                                 }
                             }
+                            MediaPaging("continue", state.continuing.loading, state.continuing.hasMore, onAction)
                         }
                     }
                 }
-                if (state.categories.isNotEmpty()) item(key = "categories", span = { GridItemSpan(maxLineSpan) }) {
+                if (page == PhoneMediaPage.HOME && state.updatedSeries.entries.isNotEmpty()) item(key = "updated-series", span = { GridItemSpan(maxLineSpan) }) {
+                    Column {
+                        MediaHeading("最近更新剧集")
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            items(state.updatedSeries.entries, key = { it.id }) { entry ->
+                                Box(Modifier.width(140.dp)) {
+                                    MediaPosterCard(entry, imageLoader) { onAction(PhoneMediaAction.OpenItem(entry.id)) }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (page == PhoneMediaPage.LIBRARIES && libraries.isNotEmpty()) item(key = "libraries", span = { GridItemSpan(maxLineSpan) }) {
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item { FilterChip(selected = selectedLibrary == null, onClick = { onLibrary(null) },
+                            label = { Text("全部媒体库") }, modifier = Modifier.heightIn(min = 48.dp)) }
+                        items(libraries, key = { it.id }) { library ->
+                            FilterChip(selected = selectedLibrary == library.id, onClick = { onLibrary(library.id) },
+                                label = { Text(library.name) }, modifier = Modifier.heightIn(min = 48.dp))
+                        }
+                    }
+                }
+                if (page == PhoneMediaPage.CATEGORIES && state.categories.isNotEmpty()) item(key = "categories", span = { GridItemSpan(maxLineSpan) }) {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(state.categories, key = { it.id }) { category ->
                             FilterChip(selected = state.selectedCategory == category.id,
@@ -95,7 +125,8 @@ import io.github.kkwans.fileway.design.R as Art
                 if (state.libraryExists) item(key = "catalog-heading", span = { GridItemSpan(maxLineSpan) }) {
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Text(state.catalogTitle, Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+                            Text(if (page == PhoneMediaPage.HOME) "最近加入" else state.catalogTitle,
+                                Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleLarge)
                         }
                         state.filterSummary?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -104,7 +135,7 @@ import io.github.kkwans.fileway.design.R as Art
                 state.catalog.problem?.let { problem -> item(key = "catalog-error", span = { GridItemSpan(maxLineSpan) }) {
                     MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("catalog")) })
                 } }
-                if (state.libraryExists && state.catalog.entries.isEmpty() && !state.catalog.loading && state.catalog.problem == null && state.problem == null) {
+                if (state.libraryExists && state.catalog.entries.isEmpty() && !state.catalog.loading && !state.catalog.hasMore && state.catalog.problem == null && state.problem == null) {
                     item(key = "catalog-empty", span = { GridItemSpan(maxLineSpan) }) {
                         FilewayEmptyState(R.drawable.ic_video, "这里还没有影视", if (state.filterSummary != null)
                             "试试调整筛选条件。" else "扫描完成后，已收录的作品会出现在这里。",
@@ -127,6 +158,7 @@ import io.github.kkwans.fileway.design.R as Art
     parentScrolling: Boolean, onAction: (PhoneMediaAction) -> Unit) {
     val entries = state.featured.entries.take(5)
     val pager = rememberPagerState { entries.size }
+    val fallbackHeight = 132.dp * LocalDensity.current.fontScale.coerceIn(1f, 2f)
     var focused by remember { mutableStateOf(false) }
     var pressed by remember { mutableStateOf(false) }
     var hovered by remember { mutableStateOf(false) }
@@ -150,12 +182,6 @@ import io.github.kkwans.fileway.design.R as Art
         if (canAdvance) { kotlinx.coroutines.delay(8_000); pager.animateScrollToPage((pager.currentPage + 1) % entries.size) }
     }
     Column {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("新入库", Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleLarge)
-            if (entries.size > 1) TextButton(onClick = {
-                onAction(PhoneMediaAction.SetCarouselAutoAdvance(!state.carouselAutoAdvance))
-            }, modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.carouselAutoAdvance) "暂停轮播" else "自动轮播") }
-        }
         HorizontalPager(pager, key = { entries[it].id }, modifier = Modifier.fillMaxWidth()
             .onFocusChanged { focused = it.hasFocus }.focusGroup().pointerInput(Unit) {
                 try { awaitPointerEventScope { while (true) {
@@ -167,7 +193,8 @@ import io.github.kkwans.fileway.design.R as Art
             }) { index ->
             val entry = entries[index]
             Card(onClick = { onAction(PhoneMediaAction.OpenItem(entry.id)) }, shape = MaterialTheme.shapes.medium) {
-                Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+                Box(Modifier.fillMaxWidth().then(if (entry.backdrop != null || entry.poster != null)
+                    Modifier.aspectRatio(16f / 9f) else Modifier.height(fallbackHeight))
                     .clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceContainer)) {
                     if (entry.backdrop != null) {
                         MediaImage(entry.backdrop, loader, Modifier.fillMaxSize())
@@ -177,9 +204,20 @@ import io.github.kkwans.fileway.design.R as Art
                             .aspectRatio(2f / 3f).padding(12.dp))
                         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(
                             listOf(MaterialTheme.colorScheme.surfaceContainer, MaterialTheme.colorScheme.surfaceContainer.copy(alpha = .85f), Color.Transparent))))
+                    } else {
+                        Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(
+                            MaterialTheme.colorScheme.surfaceContainerHighest,
+                            MaterialTheme.colorScheme.surfaceContainer,
+                            MaterialTheme.colorScheme.surfaceContainerLow))))
                     }
                     val titleColor = if (entry.backdrop != null) Color.White else MaterialTheme.colorScheme.onSurface
                     val subtitleColor = if (entry.backdrop != null) Color.White.copy(alpha = .85f) else MaterialTheme.colorScheme.onSurfaceVariant
+                    Surface(Modifier.align(Alignment.TopStart).padding(12.dp),
+                        color = if (entry.backdrop != null) Color.Black.copy(alpha = .48f) else MaterialTheme.colorScheme.surface.copy(alpha = .72f),
+                        shape = MaterialTheme.shapes.small) {
+                        Text("最近入库", Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                            style = MaterialTheme.typography.labelSmall, color = titleColor)
+                    }
                     Column(Modifier.align(Alignment.BottomStart).padding(16.dp)) {
                         Text(entry.title, color = titleColor, style = MaterialTheme.typography.headlineSmall,
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -189,9 +227,13 @@ import io.github.kkwans.fileway.design.R as Art
                 }
             }
         }
-        if (entries.size > 1) Text("${pager.currentPage + 1} / ${entries.size}",
-            Modifier.align(Alignment.CenterHorizontally).padding(top = 8.dp), style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (entries.size > 1) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("${pager.currentPage + 1} / ${entries.size}", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = { onAction(PhoneMediaAction.SetCarouselAutoAdvance(!state.carouselAutoAdvance)) }) {
+                Text(if (state.carouselAutoAdvance) "暂停轮播" else "自动轮播")
+            }
+        }
     }
 }
 
@@ -203,14 +245,25 @@ import io.github.kkwans.fileway.design.R as Art
     val setMenu: (Boolean) -> Unit = { menu = it; updateMenu(it) }
     Column(Modifier.width(240.dp)) {
         Card(onClick = { onAction(if (entry.playable) PhoneMediaAction.Play(entry.id, kind = MediaTargetKind.CONTINUE) else PhoneMediaAction.OpenItem(entry.item.id)) },
+            enabled = !entry.removing,
+            modifier = Modifier.semantics { contentDescription = "继续观看 ${entry.item.title}，${entry.progressLabel}" },
             shape = MaterialTheme.shapes.medium) {
-            MediaImage(entry.item.backdrop, loader, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+            if (entry.item.backdrop != null) {
+                MediaImage(entry.item.backdrop, loader, Modifier.fillMaxWidth().aspectRatio(16f / 9f))
+            } else {
+                Box(Modifier.fillMaxWidth().aspectRatio(16f / 9f).background(MaterialTheme.colorScheme.surfaceContainer)) {
+                    entry.item.poster?.let { MediaImage(it, loader,
+                        Modifier.align(Alignment.CenterEnd).fillMaxHeight().aspectRatio(2f / 3f)) }
+                    Text(entry.item.title, Modifier.align(Alignment.BottomStart).fillMaxWidth(.65f).padding(12.dp),
+                        style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+            }
             MediaProgress(entry.progress)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(top = 8.dp)) {
                 Text(entry.item.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(entry.progressLabel, style = MaterialTheme.typography.bodySmall,
+                Text(if (entry.removing) "正在移出…" else entry.progressLabel, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 entry.item.availability?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
             }
@@ -218,8 +271,12 @@ import io.github.kkwans.fileway.design.R as Art
                 MediaIconAction(R.drawable.ic_more_vert, "${entry.item.title}的更多操作", { setMenu(true) })
                 DropdownMenu(menu, { setMenu(false) }) {
                     FilewayMenuItem("查看详情", { setMenu(false); onAction(PhoneMediaAction.OpenItem(entry.item.id)) })
-                    FilewayMenuItem("从头播放", { setMenu(false); onAction(PhoneMediaAction.Play(entry.id, true, MediaTargetKind.CONTINUE)) }, enabled = entry.playable)
-                    FilewayMenuItem("移出继续观看", { setMenu(false); onAction(PhoneMediaAction.RemoveContinue(entry.id)) })
+                    if (entry.canStartOver) FilewayMenuItem("从头播放", {
+                        setMenu(false); onAction(PhoneMediaAction.Play(entry.id, true, MediaTargetKind.CONTINUE))
+                    }, enabled = entry.playable && !entry.removing)
+                    if (entry.canRemove) FilewayMenuItem("移出继续观看", {
+                        setMenu(false); onAction(PhoneMediaAction.RemoveContinue(entry.id))
+                    }, enabled = !entry.removing)
                 }
             }
         }

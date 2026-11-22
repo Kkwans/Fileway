@@ -2,16 +2,26 @@ package io.github.kkwans.nasfilebrowser.ui.medialibrary
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.NavigationBar
+import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
+import androidx.compose.material3.Text
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -22,69 +32,104 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import io.github.kkwans.nasfilebrowser.app.SessionContext
 import io.github.kkwans.nasfilebrowser.data.*
-import io.github.kkwans.nasfilebrowser.ui.FilewayPageHeader
+import io.github.kkwans.nasfilebrowser.ui.FilewayIcon
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import io.github.kkwans.nasfilebrowser.ui.readableSize
+import io.github.kkwans.fileway.design.R as Art
 import kotlin.math.roundToInt
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 
 @Composable
 internal fun PhoneMediaRoute(
     session: SessionContext,
     repository: MediaLibraryRepository,
     imageLoader: ImageLoader,
-    onDrawer: () -> Unit,
-    onPlayback: (MediaCatalogVariant, Boolean) -> Unit,
+    onExit: () -> Unit,
+    onPlayback: (MediaCatalogVariant, Boolean, MediaCatalogContinue?) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val route = remember(session, repository, scope) { PhoneMediaRouteState(session, repository, scope) }
+    val watch = remember(repository, scope) { ContinueWatching(repository, scope) }
+    val watching by watch.state.collectAsState()
+    val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
     val binding = remember(session, repository) { MediaArtworkBinding(session, repository) }
     var filter by rememberSaveable(session.owner) { mutableStateOf("all") }
+    var selectedLibrary by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var item by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var library by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var season by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
+    var parentItem by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
+    var parentLibrary by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
+    var parentSeason by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var managing by rememberSaveable(session.owner) { mutableStateOf(false) }
     var createLibrary by rememberSaveable(session.owner) { mutableStateOf(false) }
     var settings by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
-    var resumePolicy by rememberSaveable(session.owner) { mutableStateOf(false) }
     var reviewing by rememberSaveable(session.owner) { mutableStateOf(false) }
     var reviewLibraryId by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var reviewItemId by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var autoAdvance by rememberSaveable(session.owner) { mutableStateOf(true) }
+    var mediaTab by rememberSaveable(session.owner) { mutableStateOf("home") }
     var startFromBeginning by remember(route) { mutableStateOf(false) }
-    val grid = rememberLazyGridState()
+    val homeGrid = rememberLazyGridState()
+    val libraryGrid = rememberLazyGridState()
+    val categoryGrid = rememberLazyGridState()
     val pages = rememberSaveableStateHolder()
-    val detailScroll = androidx.compose.runtime.key(item) { rememberLazyListState() }
     val detailId = item
     val libraryId = library
-    DisposableEffect(route) { onDispose(route::close) }
-    LaunchedEffect(route) { route.start(filter) }
+    DisposableEffect(route, watch) { onDispose { route.close(); watch.close() } }
+    LaunchedEffect(route) {
+        route.start(if (mediaTab == "categories") filter else "all")
+        if (mediaTab == "libraries") route.chooseLibrary(selectedLibrary)
+    }
+    LaunchedEffect(route.home) { route.home?.let(watch::seed) ?: watch.clear() }
+    LaunchedEffect(route, route.home?.state, lifecycle) {
+        if (lifecycle.isAtLeast(Lifecycle.State.RESUMED) && route.home?.state == MediaCatalogHomeState.SCANNING) {
+            while (isActive) {
+                delay(5_000)
+                if (!route.homeRefreshing) route.refreshHome()
+            }
+        }
+    }
     LaunchedEffect(route, libraryId, detailId) {
         if (libraryId != null && detailId != null) route.openDetail(repository.catalogRef(libraryId, detailId), season)
         else route.closeDetail()
     }
     LaunchedEffect(route.selectedSeason) { route.selectedSeason?.let { season = it } }
+    LaunchedEffect(route.supported, route.checking) {
+        if (!route.supported && !route.checking && route.homeProblem != null) {
+            item = null; library = null; season = null; parentItem = null; parentLibrary = null; parentSeason = null; reviewing = false
+            reviewItemId = null; reviewLibraryId = null
+        }
+    }
 
     fun back() {
         if (reviewItemId != null) { reviewItemId = null; reviewLibraryId = null }
         else if (reviewing) reviewing = false
         else if (route.sourceRef != null) route.closeSources()
-        else { item = null; library = null; season = null }
+        else if (parentItem != null && parentLibrary != null) {
+            item = parentItem; library = parentLibrary; season = parentSeason
+            parentItem = null; parentLibrary = null; parentSeason = null
+        } else { item = null; library = null; season = null }
     }
 
     fun closeSettings() {
-        if (settings == "provider") {
-            settings = if (resumePolicy) null else "home"
-            resumePolicy = false
-        } else settings = null
+        settings = null
     }
 
-    BackHandler(detailId != null || managing || settings != null || reviewItemId != null) {
+    BackHandler {
         if (settings != null) closeSettings()
         else if (reviewItemId != null) back()
-        else if (managing) managing = false else back()
+        else if (managing) managing = false
+        else if (detailId != null || reviewing || route.sourceRef != null) back()
+        else onExit()
     }
     val action: (PhoneMediaAction) -> Unit = { intent ->
         val detailRef = if (libraryId != null && detailId != null) repository.catalogRef(libraryId, detailId) else null
@@ -98,13 +143,18 @@ internal fun PhoneMediaRoute(
         }
         when (intent) {
             PhoneMediaAction.Back -> back()
-            PhoneMediaAction.Settings -> settings = "home"
+            PhoneMediaAction.Settings -> mediaTab = "settings"
             PhoneMediaAction.CreateLibrary -> { createLibrary = true; managing = true }
             PhoneMediaAction.ManageLibraries -> { createLibrary = false; managing = true }
             is PhoneMediaAction.ReviewMatch -> reviewing = detailRef != null
             is PhoneMediaAction.OpenItem -> {
                 val first = route.home?.hero?.items.orEmpty()
-                (route.catalog + first).firstOrNull { key(it.ref) == intent.id }?.let {
+                val homeItems = route.home?.rows.orEmpty().flatMap { it.items }
+                val episode = route.episodes.firstOrNull { key(it.ref) == intent.id }
+                (route.catalog + first + homeItems + watching.items.map { it.card } + listOfNotNull(episode?.card)).firstOrNull { key(it.ref) == intent.id }?.let {
+                    if (episode != null && item != null && library != null) {
+                        parentItem = item; parentLibrary = library; parentSeason = season
+                    } else { parentItem = null; parentLibrary = null; parentSeason = null }
                     library = it.ref.libraryId
                     item = it.ref.itemId
                     season = null
@@ -113,17 +163,23 @@ internal fun PhoneMediaRoute(
             is PhoneMediaAction.Category -> { filter = intent.id; route.chooseFilter(intent.id) }
             is PhoneMediaAction.SetCarouselAutoAdvance -> autoAdvance = intent.enabled
             is PhoneMediaAction.SelectSeason -> route.selectSeason(intent.id)
-            is PhoneMediaAction.Play -> source(intent.id, intent.fromStart)
+            is PhoneMediaAction.Play -> if (intent.kind == MediaTargetKind.CONTINUE) {
+                watching.items.firstOrNull { it.id == intent.id && watching.removing != it.id }?.let {
+                    onPlayback(it.variant, intent.fromStart, it)
+                }
+            } else source(intent.id, intent.fromStart)
+            is PhoneMediaAction.RemoveContinue -> watching.items.firstOrNull { it.id == intent.id }?.let(watch::remove)
             is PhoneMediaAction.Favorite -> route.changeUserState(intent.id, intent.expectedRevision, favorite = intent.value)
             is PhoneMediaAction.Watched -> route.changeUserState(intent.id, intent.expectedRevision, watched = intent.value)
             is PhoneMediaAction.Sources -> source(intent.id)
             is PhoneMediaAction.SelectSource -> route.variant(intent.id)?.let {
                 route.closeSources()
-                onPlayback(it, startFromBeginning)
+                onPlayback(it, startFromBeginning, null)
             }
             is PhoneMediaAction.Retry -> when (intent.section) {
                 "home", "featured" -> route.refreshHome()
-                "catalog" -> route.loadCatalog(reset = true)
+                "continue" -> watch.retry()
+                "catalog" -> route.retryCatalog()
                 "detail" -> route.loadDetail()
                 "seasons" -> route.loadSeasons(reset = true)
                 "episodes" -> route.loadEpisodes(reset = true)
@@ -133,6 +189,7 @@ internal fun PhoneMediaRoute(
             }
             is PhoneMediaAction.LoadMore -> when (intent.section) {
                 "catalog" -> route.loadCatalog(reset = false)
+                "continue" -> watch.load(reset = false)
                 "seasons" -> route.loadSeasons(reset = false)
                 "episodes" -> route.loadEpisodes(reset = false)
                 "sources" -> route.loadSources(reset = false)
@@ -143,41 +200,63 @@ internal fun PhoneMediaRoute(
     }
     CompositionLocalProvider(LocalMediaArtworkBinding provides binding) {
         val safe = Modifier.fillMaxSize().statusBarsPadding().consumeWindowInsets(WindowInsets.statusBars)
+        val subpage = safe.navigationBarsPadding().consumeWindowInsets(WindowInsets.navigationBars)
         if (settings != null) {
-            Column(safe) {
+            Column(subpage) {
                 if (settings == "provider") PhoneMediaProviderSettings(repository, ::closeSettings)
                 else PhoneMediaSettings(::closeSettings, { settings = null; createLibrary = false; managing = true }, { settings = "provider" })
             }
         } else if (reviewLibraryId != null && reviewItemId != null) {
             val ref = repository.catalogRef(requireNotNull(reviewLibraryId), requireNotNull(reviewItemId))
-            Column(safe) {
+            Column(subpage) {
                 PhoneMediaMatchRoute(repository, ref, imageLoader, onBack = ::back, onMatched = { back(); route.refreshHome() })
             }
         } else if (managing) {
-            Column(safe) {
+            Column(subpage) {
                 pages.SaveableStateProvider("media-manager/${session.owner}") {
-                    PhoneMediaLibraryManager(session, repository, { managing = false; settings = "home" }, route::refreshHome,
-                        onProvider = { resumePolicy = true; settings = "provider" },
+                    PhoneMediaLibraryManager(session, repository, { managing = false; settings = null }, route::refreshHome,
+                        onProvider = { settings = "provider" },
                         onReviewItem = { ref -> reviewLibraryId = ref.libraryId; reviewItemId = ref.itemId },
                         createInitially = createLibrary)
                 }
             }
         } else if (reviewing && detailId != null && libraryId != null) {
-            Column(safe) {
+            Column(subpage) {
                 PhoneMediaMatchRoute(repository, repository.catalogRef(libraryId, detailId), imageLoader,
                     onBack = { reviewing = false }, onMatched = { reviewing = false; route.loadDetail(); route.refreshHome() })
             }
         } else if (detailId != null) {
-            PhoneMediaDetail(route.detailState(session.owner, "$libraryId/$detailId"), imageLoader, action, safe, detailScroll)
-        } else if (route.checking) {
-            Column(safe) { FilewayPageHeader("影视"); MediaLoading("正在读取影视目录") }
+            pages.SaveableStateProvider("media-detail/$libraryId/$detailId") {
+                PhoneMediaDetail(route.detailState(session.owner, "$libraryId/$detailId"), imageLoader, action, subpage, rememberLazyListState())
+            }
         } else {
             val home = route.home
-            val hasLibrary = home?.state != MediaCatalogHomeState.NO_LIBRARIES
-            PhoneMediaHome(PhoneMediaHomeState(
+            val hasLibrary = home != null && home.state != MediaCatalogHomeState.NO_LIBRARIES
+            val page = when (mediaTab) { "libraries" -> PhoneMediaPage.LIBRARIES; "categories" -> PhoneMediaPage.CATEGORIES; else -> PhoneMediaPage.HOME }
+            val grid = when (page) { PhoneMediaPage.HOME -> homeGrid; PhoneMediaPage.LIBRARIES -> libraryGrid; PhoneMediaPage.CATEGORIES -> categoryGrid }
+            Column(Modifier.fillMaxSize()) {
+              Box(Modifier.weight(1f)) {
+               if (mediaTab == "settings") {
+                Column(safe) {
+                    PhoneMediaSettings(onExit, { createLibrary = false; managing = true }, { settings = "provider" })
+                }
+               } else if (route.checking) {
+                Column(safe) {
+                    FilewayTopAppBar("影视中心", leadingIcon = Art.drawable.fileway_ic_arrow_back, leadingDescription = "返回", onLeadingClick = onExit)
+                    MediaLoading("正在读取影视目录")
+                }
+               } else PhoneMediaHome(PhoneMediaHomeState(
                 scopeKey = session.owner,
                 libraryExists = hasLibrary,
                 featured = MediaSection(home?.hero?.items.orEmpty().map(::poster)),
+                updatedSeries = MediaSection(home?.rows?.firstOrNull { it.id == MediaCatalogRowId.RECENTLY_UPDATED_SERIES }
+                    ?.items.orEmpty().map(::poster)),
+                continuing = MediaSection(watching.items.map { entry ->
+                    MediaContinue(entry.id, poster(entry.card), entry.progressLabel(), entry.progress,
+                        removing = watching.removing == entry.id,
+                        canStartOver = entry.card.actions.can(MediaCatalogAction.START_OVER),
+                        canRemove = entry.card.actions.can(MediaCatalogAction.REMOVE_FROM_CONTINUE))
+                }, watching.loading, watching.error?.let { MediaProblem("继续观看", it, "重试") }, watching.hasMore),
                 catalog = MediaSection(route.catalog.map(::poster), route.catalogLoading, route.catalogProblem, route.catalogCursor != null),
                 categories = if (hasLibrary && route.supported) listOf(
                     MediaCategory("all", "全部"), MediaCategory("movie", "电影"),
@@ -188,12 +267,22 @@ internal fun PhoneMediaRoute(
                 carouselAutoAdvance = autoAdvance,
                 filterSummary = if (route.filter != "all") "已筛选" else null,
                 problem = route.homeProblem ?: when (home?.state) {
+                    MediaCatalogHomeState.SCANNING -> MediaProblem("正在扫描媒体库", "已发现的内容会逐步显示。")
+                    MediaCatalogHomeState.PARTIAL -> MediaProblem("部分内容仍在准备", "可以先浏览已加载的影视。")
                     MediaCatalogHomeState.SOURCE_OFFLINE -> MediaProblem("来源暂时离线", "仍可浏览已收录的资料。", "刷新")
                     MediaCatalogHomeState.RESTRICTED -> MediaProblem("当前看不到媒体内容", "查看媒体库共享权限后重试。", "刷新")
                     MediaCatalogHomeState.SERVICE_UNAVAILABLE -> MediaProblem("影视目录暂不可用", "服务器暂时无法提供目录。", "重试")
                     else -> null
                 },
-            ), imageLoader, action, safe, grid, onDrawer)
+            ), imageLoader, action, safe, grid, page, home?.libraries.orEmpty(), route.libraryFilter,
+                onLibrary = { selectedLibrary = it; route.chooseLibrary(it) }, onBack = onExit)
+              }
+              PhoneMediaNavigation(mediaTab) { target ->
+                  mediaTab = target
+                  route.chooseQuery(if (target == "libraries") selectedLibrary else null,
+                      if (target == "categories") filter else "all")
+              }
+            }
         }
         route.sourceRef?.let { ref ->
             PhoneMediaSourcePicker(PhoneMediaSourcesState(
@@ -209,6 +298,23 @@ internal fun PhoneMediaRoute(
     }
 }
 
+@Composable
+private fun PhoneMediaNavigation(selected: String, onSelect: (String) -> Unit) {
+    NavigationBar(containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp) {
+        listOf(Triple("home", "首页", Art.drawable.fileway_ic_home),
+            Triple("libraries", "媒体库", Art.drawable.fileway_ic_library),
+            Triple("categories", "分类", Art.drawable.fileway_ic_layout_cover),
+            Triple("settings", "设置", Art.drawable.fileway_ic_settings)).forEach { (id, label, icon) ->
+            NavigationBarItem(selected = selected == id, onClick = { onSelect(id) },
+                icon = { FilewayIcon(icon, null, Modifier.size(24.dp)) }, label = { Text(label) },
+                colors = NavigationBarItemDefaults.colors(indicatorColor = Color.Transparent,
+                    selectedIconColor = MaterialTheme.colorScheme.primary, selectedTextColor = MaterialTheme.colorScheme.primary,
+                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant))
+        }
+    }
+}
+
 private fun PhoneMediaRouteState.detailState(scope: String, id: String): PhoneMediaDetailState {
     val data = detail
     val card = data?.card
@@ -219,9 +325,10 @@ private fun PhoneMediaRouteState.detailState(scope: String, id: String): PhoneMe
         title = card?.title ?: item?.item?.title.orEmpty(),
         originalTitle = card?.originalTitle, metadata = card?.let(::summary).orEmpty(),
         backdrop = card?.backdrop?.let { MediaArtwork(catalog = it) },
+        poster = card?.artwork?.takeIf { it.role == "poster" }?.let { MediaArtwork(catalog = it) },
         overview = item?.fields?.get("plot")?.values?.firstOrNull(), canPlay = playable, canSelectSources = playable,
         canReviewMatch = card?.actions?.can(MediaCatalogAction.EDIT_METADATA) == true && card.structureKind in setOf(
-            MediaItemKind.VIDEO, MediaItemKind.MOVIE, MediaItemKind.SERIES),
+            MediaItemKind.VIDEO, MediaItemKind.MOVIE, MediaItemKind.SERIES, MediaItemKind.EPISODE),
         canChangeUserState = state != null && card.actions.can(MediaCatalogAction.FAVORITE) && card.actions.can(MediaCatalogAction.MARK_WATCHED),
         userStateRevision = state?.revision, favorite = state?.favorite == true, watched = state?.manualWatched == true,
         userStateBusy = userStateBusy || pendingUserState != null,

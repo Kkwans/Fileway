@@ -46,7 +46,7 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
     val glass = rememberHazeState()
     val glassActive = drawer.isOpen || drawer.targetValue == DrawerValue.Open
     val glassStyle = filewayDrawerGlassStyle()
-    val gestures = state.destination.main != null && !state.searchDisplayed
+    val gestures = state.destination.main != null && state.destination.main != ClientMainDestination.MEDIA && !state.searchDisplayed
     var about by remember { mutableStateOf(false) }
     val openTvControl=LocalOpenTvControl.current
     if (about) FilewayAboutDialog { about = false }
@@ -153,7 +153,11 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
             Box(Modifier.fillMaxSize().then(if (glassActive) Modifier.hazeSource(glass) else Modifier)) {
             CompositionLocalProvider(LocalFilewayNavigationPulse provides navigationPulse, LocalFilewayDrawer provides { scope.launch { drawer.open() }; Unit }, LocalFilewayBack provides onBack,
                 LocalFilewaySessionModel provides model) {
-                if (state.connected && state.destination.main != null && !state.searchDisplayed) {
+                if (state.connected && state.destination.main == ClientMainDestination.MEDIA && !state.searchDisplayed) {
+                    CompositionLocalProvider(LocalSkipBottomNavigation provides true, LocalFilewayPageActive provides true) {
+                        content(ClientMainDestination.MEDIA)
+                    }
+                } else if (state.connected && state.destination.main != null && !state.searchDisplayed) {
                     val destination = state.destination.main!!
                     Column(Modifier.fillMaxSize()) {
                         Box(Modifier.weight(1f).fillMaxWidth().consumeWindowInsets(WindowInsets.navigationBars)) {
