@@ -11,6 +11,7 @@ import (
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/mediaprovider"
 	"github.com/Kkwans/nas-file-browser/backend/mediascan"
+	"golang.org/x/sync/errgroup"
 )
 
 const (
@@ -113,58 +114,89 @@ func (v *catalogView) checkSource(ctx context.Context, library *medialibrary.Lib
 	return state, nil
 }
 
+var catalogRevalidationSlots = make(chan struct{}, 8)
+
+// Independent source checks may overlap, but each request and the process as a
+// whole have bounded work. No response is published until every check succeeds.
+func runCatalogRevalidations(ctx context.Context, checks []func(context.Context) error) error {
+	group, groupCtx := errgroup.WithContext(ctx)
+	group.SetLimit(4)
+	for _, check := range checks {
+		check := check
+		group.Go(func() error {
+			select {
+			case <-groupCtx.Done():
+				return groupCtx.Err()
+			case catalogRevalidationSlots <- struct{}{}:
+			}
+			defer func() { <-catalogRevalidationSlots }()
+			return check(groupCtx)
+		})
+	}
+	return group.Wait()
+}
+
 // Recheck each distinct source once before publication. Episode mappings that
 // share a combined file reuse that exact file proof only within this request.
 func (v *catalogView) revalidateSources(ctx context.Context) error {
+	checks := make([]func(context.Context) error, 0, len(v.checks)+len(v.metadataChecks))
 	for _, check := range v.checks {
-		library, err := currentMediaLibrary(ctx, v.d, v.d.user.ID, check.LibraryID)
-		if err != nil {
-			return medialibrary.ErrRevisionConflict
-		}
-		binding, err := ownerBinding(ctx, v.d, library, check.Entry.BindingID, check.Entry.Binding, check.Entry.Source)
-		if err != nil {
-			return medialibrary.ErrRevisionConflict
-		}
-		state, err := ownerReference(ctx, v.d, binding, check.Entry.Locator, check.Entry.ObjectKey, check.Entry.IdentityKind, check.Entry.SourceVersion)
-		if err != nil || state != check.State {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			return medialibrary.ErrRevisionConflict
-		}
-		for itemID := range check.ItemIDs {
-			current, err := v.d.store.MediaLibrary.CheckItemSourceRevision(ctx, v.d.user.ID, check.LibraryID, itemID, check.Entry)
+		check := check
+		checks = append(checks, func(ctx context.Context) error {
+			library, err := currentMediaLibrary(ctx, v.d, v.d.user.ID, check.LibraryID)
 			if err != nil {
-				return err
-			}
-			if !current {
 				return medialibrary.ErrRevisionConflict
 			}
-		}
+			binding, err := ownerBinding(ctx, v.d, library, check.Entry.BindingID, check.Entry.Binding, check.Entry.Source)
+			if err != nil {
+				return medialibrary.ErrRevisionConflict
+			}
+			state, err := ownerReference(ctx, v.d, binding, check.Entry.Locator, check.Entry.ObjectKey, check.Entry.IdentityKind, check.Entry.SourceVersion)
+			if err != nil || state != check.State {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				return medialibrary.ErrRevisionConflict
+			}
+			for itemID := range check.ItemIDs {
+				current, err := v.d.store.MediaLibrary.CheckItemSourceRevision(ctx, v.d.user.ID, check.LibraryID, itemID, check.Entry)
+				if err != nil {
+					return err
+				}
+				if !current {
+					return medialibrary.ErrRevisionConflict
+				}
+			}
+			return nil
+		})
 	}
 	for _, check := range v.metadataChecks {
-		library, err := currentMediaLibrary(ctx, v.d, v.d.user.ID, check.LibraryID)
-		if err != nil {
-			return medialibrary.ErrRevisionConflict
-		}
-		state, allowed, err := metadataSourceAllowed(ctx, v.d, library, check.Entry)
-		if err != nil || !allowed || state != check.State {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			return medialibrary.ErrRevisionConflict
-		}
-		if check.Entry.ContextItemID != "" {
-			current, err := v.d.store.MediaLibrary.CheckDirectoryContextSource(ctx, v.d.user.ID, check.LibraryID, check.Entry)
+		check := check
+		checks = append(checks, func(ctx context.Context) error {
+			library, err := currentMediaLibrary(ctx, v.d, v.d.user.ID, check.LibraryID)
 			if err != nil {
-				return err
-			}
-			if !current {
 				return medialibrary.ErrRevisionConflict
 			}
-		}
+			state, allowed, err := metadataSourceAllowed(ctx, v.d, library, check.Entry)
+			if err != nil || !allowed || state != check.State {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				return medialibrary.ErrRevisionConflict
+			}
+			if check.Entry.ContextItemID != "" {
+				current, err := v.d.store.MediaLibrary.CheckDirectoryContextSource(ctx, v.d.user.ID, check.LibraryID, check.Entry)
+				if err != nil {
+					return err
+				}
+				if !current {
+					return medialibrary.ErrRevisionConflict
+				}
+			}
+			return nil
+		})
 	}
-	return nil
+	return runCatalogRevalidations(ctx, checks)
 }
 
 // leafAccess reuses the existing owner/binding/reference checks, but bounds
