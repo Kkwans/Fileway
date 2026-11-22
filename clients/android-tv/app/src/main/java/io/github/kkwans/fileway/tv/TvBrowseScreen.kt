@@ -93,9 +93,12 @@ fun TvBrowseScreen(model: TvModel, onExit: () -> Unit, active: Boolean = true, o
     val searchFocus = remember { FocusRequester() }
     val locationFocus = remember { FocusRequester() }
     val optionsFocus = remember { FocusRequester() }
+    val detailsFocus = remember { FocusRequester() }
     var searchOpen by remember { mutableStateOf(false) }
     var details by remember(model.anchorKey(), state.search) { mutableStateOf<ResourceRef?>(null) }
     var detailCandidates by remember(model.anchorKey(), state.search) { mutableStateOf<List<ResourceRef>>(emptyList()) }
+    var focusedBrowseFile by remember(model.anchorKey(), state.search) { mutableStateOf<ResourceRef?>(null) }
+    var detailsFromToolbar by remember { mutableStateOf(false) }
     var locationOpen by remember { mutableStateOf(false) }
     var optionsOpen by remember { mutableStateOf(false) }
     var restoreRequest by remember { mutableIntStateOf(0) }
@@ -150,7 +153,8 @@ fun TvBrowseScreen(model: TvModel, onExit: () -> Unit, active: Boolean = true, o
     val closeLocation: () -> Unit = { locationOpen = false; returnFocus(locationFocus) }
     val closeDetails: () -> Unit = {
         details = null
-        restoreRequest++
+        if (detailsFromToolbar) returnFocus(detailsFocus) else restoreRequest++
+        detailsFromToolbar = false
     }
     val closeOptions: () -> Unit = { optionsOpen = false; returnFocus(optionsFocus) }
 
@@ -197,6 +201,11 @@ fun TvBrowseScreen(model: TvModel, onExit: () -> Unit, active: Boolean = true, o
                     )
                     Spacer(Modifier.height(if (compact) 8.dp else 14.dp))
                     val pageTools: @Composable RowScope.() -> Unit = {
+                        val selected = focusedBrowseFile?.let { focused -> files.firstOrNull { it.mediaKey == focused.mediaKey } }
+                        if (selected != null) TvButton("详情", {
+                            detailsFromToolbar = true; details = selected; detailCandidates = files
+                        }, modifier = Modifier.focusRequester(detailsFocus).focusProperties { down = bodyFocus },
+                            icon = Art.drawable.fileway_ic_info)
                         TvToolbarAction("浏览选项", Art.drawable.fileway_ic_more_actions, { optionsOpen = true },
                             Modifier.focusRequester(optionsFocus))
                     }
@@ -239,7 +248,7 @@ fun TvBrowseScreen(model: TvModel, onExit: () -> Unit, active: Boolean = true, o
                         when {
                             atHome -> TvHome(
                                 model, state, recent.items, homeEntryFocus, restoreRequest,
-                                onDetails = { file, candidates -> details = file; detailCandidates = candidates },
+                                onDetails = { file, candidates -> detailsFromToolbar = false; details = file; detailCandidates = candidates },
                                 selectRoute = selectRoute, userEngaged = homeEngaged,
                             )
                             inSettings -> TvSettingsScreen(model, onBack = { backFromPage() })
@@ -254,7 +263,8 @@ fun TvBrowseScreen(model: TvModel, onExit: () -> Unit, active: Boolean = true, o
                                     onSearch = { searchOpen = true },
                                     onBack = { backFromPage() },
                                     onFiles = { selectRoute(TvRoute.FILES) },
-                                    onDetails = { file, candidates -> details = file; detailCandidates = candidates })
+                                    onDetails = { file, candidates -> detailsFromToolbar = false; details = file; detailCandidates = candidates },
+                                    onFocusedFile = { focusedBrowseFile = it })
                             }
                         }
                     }
@@ -863,6 +873,7 @@ private fun TvFiles(
     onBack: () -> Unit,
     onFiles: () -> Unit,
     onDetails: (ResourceRef, List<ResourceRef>) -> Unit,
+    onFocusedFile: (ResourceRef) -> Unit,
 ) {
     val interactive = LocalTvInteractive.current
     val windowFocused = LocalWindowInfo.current.isWindowFocused
@@ -897,7 +908,10 @@ private fun TvFiles(
     fun focusFile(file: ResourceRef, focused: Boolean, index: Int, offset: Int) {
         val isTarget = file.mediaKey == targetKey
         if (isTarget) targetFocused = focused
-        if (focused && canUsePage() && (!restorePending || isTarget)) recordAnchor(file, index, offset)
+        if (focused && canUsePage() && (!restorePending || isTarget)) {
+            recordAnchor(file, index, offset)
+            onFocusedFile(file)
+        }
     }
     fun openFile(file: ResourceRef, index: Int, offset: Int) {
         if (canUsePage()) {
