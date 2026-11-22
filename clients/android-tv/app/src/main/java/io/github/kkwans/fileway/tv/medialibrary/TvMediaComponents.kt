@@ -21,19 +21,20 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.tv.material3.*
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import io.github.kkwans.fileway.tv.LocalTvInteractive
-import io.github.kkwans.fileway.tv.tvTextStyle
 import io.github.kkwans.fileway.tv.tvTouch
+import kotlinx.coroutines.delay
 import io.github.kkwans.fileway.design.R as Art
 
 internal data class TvMediaFocusBinding(
@@ -59,22 +60,27 @@ internal val LocalTvMediaFocusBinding = staticCompositionLocalOf<TvMediaFocusBin
 internal data class MediaColors(
     val canvas: Color, val surface: Color, val raised: Color, val text: Color,
     val secondary: Color, val focus: Color, val accent: Color, val score: Color,
+    val selected: Color = Color(0xFF23354C),
+    val onAccent: Color = Color(0xFF101B2A),
+    val play: Color = Color(0xFFF1EEE7),
+    val onPlay: Color = Color(0xFF17191D),
 )
 
 internal val LocalMediaColors = staticCompositionLocalOf {
-    MediaColors(Color(0xFF17191B), Color(0xFF222427), Color(0xFF34373A), Color(0xFFF4F1EB),
-        Color(0xFFC6C7CA), Color(0xFFF6F2E9), Color(0xFF3596E8), Color(0xFFF1C66D))
+    MediaColors(Color(0xFF111214), Color(0xFF1A1C1F), Color(0xFF25282C), Color(0xFFF3F4F6),
+        Color(0xFFBBC1CA), Color(0xFFF3F4F6), Color(0xFF8FB8FF), Color(0xFFF1C875))
 }
 
 /** The library owns its neutral surfaces while reusing the app's licensed typography. */
 @Composable
 fun TvMediaTheme(dark: Boolean = true, content: @Composable () -> Unit) {
     val colors = if (dark) MediaColors(
-        Color(0xFF17191B), Color(0xFF222427), Color(0xFF34373A), Color(0xFFF4F1EB),
-        Color(0xFFC6C7CA), Color(0xFFF6F2E9), Color(0xFF3596E8), Color(0xFFF1C66D),
+        Color(0xFF111214), Color(0xFF1A1C1F), Color(0xFF25282C), Color(0xFFF3F4F6),
+        Color(0xFFBBC1CA), Color(0xFFF3F4F6), Color(0xFF8FB8FF), Color(0xFFF1C875),
     ) else MediaColors(
-        Color(0xFFF3F2EF), Color(0xFFE8E7E3), Color(0xFFDADBD8), Color(0xFF202326),
-        Color(0xFF51575B), Color(0xFF30373D), Color(0xFF176EB3), Color(0xFF825300),
+        Color(0xFFF5F7FA), Color.White, Color(0xFFEAEEF4), Color(0xFF172235),
+        Color(0xFF59677B), Color(0xFF1767E8), Color(0xFF1767E8), Color(0xFF855B00),
+        selected = Color(0xFFE1ECFF), onAccent = Color.White,
     )
     val scheme = MaterialTheme.colorScheme.copy(
         background = colors.canvas, surface = colors.surface, onBackground = colors.text,
@@ -98,12 +104,12 @@ internal fun MediaAction(
     val colors = LocalMediaColors.current
     val emphasize = primary && enabled
     MediaSurface(onClick, modifier.heightIn(min = 48.dp), enabled = enabled,
-        selected = selected, container = if (emphasize) colors.text else colors.surface,
-        contentColor = if (emphasize) colors.canvas else colors.text) {
-        Row(Modifier.padding(horizontal = 18.dp, vertical = 11.dp),
+        selected = selected, container = if (emphasize) colors.play else colors.raised,
+        contentColor = if (emphasize) colors.onPlay else colors.text) {
+        Row(Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (icon != null) Icon(painterResource(icon), null, Modifier.size(22.dp))
-            Text(label, style = tvTextStyle(18, 25, FontWeight.Medium))
+            if (icon != null) Icon(painterResource(icon), null, Modifier.size(24.dp))
+            Text(label, style = MediaType.action)
         }
     }
 }
@@ -116,12 +122,14 @@ internal fun MediaSurface(
     selected: Boolean = false,
     container: Color = LocalMediaColors.current.surface,
     contentColor: Color = LocalMediaColors.current.text,
+    selectionContainer: Boolean = true,
     content: @Composable BoxScope.() -> Unit,
 ) {
     val colors = LocalMediaColors.current
     val interactive = LocalTvInteractive.current && enabled
     val interaction = remember { MutableInteractionSource() }
-    val shape = RoundedCornerShape(12.dp)
+    val shape = MediaLayout.shape
+    val surface = if (selected && selectionContainer) colors.selected else container
     Surface(onClick = onClick, enabled = interactive, interactionSource = interaction,
         modifier = modifier.tvTouch(onClick, interactive, interaction)
             .focusProperties { canFocus = interactive }.semantics { this.selected = selected; role = Role.Button },
@@ -130,10 +138,10 @@ internal fun MediaSurface(
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(BorderStroke(2.dp, colors.focus), shape = shape)),
         colors = ClickableSurfaceDefaults.colors(
-            containerColor = container, contentColor = contentColor,
-            focusedContainerColor = container, focusedContentColor = contentColor,
+            containerColor = surface, contentColor = contentColor,
+            focusedContainerColor = surface, focusedContentColor = contentColor,
             pressedContainerColor = colors.raised, pressedContentColor = colors.text,
-            disabledContainerColor = container, disabledContentColor = colors.secondary),
+            disabledContainerColor = surface, disabledContentColor = colors.secondary),
         content = content)
 }
 
@@ -142,9 +150,10 @@ internal fun MediaArtwork(
     artwork: TvMediaArtwork?, imageLoader: ImageLoader, modifier: Modifier,
     fallbackIcon: Int = Art.drawable.fileway_ic_video,
     decorative: Boolean = false,
+    fallbackTitle: String? = null,
 ) {
     val colors = LocalMediaColors.current
-    BoxWithConstraints(modifier.background(colors.surface), contentAlignment = Alignment.Center) {
+    BoxWithConstraints(modifier.background(if (decorative) colors.canvas else colors.surface), contentAlignment = Alignment.Center) {
         val density = LocalDensity.current
         // Bound decoding to the displayed size; never decode the provider's full original.
         val width = with(density) { maxWidth.roundToPx() }.coerceIn(1, 1920)
@@ -153,10 +162,19 @@ internal fun MediaArtwork(
             artwork?.request?.newBuilder()?.size(width, height)?.build()
         }
         var ready by remember(request) { mutableStateOf(false) }
-        if (!ready && !decorative) Icon(painterResource(fallbackIcon), null, Modifier.size(36.dp), tint = colors.secondary)
+        var failed by remember(request) { mutableStateOf(false) }
+        if (!ready && !decorative && !fallbackTitle.isNullOrBlank()) {
+            Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(colors.raised, colors.surface, colors.canvas))))
+            Column(Modifier.fillMaxSize().padding(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 36.dp)
+                .clearAndSetSemantics {}, verticalArrangement = Arrangement.SpaceBetween) {
+                Text(if (artwork == null || failed) "暂无海报" else "正在加载", Modifier.align(Alignment.End),
+                    style = MediaType.secondary, color = colors.secondary)
+                Text(fallbackTitle, style = MediaType.itemTitle, color = colors.text, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            }
+        } else if (!ready && !decorative) Icon(painterResource(fallbackIcon), null, Modifier.size(32.dp), tint = colors.secondary)
         if (request != null) AsyncImage(model = request, imageLoader = imageLoader,
             contentDescription = null, modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
-            onSuccess = { ready = true }, onError = { ready = false })
+            onSuccess = { ready = true; failed = false }, onError = { ready = false; failed = true })
     }
 }
 
@@ -164,12 +182,17 @@ internal fun MediaArtwork(
 internal fun MediaBackdrop(artwork: TvMediaArtwork?, imageLoader: ImageLoader, modifier: Modifier) {
     val colors = LocalMediaColors.current
     Box(modifier) {
+        if (artwork == null) {
+            Box(Modifier.matchParentSize().background(Brush.linearGradient(listOf(colors.canvas, colors.surface, colors.canvas))))
+            return@Box
+        }
         MediaArtwork(artwork, imageLoader, Modifier.matchParentSize(), decorative = true)
         Box(Modifier.matchParentSize().background(Brush.horizontalGradient(
-            0f to colors.canvas.copy(alpha = .97f), .48f to colors.canvas.copy(alpha = .77f),
-            1f to colors.canvas.copy(alpha = .16f))))
+            0f to colors.canvas.copy(alpha = .98f), .42f to colors.canvas.copy(alpha = .91f),
+            .65f to colors.canvas.copy(alpha = .35f), 1f to colors.canvas.copy(alpha = .08f))))
         Box(Modifier.matchParentSize().background(Brush.verticalGradient(
-            0f to Color.Transparent, .6f to colors.canvas.copy(alpha = .16f), 1f to colors.canvas)))
+            0f to colors.canvas.copy(alpha = .25f), .4f to Color.Transparent,
+            .72f to colors.canvas.copy(alpha = .38f), 1f to colors.canvas)))
     }
 }
 
@@ -183,30 +206,31 @@ internal fun MediaProgress(progress: Float?, modifier: Modifier = Modifier) {
 }
 
 @Composable
-internal fun MediaPoster(item: TvMediaCard, imageLoader: ImageLoader, onClick: () -> Unit, modifier: Modifier = Modifier) {
+internal fun MediaPoster(item: TvMediaCard, imageLoader: ImageLoader, onClick: () -> Unit, modifier: Modifier = Modifier,
+    width: Dp = 132.dp) {
     val colors = LocalMediaColors.current
     val focus = LocalTvMediaFocusBinding.current
-    Column(modifier.width(132.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
+    Column(modifier.width(width), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         MediaSurface({ focus?.onOpen?.invoke(item.id, "poster"); onClick() }, Modifier.fillMaxWidth().aspectRatio(2f / 3f)
             .tvMediaReturnFocus(item.id, "poster")
             .semantics { contentDescription = item.title }) {
-            MediaArtwork(item.poster, imageLoader, Modifier.fillMaxSize())
+            MediaArtwork(item.poster, imageLoader, Modifier.fillMaxSize(), fallbackTitle = item.title)
             item.primaryRating?.let { rating ->
                 Text("${rating.source.label} ${rating.valueLabel}", Modifier.align(Alignment.TopStart)
-                    .padding(7.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xD9222427)).padding(horizontal = 6.dp, vertical = 3.dp),
-                    style = tvTextStyle(14, 19, FontWeight.Medium), color = Color(0xFFF1C66D), maxLines = 2)
+                    .padding(8.dp).clip(RoundedCornerShape(4.dp)).background(Color(0xE617191D)).padding(horizontal = 6.dp, vertical = 3.dp),
+                    style = MediaType.badge, color = Color(0xFFF1C875), maxLines = 2)
             }
             item.extentLabel?.takeIf(String::isNotBlank)?.let { label ->
                 Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(
                     Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .85f)))).padding(8.dp)) {
-                    Text(label, style = tvTextStyle(14, 20), color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(label, style = MediaType.secondary, color = Color.White, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
         }
-        Text(item.title, style = tvTextStyle(17, 24, FontWeight.Medium), color = colors.text,
-            minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        Text(item.title, style = MediaType.itemTitle, color = colors.text,
+            maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(listOfNotNull(item.yearLabel, item.availabilityLabel).filter(String::isNotBlank).joinToString(" · "),
-            style = tvTextStyle(16, 22), color = colors.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            style = MediaType.secondary, color = colors.secondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
@@ -216,32 +240,43 @@ internal fun MediaShelf(
     onRetry: ((String) -> Unit)? = null,
 ) {
     if (shelf.items.isEmpty() && !shelf.loading && shelf.error == null) return
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         MediaSectionTitle(shelf.title)
         if (shelf.error != null) MediaStatus(shelf.error, onRetry = onRetry?.let { { it(shelf.id) } }, compact = true)
-        if (shelf.items.isEmpty() && shelf.loading) MediaStatus("正在加载…", compact = true)
-        if (shelf.items.isNotEmpty()) LazyRow(contentPadding = PaddingValues(horizontal = 40.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(18.dp), modifier = Modifier.focusGroup()) {
-            items(shelf.items, key = { it.id }) { item -> MediaPoster(item, imageLoader, { onItem(item.id) }) }
+        if (shelf.items.isEmpty() && shelf.loading) MediaLoadingStatus("正在加载…", compact = true)
+        if (shelf.items.isNotEmpty()) BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val width = mediaCardWidth(maxWidth, 128.dp, 6)
+            LazyRow(contentPadding = MediaLayout.rowPadding,
+                horizontalArrangement = Arrangement.spacedBy(MediaLayout.itemGap), modifier = Modifier.focusGroup()) {
+                items(shelf.items, key = { it.id }) { item -> MediaPoster(item, imageLoader, { onItem(item.id) }, width = width) }
+            }
         }
     }
 }
 
 @Composable
 internal fun MediaSectionTitle(title: String, action: String? = null, onAction: (() -> Unit)? = null) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = 40.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, Modifier.weight(1f), style = tvTextStyle(24, 32, FontWeight.Medium), color = LocalMediaColors.current.text)
-        if (action != null && onAction != null) MediaAction(action, onAction)
+    Row(Modifier.fillMaxWidth().padding(horizontal = MediaLayout.pageInset), verticalAlignment = Alignment.CenterVertically) {
+        Text(title, Modifier.weight(1f), style = MediaType.sectionTitle, color = LocalMediaColors.current.text)
+        if (action != null && onAction != null) MediaQuietAction(action, onAction, icon = Art.drawable.fileway_ic_arrow_forward)
     }
 }
 
 @Composable
 internal fun MediaStatus(message: String, onRetry: (() -> Unit)? = null, compact: Boolean = false) {
-    Column(Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = if (compact) 10.dp else 32.dp),
+    Column(Modifier.fillMaxWidth().padding(horizontal = MediaLayout.pageInset, vertical = if (compact) 12.dp else 32.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        Text(message, style = tvTextStyle(18, 27), color = LocalMediaColors.current.secondary)
+        Text(message, style = MediaType.body, color = LocalMediaColors.current.secondary)
         if (onRetry != null) MediaAction("重试", onRetry, icon = Art.drawable.fileway_ic_refresh)
     }
+}
+
+/** The caller keeps this in the loading branch so completion/disposal cancels the pending cue. */
+@Composable
+internal fun MediaLoadingStatus(message: String, compact: Boolean = false) {
+    var visible by remember(message) { mutableStateOf(false) }
+    LaunchedEffect(message) { delay(300); visible = true }
+    if (visible) MediaStatus(message, compact = compact)
 }
 
 /** Supply only destinations that are actually wired. Selection is not keyboard focus. */
@@ -251,22 +286,45 @@ fun TvMediaTopBar(
     onSearch: (() -> Unit)? = null, onSettings: (() -> Unit)? = null,
 ) {
     val colors = LocalMediaColors.current
-    Row(Modifier.fillMaxWidth().padding(horizontal = 40.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("栖卷", style = tvTextStyle(26, 34, FontWeight.Medium), color = colors.text)
-        LazyRow(Modifier.weight(1f).focusGroup(), horizontalArrangement = Arrangement.spacedBy(8.dp),
-            contentPadding = PaddingValues(4.dp)) {
+    Row(Modifier.fillMaxWidth().padding(start = MediaLayout.pageInset, end = MediaLayout.pageInset, top = 28.dp, bottom = 8.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+        Text("栖卷", style = MediaType.pageTitle, color = colors.text)
+        LazyRow(Modifier.weight(1f).focusGroup(), horizontalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = PaddingValues(MediaLayout.focusGutter)) {
             items(items, key = { it.id }) { item ->
                 Column {
-                    MediaAction(item.label, { onSelect(item.id) }, Modifier.tvMediaReturnFocus(item.id, "navigation"),
+                    MediaQuietAction(item.label, { onSelect(item.id) }, Modifier.tvMediaReturnFocus(item.id, "navigation"),
                         selected = item.id == selectedId)
                     if (item.id == selectedId) Box(Modifier.align(Alignment.CenterHorizontally)
-                        .width(28.dp).height(3.dp).background(colors.accent, RoundedCornerShape(2.dp)))
-                    else Spacer(Modifier.height(3.dp))
+                        .width(28.dp).height(2.dp).background(colors.accent, RoundedCornerShape(2.dp)))
+                    else Spacer(Modifier.height(2.dp))
                 }
             }
         }
-        if (onSearch != null) MediaAction("搜索", onSearch, icon = Art.drawable.fileway_ic_search)
-        if (onSettings != null) MediaAction("设置", onSettings, icon = Art.drawable.fileway_ic_settings)
+        if (onSearch != null) MediaIconAction("搜索", onSearch, Art.drawable.fileway_ic_search)
+        if (onSettings != null) MediaIconAction("设置", onSettings, Art.drawable.fileway_ic_settings)
+    }
+}
+
+/** Quiet actions retain full native input/focus behavior without creating a wall of pills. */
+@Composable
+internal fun MediaQuietAction(label: String, onClick: () -> Unit, modifier: Modifier = Modifier,
+    icon: Int? = null, selected: Boolean = false, enabled: Boolean = true) {
+    MediaSurface(onClick, modifier.heightIn(min = 48.dp), enabled = enabled, selected = selected,
+        container = Color.Transparent, selectionContainer = false) {
+        Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (icon != null) Icon(painterResource(icon), null, Modifier.size(24.dp))
+            Text(label, style = MediaType.action)
+        }
+    }
+}
+
+@Composable
+internal fun MediaIconAction(label: String, onClick: () -> Unit, icon: Int, modifier: Modifier = Modifier,
+    enabled: Boolean = true) {
+    MediaSurface(onClick, modifier.size(48.dp).semantics { contentDescription = label }, enabled = enabled,
+        container = Color.Transparent) {
+        Icon(painterResource(icon), null, Modifier.align(Alignment.Center).size(24.dp))
     }
 }

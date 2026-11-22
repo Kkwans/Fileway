@@ -19,6 +19,7 @@ internal class TvMediaRouteState(
     private val scope: CoroutineScope,
 ) {
     var checking by mutableStateOf(true); private set
+    var homeRefreshing by mutableStateOf(false); private set
     var supported by mutableStateOf(false); private set
     var home by mutableStateOf<MediaCatalogHome?>(null); private set
     var homeError by mutableStateOf<String?>(null); private set
@@ -49,6 +50,8 @@ internal class TvMediaRouteState(
     private var detailCursor: MediaCatalogCursor? = null
     private var desiredSeason: String? = null
     private var homeJob: Job? = null
+    private var capabilityKnown = false
+    private var retryCatalogPage = false
     private var catalogJob: Job? = null
     private var detailJob: Job? = null
     private var seasonsJob: Job? = null
@@ -64,36 +67,44 @@ internal class TvMediaRouteState(
 
     fun refreshHome() {
         homeJob?.cancel(); catalogJob?.cancel()
-        checking = true; supported = false; home = null; homeError = null
-        catalog = emptyList(); catalogCursor = null; catalogError = null; catalogLoading = false
+        checking = home == null; homeError = null; catalogLoading = false; homeRefreshing = true
         homeJob = scope.launch {
             try {
-                if (session.api.clientCapabilities().mediaLibraryVersion < 1) {
+                if (!capabilityKnown && session.api.clientCapabilities().mediaLibraryVersion < 1) {
                     checking = false; homeError = "服务器尚未启用影视中心，或当前无法读取。"; return@launch
                 }
+                capabilityKnown = true; supported = true
+                loadCatalog(true)
                 when (val result = repository.home()) {
                     is MediaReadResult.Success -> if (result.scope == repository.scope) {
                         home = result.value; checking = false; supported = true
-                        if (result.value.state != MediaCatalogHomeState.NO_LIBRARIES) loadCatalog(true)
                     }
                     is MediaReadResult.Failure -> if (result.scope == repository.scope) {
+                        if (result.error.invalidatesTvData()) {
+                            catalogJob?.cancel(); catalogLoading = false
+                            supported = false; closeDetail()
+                            home = null; catalog = emptyList(); catalogCursor = null
+                        }
                         checking = false; homeError = tvMediaFailure(result.error)
                     }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { checking = false; homeError = "无法读取服务器能力，请检查连接后重试。" }
+            finally { homeRefreshing = false }
         }
     }
 
     fun selectFilter(value: String) {
         if (value !in setOf("all", "movie", "series", "video") || value == filter) return
-        filter = value; loadCatalog(true)
+        filter = value; loadCatalog(true, discardCurrent = true)
     }
 
-    fun loadCatalog(reset: Boolean) {
+    fun retryCatalog() = loadCatalog(!retryCatalogPage)
+
+    fun loadCatalog(reset: Boolean, discardCurrent: Boolean = false) {
         if (!supported || (!reset && (catalogLoading || catalogCursor == null))) return
         catalogJob?.cancel(); val cursor = if (reset) null else catalogCursor
-        if (reset) { catalog = emptyList(); catalogCursor = null }
+        if (discardCurrent) { catalog = emptyList(); catalogCursor = null }
         val query = MediaCatalogQuery(structureKind = when (filter) {
             "movie" -> MediaCatalogFilterKind.MOVIE; "series" -> MediaCatalogFilterKind.SERIES
             "video" -> MediaCatalogFilterKind.VIDEO; else -> null
@@ -105,9 +116,11 @@ internal class TvMediaRouteState(
                     val page = result.value
                     catalog = (if (reset) page.items else catalog + page.items).distinctBy { tvMediaKey(it.ref) }
                     catalogCursor = page.nextCursor; catalogError = tvPageError(page.state, page.nextCursor != null)
+                    retryCatalogPage = false
                 }
                 is MediaReadResult.Failure -> if (result.scope == repository.scope) {
                     if (result.error.invalidatesTvData()) { catalog = emptyList(); catalogCursor = null }
+                    retryCatalogPage = !reset && catalogCursor != null
                     catalogError = tvMediaFailure(result.error)
                 }
             }

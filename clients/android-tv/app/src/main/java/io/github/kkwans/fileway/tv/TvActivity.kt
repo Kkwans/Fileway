@@ -107,7 +107,9 @@ class TvActivity : ComponentActivity() {
                                     contentAlignment = androidx.compose.ui.Alignment.Center) {
                                     if (repository != null) TvMediaRoute(session, repository, model.imageLoader,
                                         onExit = { catalogOpen = false },
-                                        onPlayback = { variant, fromStart -> model.media.openCatalog(repository, variant, fromStart) })
+                                        onPlayback = { variant, fromStart, checkpoint ->
+                                            model.media.openCatalog(repository, variant, fromStart, checkpoint)
+                                        })
                                     else {
                                         BackHandler(media.file == null) { catalogOpen = false }
                                         TvButton(if (catalog == null) "正在读取影视目录 · 返回" else "影视目录暂时无法打开 · 返回",

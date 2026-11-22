@@ -87,7 +87,11 @@ class TvMediaController(
     private data class Binding(val owner: SessionContext, val file: ResourceRef, val identity: String, var durationMs: Long, val writer: PlaybackWriter, val epoch: Long,
         val subtitleAssets: SourceSubtitleAssets = SourceSubtitleAssets())
     private var binding: Binding? = null
-    private var catalogSelection: Pair<MediaLibraryRepository, MediaCatalogVariant>? = null
+    private data class CatalogSelection(
+        val repository: MediaLibraryRepository, val variant: MediaCatalogVariant,
+        val fromStart: Boolean, val checkpoint: MediaCatalogContinue?,
+    )
+    private var catalogSelection: CatalogSelection? = null
     private var catalogLease: CatalogPlaybackLease? = null
     private var catalogProgress: CatalogWatchReporter? = null
 
@@ -127,7 +131,8 @@ class TvMediaController(
     private var pendingNativeAudio: Int? = null
 
     fun open(file: ResourceRef, candidates: List<ResourceRef>) = openMedia(file,candidates,null)
-    internal fun openCatalog(repo: MediaLibraryRepository, item: MediaCatalogVariant, fromStart: Boolean = false) {
+    internal fun openCatalog(repo: MediaLibraryRepository, item: MediaCatalogVariant, fromStart: Boolean = false,
+        checkpoint: MediaCatalogContinue? = null) {
         val owner = current() ?: return
         if (repo.scope != item.ref.scope || repo.scope.account.userId != owner.account.userId) return
         val expected = ++epoch
@@ -147,18 +152,28 @@ class TvMediaController(
         val file = ResourceRef("", "/@catalog/${item.ref.libraryId}/${item.variantId}",
             item.displayName, false, "video", item.size)
         mutable.value = TvMediaState(file = file, mode = mutable.value.mode, busy = true, catalogSource = true)
-        catalogSelection = repo to item
+        catalogSelection = CatalogSelection(repo, item, fromStart, checkpoint)
         operation = scope.launch {
             try {
                 lock.withLock {
                     disposeBinding()
                     if (!accepts(owner, expected)) return@withLock
-                    val resolved = (repo.resolvePlayback(item, trackProgress = true, fromStart = fromStart) as? MediaReadResult.Success)?.value
-                        ?: error("片源暂不可用")
+                    val resolved = when (val result = repo.resolvePlayback(item, trackProgress = true,
+                        fromStart = fromStart, checkpoint = checkpoint)) {
+                        is MediaReadResult.Success -> result.value
+                        is MediaReadResult.Failure -> {
+                            if (accepts(owner, expected)) mutable.update {
+                                it.copy(busy = false, error = if (checkpoint != null && result.error.kind == MediaFailureKind.CONFLICT)
+                                    "续播进度已更新，请返回影视首页刷新后再试" else "无法打开片源，请重试")
+                            }
+                            return@withLock
+                        }
+                    }
                     val lease = repo.openPlaybackLease(resolved)
                     if (!accepts(owner, expected)) { lease.release(); return@withLock }
                     catalogLease = lease
                     player.open(lease.url, lease.startPositionMs, videoDecodePolicy = playbackPreferences.videoDecodePolicy.value)
+                    catalogSelection = CatalogSelection(repo, item, fromStart = false, checkpoint = null)
                     val progress = CatalogWatchReporter(lease, player.state.value.mediaGeneration)
                     catalogProgress = progress
                     mutable.update { it.copy(busy = false) }
@@ -1367,7 +1382,7 @@ class TvMediaController(
     fun imageReady(resourceKey:String,expected:Long) { if(epoch==expected&&mutable.value.file?.mediaKey==resourceKey)mutable.update{it.copy(imageReady=true)} }
     fun navigateQueue(delta: Int) { val queue = state.value.queue ?: return; queue.select(queue.index + delta)?.let { open(it.current, it.items) } }
     fun retry() {
-        catalogSelection?.let { (repo, item) -> openCatalog(repo, item); return }
+        catalogSelection?.let { openCatalog(it.repository, it.variant, it.fromStart, it.checkpoint); return }
         val value = state.value
         value.file?.let { open(it, value.queue?.items ?: listOf(it)) }
     }
@@ -1408,7 +1423,7 @@ class TvMediaController(
     fun togglePlayback() {
         val selection = catalogSelection
         if (selection != null && catalogLease != null && player.state.value.ended)
-            openCatalog(selection.first, selection.second, fromStart = true)
+            openCatalog(selection.repository, selection.variant, fromStart = true)
         else player.toggle()
     }
     suspend fun closeAndSave() {

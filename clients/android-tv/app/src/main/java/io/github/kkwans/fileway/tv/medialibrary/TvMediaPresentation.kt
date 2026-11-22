@@ -51,6 +51,7 @@ data class TvMediaContinueItem(
     val remainingLabel: String? = null,
     /** Null when the source timeline/duration is unknown. */
     val progress: Float? = null,
+    val removing: Boolean = false,
 )
 
 data class TvMediaShelf(
@@ -69,6 +70,9 @@ data class TvMediaHomeState(
      * normal refresh is merely loading. A removed active item requires reselection. */
     val featured: List<TvMediaCard> = emptyList(),
     val continuing: List<TvMediaContinueItem> = emptyList(),
+    val continueLoading: Boolean = false,
+    val continueError: String? = null,
+    val continueHasMore: Boolean = false,
     val shelves: List<TvMediaShelf> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null,
