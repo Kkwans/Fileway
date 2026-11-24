@@ -65,10 +65,13 @@ data class MediaCatalogQuery(
     val matchState: MediaCatalogMatchFilter? = null,
     val sort: MediaCatalogSort = MediaCatalogSort.ID,
     val limit: Int = 20,
+    val query: String? = null,
 ) {
     init {
         libraryId?.let(::requireMediaRouteId)
         require(limit in 1..100 && (sort != MediaCatalogSort.UPDATED || structureKind == null || structureKind == MediaCatalogFilterKind.SERIES))
+        require(query == null || query.codePointCount(0, query.length) <= 200 && query.toByteArray(Charsets.UTF_8).size <= 800 && query.none(Char::isISOControl))
+        require(query.isNullOrBlank() || sort == MediaCatalogSort.ID)
     }
 }
 

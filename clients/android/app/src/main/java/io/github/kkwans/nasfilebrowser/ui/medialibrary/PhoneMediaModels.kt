@@ -27,7 +27,7 @@ internal data class PhoneMediaHomeState(val scopeKey: String, val featured: Medi
     val updatedSeries: MediaSection<MediaPoster> = MediaSection(),
     val categories: List<MediaCategory> = emptyList(), val selectedCategory: String? = null,
     val catalogTitle: String = "全部影视", val filterSummary: String? = null, val libraryExists: Boolean = true,
-    val canManage: Boolean = false, val carouselAutoAdvance: Boolean = true, val interactionBlocked: Boolean = false,
+    val canManage: Boolean = false, val canSearch: Boolean = false, val carouselAutoAdvance: Boolean = true, val interactionBlocked: Boolean = false,
     val problem: MediaProblem? = null)
 
 internal data class MediaCredit(val id: String, val name: String, val role: String,
@@ -91,6 +91,10 @@ internal enum class MediaTargetKind { ITEM, EPISODE, CONTINUE }
 internal sealed interface PhoneMediaAction {
     data object Back : PhoneMediaAction
     data object Search : PhoneMediaAction
+    data object CloseSearch : PhoneMediaAction
+    data class UpdateSearchQuery(val query: String) : PhoneMediaAction
+    data class SubmitSearch(val query: String) : PhoneMediaAction
+    data object LoadMoreSearch : PhoneMediaAction
     data object Settings : PhoneMediaAction
     data object ManageLibraries : PhoneMediaAction
     data object CreateLibrary : PhoneMediaAction

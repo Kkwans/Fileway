@@ -77,6 +77,7 @@ internal fun PhoneMediaRoute(
     var reviewItemId by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var autoAdvance by rememberSaveable(session.owner) { mutableStateOf(true) }
     var mediaTab by rememberSaveable(session.owner) { mutableStateOf("home") }
+    var searching by rememberSaveable(session.owner) { mutableStateOf(false) }
     var startFromBeginning by remember(route) { mutableStateOf(false) }
     var sourceSelection by remember(route) { mutableStateOf<PhoneMediaSourceSelection?>(null) }
     val homeGrid = rememberLazyGridState()
@@ -112,7 +113,8 @@ internal fun PhoneMediaRoute(
     }
 
     fun back() {
-        if (reviewItemId != null) { reviewItemId = null; reviewLibraryId = null }
+        if (searching && detailId == null) searching = false
+        else if (reviewItemId != null) { reviewItemId = null; reviewLibraryId = null }
         else if (reviewing) reviewing = false
         else if (route.sourceRef != null) route.closeSources()
         else if (parentItem != null && parentLibrary != null) {
@@ -126,7 +128,8 @@ internal fun PhoneMediaRoute(
     }
 
     BackHandler {
-        if (settings != null) closeSettings()
+        if (searching && detailId == null) searching = false
+        else if (settings != null) closeSettings()
         else if (reviewItemId != null) back()
         else if (managing) managing = false
         else if (detailId != null || reviewing || route.sourceRef != null) back()
@@ -145,6 +148,11 @@ internal fun PhoneMediaRoute(
         }
         when (intent) {
             PhoneMediaAction.Back -> back()
+            PhoneMediaAction.Search -> searching = true
+            PhoneMediaAction.CloseSearch -> searching = false
+            is PhoneMediaAction.UpdateSearchQuery -> route.editSearch(intent.query)
+            is PhoneMediaAction.SubmitSearch -> route.submitSearch(intent.query)
+            PhoneMediaAction.LoadMoreSearch -> route.loadSearch(reset = false)
             PhoneMediaAction.Settings -> mediaTab = "settings"
             PhoneMediaAction.CreateLibrary -> { createLibrary = true; managing = true }
             PhoneMediaAction.ManageLibraries -> { createLibrary = false; managing = true }
@@ -153,7 +161,7 @@ internal fun PhoneMediaRoute(
                 val first = route.home?.hero?.items.orEmpty()
                 val homeItems = route.home?.rows.orEmpty().flatMap { it.items }
                 val episode = route.episodes.firstOrNull { key(it.ref) == intent.id }
-                (route.catalog + first + homeItems + watching.items.map { it.card } + listOfNotNull(episode?.card)).firstOrNull { key(it.ref) == intent.id }?.let {
+                (route.catalog + route.searchResults + first + homeItems + watching.items.map { it.card } + listOfNotNull(episode?.card)).firstOrNull { key(it.ref) == intent.id }?.let {
                     if (episode != null && item != null && library != null) {
                         parentItem = item; parentLibrary = library; parentSeason = season
                     } else { parentItem = null; parentLibrary = null; parentSeason = null }
@@ -198,6 +206,7 @@ internal fun PhoneMediaRoute(
                 "seasons" -> route.loadSeasons(reset = true)
                 "episodes" -> route.loadEpisodes(reset = true)
                 "sources" -> route.loadSources(reset = true)
+                "search" -> route.retrySearch()
                 "user-state" -> route.retryUserState()
                 else -> Unit
             }
@@ -207,6 +216,7 @@ internal fun PhoneMediaRoute(
                 "seasons" -> route.loadSeasons(reset = false)
                 "episodes" -> route.loadEpisodes(reset = false)
                 "sources" -> route.loadSources(reset = false)
+                "search" -> route.loadSearch(reset = false)
                 else -> Unit
             }
             else -> Unit
@@ -243,6 +253,9 @@ internal fun PhoneMediaRoute(
             pages.SaveableStateProvider("media-detail/$libraryId/$detailId") {
                 PhoneMediaDetail(route.detailState(session.owner, "$libraryId/$detailId"), imageLoader, action, subpage, rememberLazyListState())
             }
+        } else if (searching) {
+            PhoneMediaSearch(route.searchQuery, route.searchedQuery.isNotBlank(), route.searchResults.map(::poster),
+                route.searchLoading, route.searchProblem, route.searchCursor != null, imageLoader, action)
         } else {
             val home = route.home
             val hasLibrary = home != null && home.state != MediaCatalogHomeState.NO_LIBRARIES
@@ -278,6 +291,7 @@ internal fun PhoneMediaRoute(
                 ) else emptyList(),
                 selectedCategory = route.filter,
                 canManage = home?.actions?.can(MediaCatalogAction.CREATE_LIBRARY) == true,
+                canSearch = home?.capabilities?.get("search") == true,
                 carouselAutoAdvance = autoAdvance,
                 filterSummary = if (route.filter != "all") "已筛选" else null,
                 problem = route.homeProblem ?: when (home?.state) {

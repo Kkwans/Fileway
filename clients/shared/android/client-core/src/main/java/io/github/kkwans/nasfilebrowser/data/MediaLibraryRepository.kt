@@ -852,6 +852,7 @@ private fun catalogQueryEndpoint(query: MediaCatalogQuery): String = buildString
     query.libraryId?.let { append("&libraryId=").append(it) }
     query.structureKind?.let { append("&structureKind=").append(it.wire) }
     query.matchState?.let { append("&matchState=").append(it.wire) }
+    query.query?.takeIf { it.isNotBlank() }?.let { append("&q=").append(URLEncoder.encode(it.trim(), "UTF-8")) }
 }
 
 private fun pageQuery(limit: Int, cursor: String?, maxCursorBytes: Int): String {
