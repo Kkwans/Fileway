@@ -39,6 +39,10 @@ internal class TvMediaRouteState(
     var peopleLoading by mutableStateOf(false); private set
     var peopleError by mutableStateOf<String?>(null); private set
     var peopleCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
+    var files by mutableStateOf<List<MediaCatalogFileMatch>>(emptyList()); private set
+    var filesLoading by mutableStateOf(false); private set
+    var filesError by mutableStateOf<String?>(null); private set
+    var filesCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
     var personRef by mutableStateOf<MediaCatalogPersonRef?>(null); private set
     var personName by mutableStateOf(""); private set
     var personWorks by mutableStateOf<List<MediaCatalogCard>>(emptyList()); private set
@@ -72,13 +76,14 @@ internal class TvMediaRouteState(
     private var catalogJob: Job? = null
     private var searchJob: Job? = null
     private var peopleJob: Job? = null
+    private var filesJob: Job? = null
     private var personWorksJob: Job? = null
     private var detailJob: Job? = null
     private var seasonsJob: Job? = null
     private var episodesJob: Job? = null
     private var sourcesJob: Job? = null
 
-    fun close() { listOf(homeJob, catalogJob, searchJob, peopleJob, personWorksJob, detailJob, seasonsJob, episodesJob, sourcesJob).forEach { it?.cancel() } }
+    fun close() { listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, personWorksJob, detailJob, seasonsJob, episodesJob, sourcesJob).forEach { it?.cancel() } }
 
     fun start(savedFilter: String) {
         filter = savedFilter.takeIf { it in setOf("all", "movie", "series", "video") } ?: "all"
@@ -105,7 +110,8 @@ internal class TvMediaRouteState(
                             supported = false; closeDetail()
                             home = null; catalog = emptyList(); catalogCursor = null
                             searchResults = emptyList(); searchCursor = null
-                            people = emptyList(); peopleCursor = null; personRef = null; personWorks = emptyList(); personWorksCursor = null
+                            people = emptyList(); peopleCursor = null; files = emptyList(); filesCursor = null
+                            personRef = null; personWorks = emptyList(); personWorksCursor = null
                         }
                         checking = false; homeError = tvMediaFailure(result.error)
                     }
@@ -122,6 +128,7 @@ internal class TvMediaRouteState(
         if (searchedQuery.isNotBlank()) when (searchMode) {
             TvMediaSearchMode.WORKS -> loadSearch(true, discardCurrent = true)
             TvMediaSearchMode.PEOPLE -> loadPeople(true, discardCurrent = true)
+            TvMediaSearchMode.FILES -> loadFiles(true, discardCurrent = true)
         }
     }
 
@@ -131,6 +138,7 @@ internal class TvMediaRouteState(
         if (searchedQuery.isNotBlank()) when (mode) {
             TvMediaSearchMode.WORKS -> loadSearch(true, discardCurrent = true)
             TvMediaSearchMode.PEOPLE -> loadPeople(true, discardCurrent = true)
+            TvMediaSearchMode.FILES -> loadFiles(true, discardCurrent = true)
         }
     }
 
@@ -139,22 +147,28 @@ internal class TvMediaRouteState(
             searchError = "请输入有效搜索内容，最多 200 个字符。"
             return
         }
-        searchJob?.cancel(); peopleJob?.cancel()
-        searchQuery = value; searchedQuery = ""; searchLoading = false; peopleLoading = false
+        searchJob?.cancel(); peopleJob?.cancel(); filesJob?.cancel()
+        searchQuery = value; searchedQuery = ""; searchLoading = false; peopleLoading = false; filesLoading = false
         searchResults = emptyList(); searchCursor = null; searchError = null
         people = emptyList(); peopleCursor = null; peopleError = null
+        files = emptyList(); filesCursor = null; filesError = null
     }
 
     fun submitSearch(value: String) {
         val query = value.trim()
         if (query.isEmpty()) {
-            searchError = if (searchMode == TvMediaSearchMode.PEOPLE) "请输入演员、导演或编剧姓名。" else "请输入作品标题或原名。"
+            searchError = when (searchMode) {
+                TvMediaSearchMode.PEOPLE -> "请输入演员、导演或编剧姓名。"
+                TvMediaSearchMode.FILES -> "请输入媒体文件名。"
+                TvMediaSearchMode.WORKS -> "请输入作品标题或原名。"
+            }
             return
         }
         editSearch(query); searchedQuery = query
         when (searchMode) {
             TvMediaSearchMode.WORKS -> loadSearch(true, discardCurrent = true)
             TvMediaSearchMode.PEOPLE -> loadPeople(true, discardCurrent = true)
+            TvMediaSearchMode.FILES -> loadFiles(true, discardCurrent = true)
         }
     }
 
@@ -163,6 +177,7 @@ internal class TvMediaRouteState(
         else when (searchMode) {
             TvMediaSearchMode.WORKS -> loadSearch(reset = !searchLoading && searchCursor == null)
             TvMediaSearchMode.PEOPLE -> loadPeople(reset = !peopleLoading && peopleCursor == null)
+            TvMediaSearchMode.FILES -> loadFiles(reset = !filesLoading && filesCursor == null)
         }
     }
 
@@ -185,6 +200,28 @@ internal class TvMediaRouteState(
                 }
             }
             coroutineContext.ensureActive(); peopleLoading = false
+        }
+    }
+
+    fun loadFiles(reset: Boolean, discardCurrent: Boolean = false) {
+        if (!supported || searchedQuery.isBlank() || (!reset && (filesLoading || filesCursor == null))) return
+        filesJob?.cancel()
+        val cursor = if (reset) null else filesCursor
+        if (discardCurrent) { files = emptyList(); filesCursor = null }
+        filesLoading = true; filesError = null
+        filesJob = scope.launch {
+            when (val result = repository.searchFiles(searchedQuery, cursor = cursor)) {
+                is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                    val page = result.value
+                    files = (if (reset) page.items else files + page.items).distinctBy { it.fileId }
+                    filesCursor = page.nextCursor; filesError = tvPageError(page.state, page.nextCursor != null)
+                }
+                is MediaReadResult.Failure -> if (result.scope == repository.scope) {
+                    if (result.error.invalidatesTvData()) { files = emptyList(); filesCursor = null }
+                    filesError = tvMediaFailure(result.error)
+                }
+            }
+            coroutineContext.ensureActive(); filesLoading = false
         }
     }
 

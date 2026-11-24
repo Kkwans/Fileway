@@ -154,7 +154,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
             onPlayback(entry.variant, fromStart, entry)
         }
         fun closePersonPage() {
-            val target = resolveTvPersonSearchFocusTarget(lastAnchor, lastOrigin,
+            val target = resolveTvCatalogSearchFocusTarget(lastAnchor, lastOrigin,
                 route.people.map { "person:${it.ref.libraryId}/${it.ref.personId}" })
             route.closePerson(); personPage = null
             restore(target.id, target.origin)
@@ -166,7 +166,11 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                 item != null -> {
                     item = null; library = null; season = null
                     if (personPage != null) restore("person-back", "search-person")
-                    else if (searching) restore("search-field", "search") else restoreHome(homeAnchor, homeOrigin)
+                    else if (searching && lastOrigin == "file-result") {
+                        val target = resolveTvCatalogSearchFocusTarget(lastAnchor, lastOrigin,
+                            route.files.map { "file:${it.fileId}" })
+                        restore(target.id, target.origin)
+                    } else if (searching) restore("search-field", "search") else restoreHome(homeAnchor, homeOrigin)
                 }
                 personPage != null -> closePersonPage()
                 searching -> closeSearch()
@@ -207,10 +211,13 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                     } else if (searching && route.supported) {
                         TvMediaSearchScreen(route.searchQuery, route.searchedQuery.isNotBlank(), route.searchMode,
                             route.searchResults.map { tvCard(it, art) }, route.searchLoading, route.searchError, route.searchCursor != null,
-                            route.people, route.peopleLoading, route.peopleError, route.peopleCursor != null, imageLoader,
+                            route.people, route.peopleLoading, route.peopleError, route.peopleCursor != null,
+                            route.files.map { TvMediaFileResult(it.fileId, it.fileName, tvCard(it.card, art)) },
+                            route.filesLoading, route.filesError, route.filesCursor != null,
+                            route.home?.capabilities?.get("fileSearch") == true, imageLoader,
                             onQuery = route::editSearch, onSubmit = { route.submitSearch(route.searchQuery) }, onMode = route::chooseSearchMode,
                             onBack = ::closeSearch, onItem = { id ->
-                                (route.searchResults + route.personWorks + route.catalog + route.home?.hero?.items.orEmpty()).firstOrNull { tvMediaKey(it.ref) == id }?.let {
+                                (route.searchResults + route.files.map { it.card } + route.personWorks + route.catalog + route.home?.hero?.items.orEmpty()).firstOrNull { tvMediaKey(it.ref) == id }?.let {
                                     library = it.ref.libraryId; item = it.ref.itemId; season = null
                                 }
                             }, onPerson = { libraryId, personId ->
@@ -218,7 +225,11 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                                     personPage = it.ref; route.openPerson(it.ref, it.name); restore("person-back", "search-person")
                                 }
                             }, onRetry = route::retrySearch, onMore = {
-                                if (route.searchMode == TvMediaSearchMode.WORKS) route.loadSearch(false) else route.loadPeople(false)
+                                when (route.searchMode) {
+                                    TvMediaSearchMode.WORKS -> route.loadSearch(false)
+                                    TvMediaSearchMode.PEOPLE -> route.loadPeople(false)
+                                    TvMediaSearchMode.FILES -> route.loadFiles(false)
+                                }
                             })
                     } else {
                     val featured = route.home?.hero?.items.orEmpty()

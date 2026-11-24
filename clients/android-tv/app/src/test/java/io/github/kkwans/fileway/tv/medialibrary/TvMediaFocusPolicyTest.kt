@@ -21,10 +21,19 @@ class TvMediaFocusPolicyTest {
     @Test
     fun personSearchReturnsToVisibleResultOrSearchField() {
         val id = "person:lib_1/person_1"
-        assertEquals(TvMediaFocusTarget(id, "person-result"), resolveTvPersonSearchFocusTarget(
+        assertEquals(TvMediaFocusTarget(id, "person-result"), resolveTvCatalogSearchFocusTarget(
             id, "person-result", listOf(id)))
-        assertEquals(TvMediaFocusTarget("search-field", "search"), resolveTvPersonSearchFocusTarget(
+        assertEquals(TvMediaFocusTarget("search-field", "search"), resolveTvCatalogSearchFocusTarget(
             id, "person-result", emptyList()))
+    }
+
+    @Test
+    fun fileSearchReturnsToVisibleResultOrSearchField() {
+        val id = "file:file_1"
+        assertEquals(TvMediaFocusTarget(id, "file-result"), resolveTvCatalogSearchFocusTarget(
+            id, "file-result", listOf(id)))
+        assertEquals(TvMediaFocusTarget("search-field", "search"), resolveTvCatalogSearchFocusTarget(
+            id, "file-result", emptyList()))
     }
 
     @Test

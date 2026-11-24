@@ -2,11 +2,11 @@ package io.github.kkwans.fileway.tv.medialibrary
 
 internal data class TvMediaFocusTarget(val id: String, val origin: String)
 
-internal fun resolveTvPersonSearchFocusTarget(
+internal fun resolveTvCatalogSearchFocusTarget(
     requestedId: String?,
     requestedOrigin: String?,
     availableIds: List<String>,
-): TvMediaFocusTarget = if (requestedOrigin == "person-result" && requestedId != null && requestedId in availableIds) {
+): TvMediaFocusTarget = if (requestedOrigin != null && requestedOrigin in setOf("person-result", "file-result") && requestedId != null && requestedId in availableIds) {
     TvMediaFocusTarget(requestedId, requestedOrigin)
 } else {
     TvMediaFocusTarget("search-field", "search")
