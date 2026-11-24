@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"testing"
 )
 
@@ -131,6 +132,36 @@ func TestResolveAutomaticMatchTitleEvidenceIsConservative(t *testing.T) {
 				t.Fatalf("title match lacks typed evidence: %+v", result)
 			}
 		})
+	}
+}
+
+func TestResolveAutomaticMatchUsesAliasAfterUnqualifiedPrimaryResults(t *testing.T) {
+	calls := 0
+	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+		calls++
+		switch request.URL.Path {
+		case "/3/search/movie":
+			if request.URL.Query().Get("query") == "The Notebook 恋恋笔记本" {
+				return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":99,"title":"Unrelated","release_date":"2004-01-01"}]}`), nil
+			}
+			if request.URL.Query().Get("query") != "The Notebook" {
+				t.Fatalf("unexpected alias query: %s", request.URL)
+			}
+			return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":42,"title":"The Notebook","release_date":"2004-01-01"}]}`), nil
+		case "/3/movie/42":
+			return response(200, `{"id":42,"title":"The Notebook","release_date":"2004-01-01"}`), nil
+		default:
+			t.Fatalf("unexpected request: %s", request.URL.Path)
+			return nil, nil
+		}
+	})
+	result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: "The Notebook 恋恋笔记本",
+		Aliases: []string{"The Notebook", "恋恋笔记本"}, Year: 2004, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+	if err != nil || result.State != AutoMatched || result.Document.Entity.ID != 42 || calls != 3 {
+		t.Fatalf("alias fallback failed: state=%s calls=%d err=%v", result.State, calls, err)
+	}
+	if !slices.Contains(result.Evidence, "alias_title_match") {
+		t.Fatalf("alias evidence missing: %v", result.Evidence)
 	}
 }
 

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -100,12 +101,18 @@ type technicalRule struct {
 }
 
 var technicalNameRules = []technicalRule{
-	{"resolution", regexp.MustCompile(`(?i)4320p|2160p|1440p|1080[pi]|720p|576p|480p|8k|4k`)},
+	{"resolution", regexp.MustCompile(`(?i)BD(?:1080[pi]|2160p|720p)|4320p|2160p|1440p|1080[pi]|720p|576p|480p|8k|4k`)},
 	{"video_codec", regexp.MustCompile(`(?i)x26[45]|h[ .]?26[45]|hevc|avc|av1|xvid`)},
 	{"dynamic_range", regexp.MustCompile(`(?i)dolby[ ._\-]+vision|hdr10\+|hdr10|hdr|hlg|dv`)},
 	{"source", regexp.MustCompile(`(?i)web[ ._\-]?dl|webrip|blu[ ._\-]?ray|bdrip|brrip|remux|hdtv|dvdrip`)},
 	{"audio_codec", regexp.MustCompile(`(?i)dts[ ._\-]?hd[ ._\-]?ma|truehd|ddp[ .]?[257]\.1|dd[ .]?[257]\.1|e[ ._\-]?ac3|ac3|aac|dts|atmos|flac|opus|pcm`)},
 	{"bit_depth", regexp.MustCompile(`(?i)(?:8|10|12)[ ._\-]?bit`)},
+	{"edition", regexp.MustCompile(`(?i)\b(?:IMAX|UHD|CC)\b`)},
+	{"audio_layout", regexp.MustCompile(`(?i)\b[257][ ._]1\b`)},
+	{"audio_variant", regexp.MustCompile(`(?i)\b(?:AAC[0-9]|[257]Audios?)\b`)},
+	{"subtitle", regexp.MustCompile(`国英双语|中英双字|中英字幕|中英特效|国语中字|粤语中字|日语中字|法语中字|英语中字|国日粤三语|中日双字|简繁双语|双语中字|中文字幕`)},
+	{"release_group", regexp.MustCompile(`(?i)\b(?:MNHD-FRDS|RARBG|HDBWEB|DreamHD|BBQDDQ|CTRLTV|FRDS|MTeam|WiKi|PTer|HDC|HDS|D-Z0N3|DiaosMan)\b`)},
+	{"site_prefix", regexp.MustCompile(`(?i)^\[[^\]]*(?:www[ ._]|https?://)[^\]]*\]`)},
 }
 
 // ParseName parses a single filename, not a filesystem path or URL. It uses
@@ -556,7 +563,9 @@ func (p *nameParser) parseYears() {
 		year, _ := strconv.Atoi(p.stem[match[0]:match[1]])
 		p.result.Year = &year
 		p.record("year_candidate", match[0], match[1], strconv.Itoa(year), true)
-		p.ambiguous("unbracketed_year")
+		if len(p.result.TechnicalHints) == 0 && len(p.result.Editions) == 0 {
+			p.ambiguous("unbracketed_year")
+		}
 		break
 	}
 }
@@ -600,6 +609,45 @@ func (p *nameParser) unremoved(start, end int) string {
 	return string(text)
 }
 func (p *nameParser) title() string { return cleanNameTitle(p.unremoved(0, len(p.stem))) }
+
+func TitleAliases(value string) []string {
+	var aliases []string
+	var current []rune
+	script := 0
+	flush := func() {
+		if len(current) == 0 {
+			return
+		}
+		title := ParseName(string(current) + ".mkv").Title
+		if title == "" {
+			title = cleanNameTitle(string(current))
+		}
+		if utf8.RuneCountInString(title) >= 2 {
+			aliases = appendUnique(aliases, title)
+		}
+		current = nil
+	}
+	for _, r := range value {
+		next := 0
+		if unicode.In(r, unicode.Han, unicode.Hiragana, unicode.Katakana, unicode.Hangul) {
+			next = 1
+		} else if unicode.IsLetter(r) {
+			next = 2
+		}
+		if next != 0 && script != 0 && next != script {
+			flush()
+		}
+		if next != 0 {
+			script = next
+		}
+		current = append(current, r)
+	}
+	flush()
+	if len(aliases) < 2 {
+		return nil
+	}
+	return aliases
+}
 
 func cleanNameTitle(value string) string {
 	value = strings.NewReplacer(".", " ", "_", " ").Replace(value)

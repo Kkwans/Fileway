@@ -108,6 +108,36 @@ func TestParseNameInDirectoryRetainsIndependentYearEvidence(t *testing.T) {
 	}
 }
 
+func TestParseNameCleansReleaseAndSubtitleNoise(t *testing.T) {
+	for _, tc := range []struct {
+		filename, title string
+		year            int
+	}{
+		{"The Wolf of Wall Street 2013 MNHD-FRDS.mkv", "The Wolf of Wall Street", 2013},
+		{"华尔街之狼 2013 BD1080p 国英双语 中英双字.mkv", "华尔街之狼", 2013},
+		{"Spider-Man Far from Home 2019 IMAX UHD 7 1 -RARBG.mkv", "Spider-Man Far from Home", 2019},
+		{"[www dbmp4 com]后天 2004 BD1080p 国英双语 中英双字.mkv", "后天", 2004},
+		{"[www.domp4.com]华尔街之狼 2013 BD1080p 中英双字.mkv", "华尔街之狼", 2013},
+		{"阿黛尔的生活 2013 法语中字.mkv", "阿黛尔的生活", 2013},
+	} {
+		parsed := ParseName(tc.filename)
+		if parsed.Title != tc.title || parsed.Year == nil || *parsed.Year != tc.year || len(parsed.Ambiguities) != 0 {
+			t.Fatalf("%s: title=%q year=%v ambiguities=%v", tc.filename, parsed.Title, parsed.Year, parsed.Ambiguities)
+		}
+	}
+}
+
+func TestTitleAliasesSeparateChineseAndOriginalTitles(t *testing.T) {
+	aliases := TitleAliases("The Notebook 恋恋笔记本")
+	if !reflect.DeepEqual(aliases, []string{"The Notebook", "恋恋笔记本"}) {
+		t.Fatalf("unexpected aliases: %v", aliases)
+	}
+	cleaned := TitleAliases("美国队长2：冬日战士 Captain America 2 2014 AAC6 2Audios -DiaosMan")
+	if !reflect.DeepEqual(cleaned, []string{"美国队长2：冬日战士", "Captain America 2"}) {
+		t.Fatalf("unclean aliases: %v", cleaned)
+	}
+}
+
 func TestNameParserResourceBoundsAndPurity(t *testing.T) {
 	for _, input := range []string{strings.Repeat("星", MaxNameBytes), "bad\x00name.mkv", "bad\xffname.mkv", "folder/movie.mkv", `C:\fixture\movie.mkv`} {
 		parsed := ParseName(input)

@@ -14,10 +14,18 @@ import (
 
 func TestAutomaticMatchInputCarriesTitleWithoutEnablingUnbenchmarkedMatches(t *testing.T) {
 	year := 2020
-	item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{ParsedTitle: "Echo", Year: &year}}
+	item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{ParsedTitle: "Echo 2020 CC", Year: &year, DirectoryTitle: "Echo"}}
 	input := automaticMatchInput(item)
-	if input.Title != "Echo" || input.Year != 2020 || input.AllowTitleMatch {
+	if input.Title != "Echo 2020 CC" || input.Year != 2020 || input.AllowTitleMatch || len(input.Aliases) != 1 || input.Aliases[0] != "Echo" {
 		t.Fatalf("unexpected automatic input: %+v", input)
+	}
+}
+
+func TestAutomaticMatchInputAddsMixedLanguageAliases(t *testing.T) {
+	item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{ParsedTitle: "The Notebook 恋恋笔记本", DirectoryTitle: "Noisy folder"}}
+	input := automaticMatchInput(item)
+	if len(input.Aliases) != 3 || input.Aliases[0] != "The Notebook" || input.Aliases[1] != "恋恋笔记本" || input.Aliases[2] != "Noisy folder" {
+		t.Fatalf("mixed-language aliases missing: %+v", input)
 	}
 }
 

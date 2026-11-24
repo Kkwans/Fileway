@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
+	"github.com/Kkwans/nas-file-browser/backend/mediametadata"
 	"github.com/Kkwans/nas-file-browser/backend/mediaprovider"
 	"github.com/Kkwans/nas-file-browser/backend/mediascan"
 	"github.com/gorilla/mux"
@@ -228,8 +229,11 @@ func automaticMatchInput(item mediaIdentificationResponse) mediaprovider.Automat
 			}
 		}
 		input.Ambiguities = append(input.Ambiguities, file.DirectoryIssues...)
+		directoryTitle := strings.TrimSpace(file.DirectoryTitle)
 		if input.Title == "" {
-			input.Title = strings.TrimSpace(file.DirectoryTitle)
+			input.Title = directoryTitle
+		} else if directoryTitle != "" && directoryTitle != input.Title {
+			input.Aliases = append(input.Aliases, directoryTitle)
 		}
 		for _, id := range file.ProviderIDs {
 			kind := mediaprovider.Kind(id.MediaType)
@@ -242,5 +246,16 @@ func automaticMatchInput(item mediaIdentificationResponse) mediaprovider.Automat
 	if input.Title == "" {
 		input.Title = strings.TrimSpace(item.Title)
 	}
+	aliases := mediametadata.TitleAliases(input.Title)
+	for _, existing := range input.Aliases {
+		found := false
+		for _, alias := range aliases {
+			found = found || alias == existing
+		}
+		if !found {
+			aliases = append(aliases, existing)
+		}
+	}
+	input.Aliases = aliases
 	return input
 }

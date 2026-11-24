@@ -176,11 +176,13 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 	queries := []string{title}
 	for _, alias := range input.Aliases {
 		alias = strings.TrimSpace(alias)
-		if alias != "" && !slices.Contains(queries, alias) && len(queries) < 3 {
+		if alias != "" && !slices.Contains(queries, alias) && len(queries) < 4 {
 			queries = append(queries, alias)
 		}
 	}
 	var documents []Document
+	var ranked []MatchCandidate
+	eligible := make([]MatchCandidate, 0)
 	for _, query := range queries {
 		if err := authorize(ctx); err != nil {
 			return AutomaticMatch{}, err
@@ -191,23 +193,23 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 			return AutomaticMatch{}, err
 		}
 		documents = append(documents, page.Items...)
-		if len(page.Items) != 0 {
+		ranked = RankCandidates(MatchHint{Kind: input.Kind, Title: title, Year: input.Year}, documents)
+		eligible = eligible[:0]
+		for _, candidate := range ranked {
+			exact := false
+			for _, candidateQuery := range queries {
+				exact = exact || matchTitle(candidateQuery) == matchTitle(candidate.Title) || matchTitle(candidateQuery) == matchTitle(candidate.OriginalTitle)
+			}
+			if exact && input.Year > 0 && candidate.Year == input.Year {
+				eligible = append(eligible, candidate)
+			}
+		}
+		if len(eligible) != 0 {
 			break
 		}
 	}
 	if len(documents) == 0 {
 		return AutomaticMatch{State: AutoNoMatch, Reason: "title_not_found"}, nil
-	}
-	ranked := RankCandidates(MatchHint{Kind: input.Kind, Title: title, Year: input.Year}, documents)
-	eligible := make([]MatchCandidate, 0, len(ranked))
-	for _, candidate := range ranked {
-		exact := false
-		for _, query := range queries {
-			exact = exact || matchTitle(query) == matchTitle(candidate.Title) || matchTitle(query) == matchTitle(candidate.OriginalTitle)
-		}
-		if exact && input.Year > 0 && candidate.Year == input.Year {
-			eligible = append(eligible, candidate)
-		}
 	}
 	if input.Year <= 0 {
 		return review("year_required")
@@ -237,14 +239,25 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 	if input.Kind == Series {
 		titleField, originalField = "name", "original_name"
 	}
-	exact := false
+	matchedQuery := ""
 	for _, query := range queries {
-		exact = exact || matchTitle(query) == matchTitle(textField(document, titleField)) || matchTitle(query) == matchTitle(textField(document, originalField))
+		if matchTitle(query) == matchTitle(textField(document, titleField)) || matchTitle(query) == matchTitle(textField(document, originalField)) {
+			matchedQuery = query
+			break
+		}
 	}
-	if !exact || input.Year > 0 && len(projection.Item.Fields["year"]) != 0 && projection.Item.Fields["year"][0] != strconv.Itoa(input.Year) {
+	if matchedQuery == "" || input.Year > 0 && len(projection.Item.Fields["year"]) != 0 && projection.Item.Fields["year"][0] != strconv.Itoa(input.Year) {
 		return review("title_year_conflict")
 	}
-	evidence := append(append([]string(nil), candidate.Evidence...), "unique_candidate")
+	evidence := append([]string(nil), candidate.Evidence...)
+	if !slices.Contains(evidence, "title_match") {
+		if matchedQuery == title {
+			evidence = append(evidence, "title_match")
+		} else {
+			evidence = append(evidence, "alias_title_match")
+		}
+	}
+	evidence = append(evidence, "unique_candidate")
 	return AutomaticMatch{State: AutoMatched, Evidence: evidence, Document: document, Projection: projection}, nil
 }
 
