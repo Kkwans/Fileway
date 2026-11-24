@@ -53,22 +53,34 @@ internal class TvMediaHandoff(private val model:TvModel) {
         val actual=read(owner,command,"/api/instance")
         checkCommand(command,owner)
         if(actual.getString("id")!=instance.getString("id") || actual.getString("publicKey")!=instance.getString("publicKey"))throw NeedsLogin("SERVER_MISMATCH")
-        // Resource lookup uses only this TV account. Never accept a phone URL,
-        // base address, bearer token or a local download/content URI.
-        val metadata=read(owner,command,"/api/resources${item.wirePath}?metadata=1")
-        checkCommand(command,owner)
-        check(!metadata.getBoolean("isDir") && metadata.getString("path")==item.path &&
-            recentAccessWireIdentity(metadata.optString("wirePath",item.wirePath))==item.key) { "文件来源已变化，请在手机重新选择" }
-        check(metadata.getLong("size")==item.size && metadata.getString("modified")==item.modified) { "文件版本已变化，请在手机刷新后重试" }
-        val selected=item.resource().copy(type=metadata.optString("type",item.type))
-        check(selected.mediaKind()==item.kind) { "媒体类型已变化" }
         val restore=decodeStart(request.optJSONObject("playback")?:JSONObject(),model.media.player.state.value.volume)
-        val identity=if(item.kind==MediaKind.IMAGE)"" else request.getString("identity").also {
+        val mediaRef=request.optJSONObject("mediaRef")?.let(HandoffMediaRef::from)
+        val catalog=if(mediaRef!=null) {
+            check(item.kind==MediaKind.VIDEO) { "影视接力类型无效" }
+            openCatalogReference(command,owner,mediaRef,restore)
+        } else null
+        // Legacy resource lookup uses only this TV account. Never accept a phone
+        // URL, base address, bearer token or a local download/content URI.
+        val selected=if(catalog!=null) item.resource().copy(type=catalog.variant.contentType,size=catalog.variant.size)
+        else {
+            val metadata=read(owner,command,"/api/resources${item.wirePath}?metadata=1")
+            checkCommand(command,owner)
+            check(!metadata.getBoolean("isDir") && metadata.getString("path")==item.path &&
+                recentAccessWireIdentity(metadata.optString("wirePath",item.wirePath))==item.key) { "文件来源已变化，请在手机重新选择" }
+            check(metadata.getLong("size")==item.size && metadata.getString("modified")==item.modified) { "文件版本已变化，请在手机刷新后重试" }
+            item.resource().copy(type=metadata.optString("type",item.type))
+        }
+        check(selected.mediaKind()==item.kind) { "媒体类型已变化" }
+        val identity=if(catalog!=null) "" else if(item.kind==MediaKind.IMAGE) "" else request.getString("identity").also {
             require(it.isNotBlank()&&it.length<=256)
             val remote=read(owner,command,"/api/media/playback?path=${wireQueryPath(item.path,item.wirePath)}")
             checkCommand(command,owner)
             check(remote.getString("identity")==it) { "视频文件版本已变化，请在手机重新打开后接力" }
             val duration=remote.optDouble("duration",0.0)*1000
+            require(duration<=0||restore.positionMs<=duration) { "接力进度超出片源时长" }
+        }
+        if(catalog!=null) {
+            val duration=catalog.variant.durationSeconds?.times(1000)?:0.0
             require(duration<=0||restore.positionMs<=duration) { "接力进度超出片源时长" }
         }
         val external=request.optJSONObject("externalSubtitle")?.let { asset ->
@@ -80,11 +92,54 @@ internal class TvMediaHandoff(private val model:TvModel) {
             file
         }
         require((restore.subtitleMode==DecoderSubtitleMode.EXTERNAL)==(external!=null)) { "外挂字幕不能由 TV 直接访问，请选择可访问的字幕或关闭字幕后重试" }
+        check(catalog==null||external==null) { "目录接力暂不支持外挂字幕，请关闭字幕后重试" }
         pending?.receiver?.cancel()
-        model.openHandoff(selected,TvMediaStart(identity,restore,external))
+        if(catalog!=null) model.media.openCatalog(catalog.repository,catalog.variant,restore=restore)
+        else model.openHandoff(selected,TvMediaStart(identity,restore,external))
         val bound=fence(command.getString("connectionId"))
         pending=Pending(id,owner,bound,item,manifest,HandoffQueueReceiver(id,bound,manifest,item),restore.positionMs,restore.wantsPlay,SystemClock.elapsedRealtime(),item.kind)
         return JSONObject().put("handoffId",id).put("status","PREPARING").put("mediaEpoch",bound.mediaEpoch)
+    }
+
+    private data class CatalogHandoffMedia(val repository:MediaLibraryRepository,val variant:MediaCatalogVariant)
+
+    private suspend fun openCatalogReference(command:JSONObject,owner:SessionContext,ref:HandoffMediaRef,
+        restore:DecoderRestore):CatalogHandoffMedia {
+        val repository=model.catalogRepository(owner)
+        val item=repository.catalogRef(ref.libraryId,ref.itemId)
+        val detail=repository.catalogDetail(item)
+        checkCommand(command,owner)
+        val revision=when(detail) {
+            is MediaReadResult.Success -> (detail.value as? MediaCatalogDetail.Complete)?.detail?.item?.revision
+                ?: error("影视详情尚未加载完成，请在手机刷新后重试")
+            is MediaReadResult.Failure -> catalogHandoffFailure(detail.error)
+        }
+        var cursor:MediaCatalogCursor?=null
+        var match:MediaCatalogVariant?=null
+        do {
+            val page=repository.playbackVariants(item,cursor=cursor)
+            checkCommand(command,owner)
+            when(page) {
+                is MediaReadResult.Success -> {
+                    match=page.value.items.firstOrNull { it.editionId==ref.editionId && it.variantId==ref.variantId &&
+                        it.bindingId==ref.bindingId && it.sourceFileId==ref.sourceFileId }
+                    if(match==null) cursor=page.value.nextCursor
+                }
+                is MediaReadResult.Failure -> catalogHandoffFailure(page.error)
+            }
+        } while(match==null&&cursor!=null)
+        val variant=match?:error("接力片源已不存在，请在手机重新选择")
+        validateCatalogHandoffRef(ref,revision,variant.editionId,variant.variantId,variant.bindingId,
+            variant.sourceFileId,variant.fileRevision,variant.identityEpoch,variant.mappingRevision,variant.available)
+        val duration=variant.durationSeconds?.times(1000)?:0.0
+        require(duration<=0||restore.positionMs<=duration) { "接力进度超出片源时长" }
+        return CatalogHandoffMedia(repository,variant)
+    }
+
+    private fun catalogHandoffFailure(error:MediaFailure):Nothing {
+        if(error.kind==MediaFailureKind.AUTHENTICATION||error.kind==MediaFailureKind.FORBIDDEN)
+            throw NeedsLogin("ACCESS_DENIED")
+        throw IllegalStateException("无法验证影视目录引用，请在手机刷新后重试")
     }
 
     private fun decodeStart(value:JSONObject,volume:Int):DecoderRestore {
@@ -157,6 +212,17 @@ internal class TvMediaHandoff(private val model:TvModel) {
             .put("received",if(value.queueCommitted)value.queue.count else value.receiver.received).put("total",value.queue.count)
             .put("message",value.message?:JSONObject.NULL)
     }
+}
+
+internal fun validateCatalogHandoffRef(ref: HandoffMediaRef, itemRevision: Long, editionId: String,
+    variantId: String, bindingId: String, sourceFileId: String, fileRevision: Long,
+    identityEpoch: Long, mappingRevision: Long, available: Boolean): HandoffMediaRef {
+    require(available) { "片源已不可用，请在手机重新选择" }
+    require(ref.itemRevision == itemRevision && ref.editionId == editionId && ref.variantId == variantId &&
+        ref.bindingId == bindingId && ref.sourceFileId == sourceFileId && ref.fileRevision == fileRevision &&
+        ref.identityEpoch == identityEpoch) { "影视或片源修订已变化，请在手机重新发起接力" }
+    require(ref.mappingRevision == null || ref.mappingRevision == mappingRevision) { "影视映射已变化，请在手机刷新后重试" }
+    return ref
 }
 
 /** Natural EOF may precede the next control snapshot; it is not a user pause. */

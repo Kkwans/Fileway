@@ -135,7 +135,7 @@ class TvMediaController(
 
     fun open(file: ResourceRef, candidates: List<ResourceRef>) = openMedia(file,candidates,null)
     internal fun openCatalog(repo: MediaLibraryRepository, item: MediaCatalogVariant, fromStart: Boolean = false,
-        checkpoint: MediaCatalogContinue? = null) {
+        checkpoint: MediaCatalogContinue? = null, restore: DecoderRestore? = null) {
         val owner = current() ?: return
         if (repo.scope != item.ref.scope || repo.scope.account.userId != owner.account.userId) return
         val expected = ++epoch
@@ -175,7 +175,10 @@ class TvMediaController(
                     val lease = repo.openPlaybackLease(resolved)
                     if (!accepts(owner, expected)) { lease.release(); return@withLock }
                     catalogLease = lease
-                    player.open(lease.url, lease.startPositionMs, videoDecodePolicy = playbackPreferences.videoDecodePolicy.value)
+                    if (restore == null) player.open(lease.url, lease.startPositionMs,
+                        videoDecodePolicy = playbackPreferences.videoDecodePolicy.value)
+                    else player.openRestoring(lease.url, restore, autoplay = restore.wantsPlay,
+                        videoDecodePolicy = playbackPreferences.videoDecodePolicy.value)
                     catalogSelection = CatalogSelection(repo, item, fromStart = false, checkpoint = null)
                     val progress = CatalogWatchReporter(lease, player.state.value.mediaGeneration)
                     catalogProgress = progress
