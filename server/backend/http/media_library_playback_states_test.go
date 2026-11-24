@@ -42,7 +42,7 @@ func TestMediaVariantsCanReportUnavailableSourceState(t *testing.T) {
 	if item.SourceKind != "server" || item.Availability != "missing" || item.ReasonCode != "file_missing" || item.RecoveryAction != "rescan" {
 		t.Fatalf("source state: %+v", item)
 	}
-	if item.DisplayName == "" || item.ContentType == "" || item.WeakIdentity {
+	if item.DisplayName == "" || item.ContentType == "" || item.WeakIdentity || item.MappingRevision <= 0 {
 		t.Fatalf("source identity lost: %+v", item)
 	}
 	invalid := f.call(t, f.owner.ID, http.MethodGet, base+"?includeUnavailable=yes", nil)

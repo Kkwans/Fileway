@@ -228,7 +228,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
             is MediaReadResult.Success -> variants.value.items.firstOrNull {
                 it.editionId == selection.variant.editionId && it.variantId == selection.variant.variantId &&
                     it.bindingId == selection.variant.bindingId && it.fileRevision == selection.variant.fileRevision &&
-                    it.identityEpoch == selection.variant.identityEpoch && it.available
+                    it.identityEpoch == selection.variant.identityEpoch && it.mappingRevision == selection.variant.mappingRevision && it.available
             } ?: error("当前片源已变化，请重新选择后接力")
             is MediaReadResult.Failure -> throw IllegalStateException("无法确认当前片源，请刷新后重试")
         }
@@ -236,7 +236,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         check(current())
         val mediaRef = HandoffMediaRef(instance.getString("id"), ref.libraryId, ref.itemId, itemRevision,
             variant.editionId, variant.variantId, variant.bindingId, variant.sourceFileId,
-            variant.fileRevision, variant.identityEpoch)
+            variant.fileRevision, variant.identityEpoch, variant.mappingRevision.takeIf { it > 0 })
         val path = "/@catalog/${ref.libraryId}/${variant.variantId}"
         val item = HandoffItem(path, path, variant.displayName, variant.contentType, variant.size, "")
         val queue = HandoffQueue.snapshot(listOf(item), 0)

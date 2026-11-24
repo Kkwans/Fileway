@@ -15,6 +15,7 @@ class MediaCatalogVariantStateTest {
         val variant = parseCatalogVariant(variantRow(), ref)
         assertEquals(MediaCatalogSourceKind.SERVER, variant.sourceKind)
         assertEquals(MediaCatalogSourceAvailability.AVAILABLE, variant.availability)
+        assertEquals(3L, variant.mappingRevision)
         assertTrue(variant.available)
         assertNull(variant.reasonCode)
     }
@@ -42,5 +43,5 @@ class MediaCatalogVariantStateTest {
         .put("bindingId", "binding_1").put("sourceFileId", "file_1").put("editionName", "原始版本")
         .put("isDefault", true).put("sourceLabel", "本地来源").put("displayName", "电影.mkv")
         .put("contentType", "video/x-matroska").put("size", 10).put("fileRevision", 1)
-        .put("identityEpoch", 1).put("weakIdentity", false)
+        .put("identityEpoch", 1).put("mappingRevision", 3).put("weakIdentity", false)
 }

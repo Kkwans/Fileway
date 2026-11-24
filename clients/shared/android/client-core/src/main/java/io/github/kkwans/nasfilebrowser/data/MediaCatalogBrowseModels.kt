@@ -196,7 +196,7 @@ class MediaPlaybackEndpoint internal constructor(private val value: String) {
 class MediaCatalogVariant internal constructor(
     val ref: MediaCatalogRef, val editionId: String, val variantId: String, val bindingId: String, val sourceFileId: String,
     val editionName: String, val isDefault: Boolean, val sourceLabel: String, val displayName: String,
-    val contentType: String, val size: Long, val fileRevision: Long, val identityEpoch: Long,
+    val contentType: String, val size: Long, val fileRevision: Long, val identityEpoch: Long, val mappingRevision: Long,
     val weakIdentity: Boolean, val durationSeconds: Double?, val resolution: String?,
     val sourceKind: MediaCatalogSourceKind = MediaCatalogSourceKind.SERVER,
     val availability: MediaCatalogSourceAvailability = MediaCatalogSourceAvailability.AVAILABLE,
@@ -580,7 +580,7 @@ internal fun parseCatalogVariant(row: JSONObject, ref: MediaCatalogRef): MediaCa
     }
     return MediaCatalogVariant(ref, row.routeId("editionId"), row.routeId("variantId"), row.routeId("bindingId"), row.routeId("sourceFileId"),
         row.textValue("editionName"), row.booleanValue("isDefault"), row.textValue("sourceLabel"), row.textValue("displayName"),
-        row.textValue("contentType"), row.integerValue("size"), row.integerValue("fileRevision", 1), row.integerValue("identityEpoch", 1),
+        row.textValue("contentType"), row.integerValue("size"), row.integerValue("fileRevision", 1), row.integerValue("identityEpoch", 1), row.optionalIntegerValue("mappingRevision") ?: 0L,
         row.booleanValue("weakIdentity"), duration, row.optionalTextValue("resolution"), sourceKind, availability,
         stateCode("reasonCode"), stateCode("recoveryAction"))
 }

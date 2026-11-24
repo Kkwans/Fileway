@@ -31,6 +31,7 @@ type mediaVariantResponse struct {
 	Size            int64    `json:"size"`
 	FileRevision    int64    `json:"fileRevision"`
 	IdentityEpoch   int64    `json:"identityEpoch"`
+	MappingRevision int64    `json:"mappingRevision"`
 	WeakIdentity    bool     `json:"weakIdentity"`
 	DurationSeconds *float64 `json:"durationSeconds"`
 	Resolution      *string  `json:"resolution"`
@@ -44,16 +45,18 @@ func variantResponse(item *medialibrary.PlaybackAccess, variant medialibrary.Pla
 	return mediaVariantResponse{ItemID: item.ItemID, EditionID: item.EditionID, VariantID: item.VariantID, BindingID: item.BindingID,
 		SourceFileID: item.SourceFileID, EditionName: variant.EditionName, IsDefault: variant.IsDefault, SourceLabel: "本地来源",
 		DisplayName: mediaDisplayName(item.Locator), ContentType: mediaContentType(item.Locator), Size: info.Size(),
-		FileRevision: item.FileRevision, IdentityEpoch: item.IdentityEpoch, WeakIdentity: item.IdentityKind != string(mediascan.IdentityNative),
-		SourceKind: "server", Availability: "available"}
+		FileRevision: item.FileRevision, IdentityEpoch: item.IdentityEpoch, MappingRevision: variant.MappingRevision,
+		WeakIdentity: item.IdentityKind != string(mediascan.IdentityNative),
+		SourceKind:   "server", Availability: "available"}
 }
 
 func unavailableVariantResponse(item *medialibrary.PlaybackAccess, variant medialibrary.PlaybackVariant, availability, reason, recovery string) mediaVariantResponse {
 	return mediaVariantResponse{ItemID: item.ItemID, EditionID: item.EditionID, VariantID: item.VariantID, BindingID: item.BindingID,
 		SourceFileID: item.SourceFileID, EditionName: variant.EditionName, IsDefault: variant.IsDefault, SourceLabel: "本地来源",
 		DisplayName: mediaDisplayName(item.Locator), ContentType: mediaContentType(item.Locator),
-		FileRevision: item.FileRevision, IdentityEpoch: item.IdentityEpoch, WeakIdentity: item.IdentityKind != string(mediascan.IdentityNative),
-		SourceKind: "server", Availability: availability, ReasonCode: reason, RecoveryAction: recovery}
+		FileRevision: item.FileRevision, IdentityEpoch: item.IdentityEpoch, MappingRevision: variant.MappingRevision,
+		WeakIdentity: item.IdentityKind != string(mediascan.IdentityNative),
+		SourceKind:   "server", Availability: availability, ReasonCode: reason, RecoveryAction: recovery}
 }
 
 type playbackBindingInspection struct {
