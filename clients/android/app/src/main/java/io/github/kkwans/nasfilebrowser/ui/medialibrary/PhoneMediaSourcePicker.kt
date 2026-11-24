@@ -51,7 +51,7 @@ internal data class PhoneMediaSourceSelection(val itemId: String, val selectedId
                 items(sources, key = { "source/${it.id}" }) { source ->
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         FilewaySelectionRow(title = source.name,
-                            subtitle = listOfNotNull(source.library, source.specifications, source.audio,
+                            subtitle = listOfNotNull("当前播放".takeIf { source.current }, source.library, source.specifications, source.audio,
                                 source.unavailableReason).filter { it.isNotBlank() }.joinToString("\n"),
                             selected = source.id == state.selectedId, enabled = source.available && !state.busy,
                             onClick = { onAction(PhoneMediaAction.SelectSource(source.id, state.revision)) })

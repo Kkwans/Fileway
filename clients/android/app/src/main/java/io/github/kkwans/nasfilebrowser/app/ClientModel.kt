@@ -558,6 +558,10 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     internal fun isCatalogContent(file: ResourceRef): Boolean =
         catalogSelection != null && mutable.value.selected?.mediaKey == file.mediaKey
 
+    internal fun currentCatalogSourceId(): String? = catalogSelection?.variant?.let {
+        "${it.editionId}/${it.variantId}/${it.bindingId}"
+    }
+
     internal fun openCatalogVideo(repository: MediaLibraryRepository, selected: MediaCatalogVariant,
         fromStart: Boolean = false, checkpoint: MediaCatalogContinue? = null) {
         val bound = context ?: return

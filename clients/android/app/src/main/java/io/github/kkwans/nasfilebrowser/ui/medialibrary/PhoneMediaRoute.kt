@@ -53,6 +53,7 @@ internal fun PhoneMediaRoute(
     repository: MediaLibraryRepository,
     imageLoader: ImageLoader,
     onExit: () -> Unit,
+    currentSourceId: () -> String?,
     onPlayback: (MediaCatalogVariant, Boolean, MediaCatalogContinue?) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -216,15 +217,16 @@ internal fun PhoneMediaRoute(
             is PhoneMediaAction.Sources -> source(intent.id)
             is PhoneMediaAction.SelectSource -> {
                 val ref = route.sourceRef
-                if (ref != null && route.variant(intent.id) != null) {
+                if (ref != null && route.variant(intent.id)?.available == true) {
                     sourceSelection = (sourceSelection ?: PhoneMediaSourceSelection(key(ref)))
                         .select(intent.id, available = true)
                 }
             }
+            is PhoneMediaAction.RecoverSource -> route.recoverSource(intent.id)
             is PhoneMediaAction.ConfirmSource -> {
                 val ref = route.sourceRef
                 val confirmed = sourceSelection?.confirm(intent.id, ref?.let(::key).orEmpty(), intent.expectedRevision, "")
-                if (confirmed != null) route.variant(confirmed)?.let {
+                if (confirmed != null) route.variant(confirmed)?.takeIf { it.available }?.let {
                     sourceSelection = null
                     route.closeSources()
                     onPlayback(it, startFromBeginning, null)
@@ -374,10 +376,15 @@ internal fun PhoneMediaRoute(
                 itemId = key(ref), revision = "", selectedId = sourceSelection?.takeIf { it.itemId == key(ref) }?.selectedId,
                 entries = route.variants.map { variant ->
                     MediaSourceOption(variantKey(variant), variant.editionId, variant.editionName.ifBlank { "原始版本" },
-                        variant.displayName, variant.sourceLabel, listOfNotNull(variant.resolution, readableSize(variant.size)).joinToString(" · "),
-                        available = true)
+                        variant.displayName, variant.sourceLabel,
+                        listOfNotNull(variant.resolution, variant.size.takeIf { it > 0 }?.let(::readableSize)).joinToString(" · "),
+                        available = variant.available,
+                        unavailableReason = sourceStateLabel(variant.availability),
+                        recoveryLabel = sourceRecoveryLabel(variant.recoveryAction),
+                        current = variantKey(variant) == currentSourceId())
                 },
-                loading = route.sourcesLoading, problem = route.sourcesProblem, hasMore = route.sourcesCursor != null,
+                loading = route.sourcesLoading, busy = route.sourcesRecovering,
+                problem = route.sourcesProblem, hasMore = route.sourcesCursor != null,
             ), action, route::closeSources)
         }
     }
@@ -440,6 +447,24 @@ private fun PhoneMediaRouteState.detailState(scope: String, id: String): PhoneMe
         episodeSummary = card?.episodes?.collected?.let { "已收录 $it 集" },
         problem = detailProblem, loading = detailLoading || data == null && detailProblem == null,
     )
+}
+
+private fun sourceStateLabel(state: MediaCatalogSourceAvailability): String? = when (state) {
+    MediaCatalogSourceAvailability.AVAILABLE -> null
+    MediaCatalogSourceAvailability.MISSING -> "文件缺失"
+    MediaCatalogSourceAvailability.OFFLINE -> "来源离线"
+    MediaCatalogSourceAvailability.CHANGED -> "文件已变化，需要重新核对"
+    MediaCatalogSourceAvailability.UNVERIFIED -> "文件身份尚未验证"
+    MediaCatalogSourceAvailability.DENIED -> "当前账号无权访问此片源"
+    MediaCatalogSourceAvailability.UNAVAILABLE -> "片源暂时不可用"
+    MediaCatalogSourceAvailability.UNKNOWN -> "片源状态未知"
+}
+
+private fun sourceRecoveryLabel(action: String?): String? = when (action) {
+    "retry" -> "重试"
+    "rescan" -> "重新扫描"
+    "permission" -> "检查权限"
+    else -> null
 }
 
 internal fun poster(card: MediaCatalogCard): MediaPoster = MediaPoster(

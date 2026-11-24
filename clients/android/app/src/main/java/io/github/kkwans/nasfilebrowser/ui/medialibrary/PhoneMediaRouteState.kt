@@ -79,6 +79,7 @@ internal class PhoneMediaRouteState(
     var sourceRef by mutableStateOf<MediaCatalogRef?>(null); private set
     var variants by mutableStateOf<List<MediaCatalogVariant>>(emptyList()); private set
     var sourcesLoading by mutableStateOf(false); private set
+    var sourcesRecovering by mutableStateOf(false); private set
     var sourcesProblem by mutableStateOf<MediaProblem?>(null); private set
     var sourcesCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
 
@@ -99,6 +100,8 @@ internal class PhoneMediaRouteState(
     private var seasonsJob: Job? = null
     private var episodesJob: Job? = null
     private var sourcesJob: Job? = null
+    private var sourceRecoveryJob: Job? = null
+    private var pendingSourceRecovery: MediaOperation? = null
     private var userStateJob: Job? = null
 
     fun close() {
@@ -610,6 +613,101 @@ internal class PhoneMediaRouteState(
 
     fun closeSources() {
         sourcesJob?.cancel(); sourceRef = null; variants = emptyList(); sourcesCursor = null; sourcesProblem = null
+    }
+
+    fun recoverSource(id: String) {
+        if (sourcesRecovering) return
+        pendingSourceRecovery?.let { operation ->
+            submitSourceRecovery(operation)
+            return
+        }
+        val variant = variant(id) ?: return
+        when (variant.recoveryAction) {
+            "retry" -> loadSources(reset = true)
+            "permission" -> sourcesProblem = MediaProblem("需要来源权限", "请联系媒体库所有者检查共享权限后重试。")
+            "rescan" -> {
+                val ref = sourceRef ?: return
+                sourcesRecovering = true; sourcesProblem = null
+                sourceRecoveryJob = scope.launch {
+                    try {
+                        val support = repository.scanSupport()
+                        if (support !is MediaReadResult.Success || !support.value.available) {
+                            sourcesProblem = MediaProblem("暂时无法重新扫描", "服务器未提供可用的本地扫描能力。")
+                            return@launch
+                        }
+                        var cursor: String? = null
+                        var binding: MediaLibrarySource? = null
+                        do {
+                            when (val result = repository.listSources(ref.libraryId, cursor = cursor)) {
+                                is MediaReadResult.Success -> {
+                                    binding = result.value.items.firstOrNull { it.id == variant.bindingId } ?: binding
+                                    cursor = result.value.nextCursor
+                                }
+                                is MediaReadResult.Failure -> {
+                                    sourcesProblem = problem(result.error, "无法读取媒体库来源")
+                                    return@launch
+                                }
+                            }
+                        } while (cursor != null && binding == null)
+                        val source = binding
+                        if (source == null) {
+                            sourcesProblem = MediaProblem("来源已变化", "请关闭片源面板并刷新影视详情。")
+                            return@launch
+                        }
+                        val operation = repository.newOperation()
+                        when (val result = repository.startScan(operation, ref.libraryId, source.id, source.revision, support.value.localRulesRevision)) {
+                            is MediaWriteResult.Success -> {
+                                pendingSourceRecovery = null
+                                repository.forgetResolvedOperation(operation)
+                                sourcesProblem = MediaProblem("已开始重新扫描", "扫描完成后请重新打开片源面板。")
+                                refreshHome()
+                            }
+                            is MediaWriteResult.Failure -> {
+                                val unknown = result.error.mutationMayHaveCommitted
+                                pendingSourceRecovery = operation.takeIf { unknown }
+                                if (unknown) sourcesProblem = MediaProblem("扫描结果尚待确认", "再次选择重新扫描以确认原操作。", "确认")
+                                else {
+                                    repository.forgetResolvedOperation(operation)
+                                    sourcesProblem = problem(result.error, "无法开始重新扫描")
+                                }
+                            }
+                        }
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) {
+                        sourcesProblem = MediaProblem("无法开始重新扫描", "请检查连接后重试。")
+                    } finally { sourcesRecovering = false }
+                }
+            }
+        }
+    }
+
+    private fun submitSourceRecovery(operation: MediaOperation) {
+        sourcesRecovering = true; sourcesProblem = null
+        sourceRecoveryJob = scope.launch {
+            try {
+                when (val result = repository.retryOperation(operation)) {
+                    is MediaWriteResult.Success -> {
+                        pendingSourceRecovery = null
+                        repository.forgetResolvedOperation(operation)
+                        sourcesProblem = MediaProblem("已开始重新扫描", "扫描完成后请重新打开片源面板。")
+                        refreshHome()
+                    }
+                    is MediaWriteResult.Failure -> {
+                        val unknown = result.error.mutationMayHaveCommitted
+                        pendingSourceRecovery = operation.takeIf { unknown }
+                        sourcesProblem = if (unknown) MediaProblem("扫描结果尚待确认", "再次选择重新扫描以确认原操作。", "确认")
+                        else {
+                            repository.forgetResolvedOperation(operation)
+                            problem(result.error, "无法开始重新扫描")
+                        }
+                    }
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                pendingSourceRecovery = operation
+                sourcesProblem = MediaProblem("扫描结果尚待确认", "再次选择重新扫描以确认原操作。", "确认")
+            } finally { sourcesRecovering = false }
+        }
     }
 
     fun loadSources(reset: Boolean) {
