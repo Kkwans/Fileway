@@ -271,20 +271,61 @@ func (c *ScanCoordinator) CheckMetadataRefreshJob(ctx context.Context, job Metad
 func (c *ScanCoordinator) CancelMetadataRefreshJob(ctx context.Context, actor uint, libraryID, jobID string, generation int64) error {
 	_, err := coordinatedCall(ctx, c, func(ctx context.Context, store *Store) (struct{}, error) {
 		return struct{}{}, store.WithTx(ctx, func(tx *sql.Tx) error {
-			library, err := activeCatalogLibrary(ctx, tx, actor, libraryID)
-			if err != nil {
-				return err
-			}
-			if library.Role != RoleOwner {
-				return ErrForbidden
-			}
-			result, err := tx.ExecContext(ctx, `UPDATE job SET status='canceled',generation=generation+1,retry_at=NULL,updated_at=max(updated_at,?)
-WHERE id=? AND library_id=? AND owner_user_id=? AND kind=? AND generation=? AND status IN ('queued','running','interrupted')`,
-				time.Now().UnixMilli(), jobID, libraryID, actor, metadataRefreshJobKind, generation)
-			return metadataJobUpdated(result, err)
+			return cancelMetadataRefreshJobTx(ctx, tx, actor, libraryID, jobID, generation)
 		})
 	})
 	return err
+}
+
+func cancelMetadataRefreshJobTx(ctx context.Context, tx *sql.Tx, actor uint, libraryID, jobID string, generation int64) error {
+	library, err := activeCatalogLibrary(ctx, tx, actor, libraryID)
+	if err != nil {
+		return err
+	}
+	if library.Role != RoleOwner {
+		return ErrForbidden
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE job SET status='canceled',generation=generation+1,retry_at=NULL,updated_at=max(updated_at,?)
+WHERE id=? AND library_id=? AND owner_user_id=? AND kind=? AND generation=? AND status IN ('queued','running','interrupted')`,
+		time.Now().UnixMilli(), jobID, libraryID, actor, metadataRefreshJobKind, generation)
+	return metadataJobUpdated(result, err)
+}
+
+type MetadataRefreshJobResult struct {
+	JobID string `json:"jobId"`
+}
+
+func (store *Store) CancelMetadataRefreshJobWithOperation(ctx context.Context, actor uint, operationID, libraryID, jobID string, generation int64) (MetadataRefreshJobResult, error) {
+	input := struct {
+		LibraryID  string `json:"libraryId"`
+		JobID      string `json:"jobId"`
+		Generation int64  `json:"generation"`
+	}{libraryID, jobID, generation}
+	return providerOperation(ctx, store, actor, "metadata.refresh.cancel", operationID, input, func(tx *sql.Tx) error {
+		library, err := activeCatalogLibrary(ctx, tx, actor, libraryID)
+		if err != nil {
+			return err
+		}
+		if library.Role != RoleOwner {
+			return ErrForbidden
+		}
+		return nil
+	}, func(tx *sql.Tx) (MetadataRefreshJobResult, error) {
+		if err := cancelMetadataRefreshJobTx(ctx, tx, actor, libraryID, jobID, generation); err != nil {
+			return MetadataRefreshJobResult{}, err
+		}
+		current, err := readMetadataRefreshJob(tx.QueryRowContext(ctx, metadataRefreshJobSelection+` WHERE j.id=?`, jobID))
+		if err != nil {
+			return MetadataRefreshJobResult{}, err
+		}
+		return MetadataRefreshJobResult{JobID: current.ID}, nil
+	})
+}
+
+func (c *ScanCoordinator) CancelMetadataRefreshJobWithOperation(ctx context.Context, actor uint, operationID, libraryID, jobID string, generation int64) (MetadataRefreshJobResult, error) {
+	return coordinatedCall(ctx, c, func(ctx context.Context, store *Store) (MetadataRefreshJobResult, error) {
+		return store.CancelMetadataRefreshJobWithOperation(ctx, actor, operationID, libraryID, jobID, generation)
+	})
 }
 
 func (c *ScanCoordinator) RetryMetadataRefreshJob(ctx context.Context, actor uint, job MetadataRefreshJob, generation int64) error {

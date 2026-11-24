@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -163,8 +162,10 @@ func TestMetadataRefreshJobRefreshesLockedEnglishMatchThroughAPI(t *testing.T) {
 	if runningResponse.Code != http.StatusOK || json.Unmarshal(runningResponse.Body.Bytes(), &retryJob) != nil || retryJob.Status != "running" {
 		t.Fatalf("running retry job: %d %s", runningResponse.Code, runningResponse.Body)
 	}
-	canceled := f.call(t, owner, http.MethodDelete, base+"/metadata-refresh-jobs/"+retryJob.JobID+"?generation="+strconv.FormatInt(retryJob.Generation, 10), nil)
-	if canceled.Code != http.StatusNoContent {
+	canceled := f.call(t, owner, http.MethodDelete, base+"/metadata-refresh-jobs/"+retryJob.JobID, map[string]any{
+		"operationId": "refresh-job-cancel", "generation": retryJob.Generation,
+	})
+	if canceled.Code != http.StatusOK {
 		t.Fatal(canceled.Code, canceled.Body)
 	}
 	block.Store(false)
@@ -172,6 +173,12 @@ func TestMetadataRefreshJobRefreshesLockedEnglishMatchThroughAPI(t *testing.T) {
 	canceledResponse := f.call(t, owner, http.MethodGet, base+"/metadata-refresh-jobs/"+retryJob.JobID, nil)
 	if canceledResponse.Code != http.StatusOK || json.Unmarshal(canceledResponse.Body.Bytes(), &retryJob) != nil || retryJob.Status != "canceled" {
 		t.Fatalf("canceled retry job: %d %s", canceledResponse.Code, canceledResponse.Body)
+	}
+	cancelReplay := f.call(t, owner, http.MethodDelete, base+"/metadata-refresh-jobs/"+retryJob.JobID, map[string]any{
+		"operationId": "refresh-job-cancel", "generation": retryJob.Generation - 1,
+	})
+	if cancelReplay.Code != http.StatusOK {
+		t.Fatalf("cancel replay: %d %s", cancelReplay.Code, cancelReplay.Body)
 	}
 	retried := f.call(t, owner, http.MethodPost, base+"/metadata-refresh-jobs/"+retryJob.JobID+"/retry", map[string]any{
 		"operationId": "refresh-job-retry", "generation": retryJob.Generation,

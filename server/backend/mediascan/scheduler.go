@@ -204,6 +204,21 @@ func (s *Scheduler) RetryMetadataRefreshJob(ctx context.Context, actor uint, job
 	return s.coord.RetryMetadataRefreshJob(ctx, actor, job, generation)
 }
 
+func (s *Scheduler) CancelMetadataRefreshJobWithOperation(ctx context.Context, actor uint, operationID, libraryID, jobID string, generation int64) (medialibrary.MetadataRefreshJobResult, error) {
+	if !s.RefreshMetadataAvailable(ctx) {
+		return medialibrary.MetadataRefreshJobResult{}, medialibrary.ErrCoordinatorUnavailable
+	}
+	result, err := s.coord.CancelMetadataRefreshJobWithOperation(ctx, actor, operationID, libraryID, jobID, generation)
+	if err == nil {
+		s.mu.Lock()
+		if s.refreshJobID == jobID {
+			s.refreshCancel()
+		}
+		s.mu.Unlock()
+	}
+	return result, err
+}
+
 func (s *Scheduler) RetryMetadataRefreshJobWithOperation(ctx context.Context, actor uint, operationID string, job medialibrary.MetadataRefreshJob, generation int64) (medialibrary.MetadataRefreshJob, error) {
 	if !s.RefreshMetadataAvailable(ctx) {
 		return medialibrary.MetadataRefreshJob{}, medialibrary.ErrCoordinatorUnavailable

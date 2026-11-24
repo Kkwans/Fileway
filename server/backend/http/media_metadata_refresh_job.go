@@ -4,7 +4,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/mediascan"
@@ -124,18 +123,18 @@ func mediaMetadataRefreshJobHandler(scheduler *mediascan.Scheduler) handleFunc {
 			return catalogError(w, err)
 		}
 		if r.Method == http.MethodDelete {
-			generation, err := strconv.ParseInt(r.URL.Query().Get("generation"), 10, 64)
-			if err != nil || generation < 1 || scheduler == nil {
+			var body metadataRefreshJobActionBody
+			if decodeMediaScanBody(w, r, &body) != nil || body.Generation < 1 || scheduler == nil {
 				return catalogError(w, medialibrary.ErrInvalid)
 			}
-			if err := scheduler.CancelMetadataRefreshJob(r.Context(), d.user.ID, library.ID, job.ID, generation); err != nil {
+			result, err := scheduler.CancelMetadataRefreshJobWithOperation(r.Context(), d.user.ID, body.OperationID, library.ID, job.ID, body.Generation)
+			if err != nil {
 				if errors.Is(err, medialibrary.ErrCoordinatorUnavailable) {
 					return http.StatusServiceUnavailable, fmt.Errorf("后台资料刷新服务暂不可用")
 				}
 				return catalogError(w, err)
 			}
-			w.WriteHeader(http.StatusNoContent)
-			return http.StatusNoContent, nil
+			return renderJSON(w, r, result)
 		}
 		return renderMetadataRefreshJob(w, r, job)
 	})
