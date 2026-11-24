@@ -156,6 +156,7 @@ func NewHandler(
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/match-candidates", monkey(mediaMatchCandidatesHandler(providerSlots, providerStarts.C), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/match-confirmation", monkey(mediaMatchConfirmHandler(providerSlots, providerStarts.C), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/match-confirmation/undo", monkey(mediaMatchUndoHandler, "")).Methods("POST")
+	api.Handle("/media-library/v1/libraries/{id}/metadata-refresh-preview", monkey(mediaMetadataLibraryRefreshPreviewHandler(), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/metadata-refresh-preview", monkey(mediaMetadataRefreshHandler(true, providerSlots, providerStarts.C), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/metadata-refresh", monkey(mediaMetadataRefreshHandler(false, providerSlots, providerStarts.C), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/mapping-previews", monkey(mediaMappingPreviewHandler(providerSlots, providerStarts.C), "")).Methods("POST")

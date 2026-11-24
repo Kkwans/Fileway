@@ -98,6 +98,25 @@ func TestMediaMetadataRefreshPreviewApplyAndUndo(t *testing.T) {
 		medialibrary.MetadataPatch{Fields: map[string]medialibrary.MetadataFieldPatch{"title": {Values: []string{"手动锁定标题"}}}}); err != nil {
 		t.Fatal(err)
 	}
+	providerCallsBeforeLibraryPreview := calls
+	libraryPreview := f.call(t, owner, http.MethodPost, "/api/media-library/v1/libraries/"+library.ID+"/metadata-refresh-preview", map[string]any{})
+	var libraryPreviewBody struct {
+		TargetLanguage        string         `json:"targetLanguage"`
+		MatchedItems          int            `json:"matchedItems"`
+		LanguageMismatchItems int            `json:"languageMismatchItems"`
+		AlreadyCurrentItems   int            `json:"alreadyCurrentItems"`
+		LockedItems           int            `json:"lockedItems"`
+		ProtectedFields       map[string]int `json:"protectedFields"`
+		CurrentLanguages      map[string]int `json:"currentLanguages"`
+		CanRefresh            bool           `json:"canRefresh"`
+	}
+	if libraryPreview.Code != http.StatusOK || json.Unmarshal(libraryPreview.Body.Bytes(), &libraryPreviewBody) != nil ||
+		libraryPreviewBody.TargetLanguage != "zh-CN" || libraryPreviewBody.MatchedItems != 1 ||
+		libraryPreviewBody.LanguageMismatchItems != 1 || libraryPreviewBody.AlreadyCurrentItems != 0 ||
+		libraryPreviewBody.LockedItems != 1 || libraryPreviewBody.ProtectedFields["title"] != 1 ||
+		libraryPreviewBody.CurrentLanguages["en-US"] != 1 || !libraryPreviewBody.CanRefresh || calls != providerCallsBeforeLibraryPreview {
+		t.Fatalf("library refresh preview: %d %s calls=%d/%d", libraryPreview.Code, libraryPreview.Body, calls, providerCallsBeforeLibraryPreview)
+	}
 	preview := f.call(t, owner, http.MethodPost, base+"/metadata-refresh-preview", map[string]any{})
 	var previewBody struct {
 		CurrentLanguage string   `json:"currentLanguage"`
@@ -120,6 +139,16 @@ func TestMediaMetadataRefreshPreviewApplyAndUndo(t *testing.T) {
 		t.Fatalf("refresh: %d %s", refreshed.Code, refreshed.Body)
 	}
 	refreshCalls := calls
+	currentPreview := f.call(t, owner, http.MethodPost, "/api/media-library/v1/libraries/"+library.ID+"/metadata-refresh-preview", map[string]any{})
+	var currentPreviewBody struct {
+		LanguageMismatchItems int  `json:"languageMismatchItems"`
+		AlreadyCurrentItems   int  `json:"alreadyCurrentItems"`
+		CanRefresh            bool `json:"canRefresh"`
+	}
+	if currentPreview.Code != http.StatusOK || json.Unmarshal(currentPreview.Body.Bytes(), &currentPreviewBody) != nil ||
+		currentPreviewBody.LanguageMismatchItems != 0 || currentPreviewBody.AlreadyCurrentItems != 1 || currentPreviewBody.CanRefresh || calls != refreshCalls {
+		t.Fatalf("current library refresh preview: %d %s calls=%d/%d", currentPreview.Code, currentPreview.Body, calls, refreshCalls)
+	}
 	if replay := f.call(t, owner, http.MethodPost, base+"/metadata-refresh", map[string]any{"operationId": "refresh-chinese",
 		"itemRevision": identity.ItemRevision, "structureRevision": identity.StructureRevision}); replay.Code != http.StatusOK || calls != refreshCalls || replay.Body.String() != refreshed.Body.String() {
 		t.Fatalf("refresh replay: %d %s calls=%d/%d", replay.Code, replay.Body, calls, refreshCalls)
@@ -140,5 +169,28 @@ func TestMediaMetadataRefreshPreviewApplyAndUndo(t *testing.T) {
 	}
 	if restored := fixtureDetail(t, f, owner, library.ID, itemID); restored.Item.Title != "手动锁定标题" || restored.OnlineMatch == nil || restored.OnlineMatch.Language != "en-US" {
 		t.Fatalf("restored English detail: %+v", restored)
+	}
+	configuredVault := vault
+	f.h.storage.MediaProviderVault = nil
+	withoutProvider := f.call(t, owner, http.MethodPost, "/api/media-library/v1/libraries/"+library.ID+"/metadata-refresh-preview", map[string]any{})
+	var withoutProviderBody struct {
+		CanRefresh bool `json:"canRefresh"`
+	}
+	if withoutProvider.Code != http.StatusOK || json.Unmarshal(withoutProvider.Body.Bytes(), &withoutProviderBody) != nil || withoutProviderBody.CanRefresh {
+		t.Fatalf("preview without provider: %d %s", withoutProvider.Code, withoutProvider.Body)
+	}
+	f.h.storage.MediaProviderVault = configuredVault
+	policy, err := f.store.GetLibraryMetadataPolicy(t.Context(), owner, library.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.store.SetLibraryMetadataPolicy(t.Context(), owner, library.ID, "refresh-local-policy", policy.Revision,
+		medialibrary.LibraryMetadataPolicy{Mode: medialibrary.MetadataLocalOnly, Language: "zh-CN", Region: "CN"}); err != nil {
+		t.Fatal(err)
+	}
+	offlineCalls := calls
+	offline := f.call(t, owner, http.MethodPost, "/api/media-library/v1/libraries/"+library.ID+"/metadata-refresh-preview", map[string]any{})
+	if offline.Code != http.StatusUnprocessableEntity || calls != offlineCalls {
+		t.Fatalf("offline library preview: %d %s calls=%d/%d", offline.Code, offline.Body, calls, offlineCalls)
 	}
 }

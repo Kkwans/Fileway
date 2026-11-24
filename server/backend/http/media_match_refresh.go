@@ -17,6 +17,31 @@ type metadataRefreshBody struct {
 	StructureRevision int64  `json:"structureRevision"`
 }
 
+func mediaMetadataLibraryRefreshPreviewHandler() handleFunc {
+	return providerConfig(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
+		library, err := itemLibrary(r, d)
+		if err != nil {
+			return catalogError(w, err)
+		}
+		store := d.store.MediaLibrary
+		policy, err := store.GetLibraryMetadataPolicy(r.Context(), d.user.ID, library.ID)
+		if err != nil {
+			return catalogError(w, err)
+		}
+		if !policy.OnlineEnabled() {
+			return writeCatalogError(w, http.StatusUnprocessableEntity, "library_offline_policy", "此媒体库尚未启用在线补全", false)
+		}
+		preview, err := store.MetadataRefreshLibraryPreview(r.Context(), d.user.ID, library.ID, policy.Language, policy.Mode)
+		if err != nil {
+			return catalogError(w, err)
+		}
+		preview.Region = policy.Region
+		preview.PolicyRevision = policy.Revision
+		preview.CanRefresh = preview.CanRefresh && policy.ConnectionID != "" && d.store.MediaProviderVault != nil && d.store.TMDBHTTPClient != nil
+		return renderJSON(w, r, preview)
+	})
+}
+
 func mediaMetadataRefreshHandler(preview bool, slots chan struct{}, starts <-chan time.Time) handleFunc {
 	return providerConfig(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
 		var body metadataRefreshBody
