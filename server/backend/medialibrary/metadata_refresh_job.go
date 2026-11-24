@@ -290,38 +290,166 @@ WHERE id=? AND library_id=? AND owner_user_id=? AND kind=? AND generation=? AND 
 func (c *ScanCoordinator) RetryMetadataRefreshJob(ctx context.Context, actor uint, job MetadataRefreshJob, generation int64) error {
 	_, err := coordinatedCall(ctx, c, func(ctx context.Context, store *Store) (struct{}, error) {
 		return struct{}{}, store.WithTx(ctx, func(tx *sql.Tx) error {
-			library, err := activeCatalogLibrary(ctx, tx, actor, job.LibraryID)
-			if err != nil {
-				return err
-			}
-			if library.Role != RoleOwner || job.OwnerUserID != actor {
-				return ErrForbidden
-			}
-			policy, err := readLibraryMetadataPolicy(ctx, tx, actor, job.LibraryID)
-			if err != nil {
-				return err
-			}
-			authority, _, err := readProviderCredentialForUse(ctx, tx, actor, job.LibraryID, policy.ConnectionID)
-			if err != nil {
-				return err
-			}
-			if !policy.OnlineEnabled() || *authority != job.Authority || policy.Language != job.Language || policy.Region != job.Region || policy.Mode != job.Mode {
-				return ErrRevisionConflict
-			}
-			result, err := tx.ExecContext(ctx, `UPDATE job SET status='queued',generation=generation+1,attempt=0,retry_at=NULL,updated_at=max(updated_at,?)
-WHERE id=? AND library_id=? AND owner_user_id=? AND kind=? AND generation=? AND status IN ('failed','canceled','interrupted')`,
-				time.Now().UnixMilli(), job.ID, job.LibraryID, actor, metadataRefreshJobKind, generation)
-			if err := metadataJobUpdated(result, err); err != nil {
-				return err
-			}
-			_, err = tx.ExecContext(ctx, `UPDATE metadata_refresh_target SET outcome='pending',reason='',applied_match_revision=0,applied_item_revision=0
-WHERE job_id=? AND outcome='failed'`, job.ID)
-			if err != nil {
-				return err
-			}
-			_, err = tx.ExecContext(ctx, `UPDATE metadata_refresh_job SET failure_code='' WHERE job_id=?`, job.ID)
-			return err
+			return retryMetadataRefreshJobTx(ctx, tx, actor, job, generation)
 		})
 	})
 	return err
+}
+
+func retryMetadataRefreshJobTx(ctx context.Context, tx *sql.Tx, actor uint, job MetadataRefreshJob, generation int64) error {
+	library, err := activeCatalogLibrary(ctx, tx, actor, job.LibraryID)
+	if err != nil {
+		return err
+	}
+	if library.Role != RoleOwner || job.OwnerUserID != actor {
+		return ErrForbidden
+	}
+	policy, err := readLibraryMetadataPolicy(ctx, tx, actor, job.LibraryID)
+	if err != nil {
+		return err
+	}
+	authority, _, err := readProviderCredentialForUse(ctx, tx, actor, job.LibraryID, policy.ConnectionID)
+	if err != nil {
+		return err
+	}
+	if !policy.OnlineEnabled() || *authority != job.Authority || policy.Language != job.Language || policy.Region != job.Region || policy.Mode != job.Mode {
+		return ErrRevisionConflict
+	}
+	result, err := tx.ExecContext(ctx, `UPDATE job SET status='queued',generation=generation+1,attempt=0,retry_at=NULL,updated_at=max(updated_at,?)
+WHERE id=? AND library_id=? AND owner_user_id=? AND kind=? AND generation=? AND status IN ('failed','canceled','interrupted')`,
+		time.Now().UnixMilli(), job.ID, job.LibraryID, actor, metadataRefreshJobKind, generation)
+	if err := metadataJobUpdated(result, err); err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE metadata_refresh_target SET outcome='pending',reason='',applied_match_revision=0,applied_item_revision=0
+WHERE job_id=? AND outcome='failed'`, job.ID)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE metadata_refresh_job SET failure_code='' WHERE job_id=?`, job.ID)
+	return err
+}
+
+func (store *Store) RetryMetadataRefreshJobWithOperation(ctx context.Context, actor uint, operationID string, job MetadataRefreshJob, generation int64) (MetadataRefreshJob, error) {
+	input := struct {
+		JobID      string `json:"jobId"`
+		Generation int64  `json:"generation"`
+	}{job.ID, generation}
+	return providerOperation(ctx, store, actor, "metadata.refresh.retry", operationID, input, func(tx *sql.Tx) error {
+		library, err := activeCatalogLibrary(ctx, tx, actor, job.LibraryID)
+		if err != nil {
+			return err
+		}
+		if library.Role != RoleOwner || job.OwnerUserID != actor {
+			return ErrForbidden
+		}
+		return nil
+	}, func(tx *sql.Tx) (MetadataRefreshJob, error) {
+		if err := retryMetadataRefreshJobTx(ctx, tx, actor, job, generation); err != nil {
+			return MetadataRefreshJob{}, err
+		}
+		current, err := readMetadataRefreshJob(tx.QueryRowContext(ctx, metadataRefreshJobSelection+` WHERE j.id=?`, job.ID))
+		if err != nil {
+			return current, err
+		}
+		return readMetadataRefreshProgress(ctx, tx, current)
+	})
+}
+
+type MetadataRefreshUndoResult struct {
+	JobID  string `json:"jobId"`
+	Undone int64  `json:"undone"`
+}
+
+func (store *Store) UndoMetadataRefreshJob(ctx context.Context, actor uint, operationID string, job MetadataRefreshJob, generation int64) (MetadataRefreshUndoResult, error) {
+	input := struct {
+		JobID      string `json:"jobId"`
+		Generation int64  `json:"generation"`
+	}{job.ID, generation}
+	return providerOperation(ctx, store, actor, "metadata.refresh.undo", operationID, input, func(tx *sql.Tx) error {
+		library, err := activeCatalogLibrary(ctx, tx, actor, job.LibraryID)
+		if err != nil {
+			return err
+		}
+		if library.Role != RoleOwner || job.OwnerUserID != actor {
+			return ErrForbidden
+		}
+		return nil
+	}, func(tx *sql.Tx) (MetadataRefreshUndoResult, error) {
+		result := MetadataRefreshUndoResult{JobID: job.ID}
+		current, err := readMetadataRefreshJob(tx.QueryRowContext(ctx, metadataRefreshJobSelection+` WHERE j.id=? AND j.generation=? AND j.status IN ('completed','failed','canceled')`, job.ID, generation))
+		if err != nil {
+			return result, err
+		}
+		if current.OwnerUserID != actor || current.LibraryID != job.LibraryID {
+			return result, ErrForbidden
+		}
+		var pending, refreshed int64
+		if err := tx.QueryRowContext(ctx, `SELECT count(*) FILTER (WHERE outcome='pending'),count(*) FILTER (WHERE outcome='refreshed') FROM metadata_refresh_target WHERE job_id=?`, job.ID).Scan(&pending, &refreshed); err != nil {
+			return result, err
+		}
+		if pending != 0 || refreshed == 0 {
+			return result, ErrRevisionConflict
+		}
+		var conflict bool
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM metadata_refresh_target t
+JOIN item_provider_match pm ON pm.library_id=t.library_id AND pm.item_id=t.item_id
+JOIN library_item i ON i.library_id=t.library_id AND i.id=t.item_id
+JOIN item_structure st ON st.library_id=i.library_id AND st.item_id=i.id AND st.superseded_by IS NULL
+LEFT JOIN provider_match_revision h ON h.library_id=t.library_id AND h.item_id=t.item_id AND h.match_revision=t.applied_match_revision
+WHERE t.job_id=? AND t.outcome='refreshed' AND (pm.revision!=t.applied_match_revision OR i.revision!=t.applied_item_revision OR st.structure_revision!=t.structure_revision OR h.match_revision IS NULL))`, job.ID).Scan(&conflict); err != nil {
+			return result, err
+		}
+		if conflict {
+			return result, ErrRevisionConflict
+		}
+		rows, err := tx.QueryContext(ctx, `SELECT library_id,item_id,structure_revision,applied_item_revision,applied_match_revision FROM metadata_refresh_target WHERE job_id=? AND outcome='refreshed' ORDER BY item_id`, job.ID)
+		if err != nil {
+			return result, err
+		}
+		type target struct {
+			libraryID, itemID      string
+			structure, item, match int64
+		}
+		targets := make([]target, 0, refreshed)
+		for rows.Next() {
+			var target target
+			if err := rows.Scan(&target.libraryID, &target.itemID, &target.structure, &target.item, &target.match); err != nil {
+				rows.Close()
+				return result, err
+			}
+			targets = append(targets, target)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return result, err
+		}
+		if err := rows.Close(); err != nil {
+			return result, err
+		}
+		for _, target := range targets {
+			if _, err := undoProviderMatchTx(ctx, tx, actor, ProviderUndoRequest{LibraryID: target.libraryID, ItemID: target.itemID,
+				ItemRevision: target.item, StructureRevision: target.structure, MatchRevision: target.match}); err != nil {
+				return result, err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE metadata_refresh_target SET outcome='undone' WHERE job_id=? AND library_id=? AND item_id=? AND outcome='refreshed'`,
+				job.ID, target.libraryID, target.itemID); err != nil {
+				return result, err
+			}
+			result.Undone++
+		}
+		return result, nil
+	})
+}
+
+func (c *ScanCoordinator) RetryMetadataRefreshJobWithOperation(ctx context.Context, actor uint, operationID string, job MetadataRefreshJob, generation int64) (MetadataRefreshJob, error) {
+	return coordinatedCall(ctx, c, func(ctx context.Context, store *Store) (MetadataRefreshJob, error) {
+		return store.RetryMetadataRefreshJobWithOperation(ctx, actor, operationID, job, generation)
+	})
+}
+
+func (c *ScanCoordinator) UndoMetadataRefreshJob(ctx context.Context, actor uint, operationID string, job MetadataRefreshJob, generation int64) (MetadataRefreshUndoResult, error) {
+	return coordinatedCall(ctx, c, func(ctx context.Context, store *Store) (MetadataRefreshUndoResult, error) {
+		return store.UndoMetadataRefreshJob(ctx, actor, operationID, job, generation)
+	})
 }

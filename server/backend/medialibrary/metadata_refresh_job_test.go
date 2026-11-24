@@ -300,6 +300,155 @@ func TestMetadataRefreshCommitRejectsCanceledOrChangedTarget(t *testing.T) {
 	}
 }
 
+func TestMetadataRefreshRetryOperationIsReplayable(t *testing.T) {
+	store := openTestStore(t)
+	ctx := t.Context()
+	library := createLibrary(t, store, 7, "刷新重试")
+	connection := fixtureProvider(t, store, 7, false, "user", "refresh-retry-operation-connection")
+	policy, err := store.SetLibraryMetadataPolicy(ctx, 7, library.ID, "refresh-retry-operation-policy", 0,
+		LibraryMetadataPolicy{Mode: MetadataLocalFirst, ConnectionID: connection.ID, Language: "zh-CN", Region: "CN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixtureRefreshMatch(t, store, library, connection, "English", "en-US")
+	if _, err := store.EnqueueMetadataRefreshJob(ctx, 7, "refresh-retry-operation-enqueue", library.ID, policy.Revision); err != nil {
+		t.Fatal(err)
+	}
+	coordinator := testCoordinator(t, store)
+	job, err := coordinator.ClaimNextMetadataRefreshJob(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := coordinator.CancelMetadataRefreshJob(ctx, 7, library.ID, job.ID, job.Generation); err != nil {
+		t.Fatal(err)
+	}
+	progress, err := store.MetadataRefreshJob(ctx, 7, library.ID, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retried, err := coordinator.RetryMetadataRefreshJobWithOperation(ctx, 7, "refresh-retry-operation", progress, progress.Generation)
+	if err != nil || retried.Status != "queued" || retried.Generation != progress.Generation+1 {
+		t.Fatalf("retry: %+v %v", retried, err)
+	}
+	replayed, err := coordinator.RetryMetadataRefreshJobWithOperation(ctx, 7, "refresh-retry-operation", progress, progress.Generation)
+	if err != nil || replayed.Generation != retried.Generation {
+		t.Fatalf("retry replay: %+v %v", replayed, err)
+	}
+}
+
+func TestMetadataRefreshJobUndoIsAtomicAndReplayable(t *testing.T) {
+	store := openTestStore(t)
+	ctx := t.Context()
+	library := createLibrary(t, store, 7, "刷新撤销")
+	connection := fixtureProvider(t, store, 7, false, "user", "refresh-undo-connection")
+	policy, err := store.SetLibraryMetadataPolicy(ctx, 7, library.ID, "refresh-undo-policy", 0,
+		LibraryMetadataPolicy{Mode: MetadataLocalFirst, ConnectionID: connection.ID, Language: "zh-CN", Region: "CN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, _ := fixtureRefreshMatch(t, store, library, connection, "First", "en-US")
+	second, _ := fixtureRefreshMatch(t, store, library, connection, "Second", "en-US")
+	if _, err := store.EnqueueMetadataRefreshJob(ctx, 7, "refresh-undo-enqueue", library.ID, policy.Revision); err != nil {
+		t.Fatal(err)
+	}
+	coordinator := testCoordinator(t, store)
+	job, err := coordinator.ClaimNextMetadataRefreshJob(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		target, err := coordinator.NextMetadataRefreshJobTarget(ctx, job)
+		if err != nil {
+			t.Fatal(err)
+		}
+		request := ProviderMatchRequest{LibraryID: library.ID, ItemID: target.ItemID, Kind: "movie", ExternalID: 42,
+			ItemRevision: target.ItemRevision, StructureRevision: target.StructureRevision}
+		document := ProviderMatchDocument{Item: mediametadata.Item{Kind: mediametadata.Movie, Fields: map[string][]string{"title": {"中文"}}}}
+		if _, err := coordinator.CommitMetadataRefreshTarget(ctx, job, target, request, "zh-CN", time.Now().UnixMilli(), document,
+			ProviderMatchAudit{Source: "refresh"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := coordinator.FinishMetadataRefreshJob(ctx, job, "completed", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	progress, err := store.MetadataRefreshJob(ctx, 7, library.ID, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	undone, err := coordinator.UndoMetadataRefreshJob(ctx, 7, "refresh-undo-operation", progress, progress.Generation)
+	if err != nil || undone.Undone != 2 {
+		t.Fatalf("undo: %+v %v", undone, err)
+	}
+	for _, item := range []*CatalogItem{first, second} {
+		var language, outcome string
+		if err := store.db.QueryRow(`SELECT language FROM item_provider_match WHERE library_id=? AND item_id=?`, library.ID, item.ID).Scan(&language); err != nil || language != "en-US" {
+			t.Fatalf("undo language=%s err=%v", language, err)
+		}
+		if err := store.db.QueryRow(`SELECT outcome FROM metadata_refresh_target WHERE job_id=? AND item_id=?`, job.ID, item.ID).Scan(&outcome); err != nil || outcome != "undone" {
+			t.Fatalf("undo outcome=%s err=%v", outcome, err)
+		}
+	}
+	replayed, err := coordinator.UndoMetadataRefreshJob(ctx, 7, "refresh-undo-operation", progress, progress.Generation)
+	if err != nil || replayed.Undone != undone.Undone {
+		t.Fatalf("undo replay: %+v %v", replayed, err)
+	}
+}
+
+func TestMetadataRefreshJobUndoRejectsLaterItemChanges(t *testing.T) {
+	store := openTestStore(t)
+	ctx := t.Context()
+	library := createLibrary(t, store, 7, "刷新撤销冲突")
+	connection := fixtureProvider(t, store, 7, false, "user", "refresh-undo-conflict-connection")
+	policy, err := store.SetLibraryMetadataPolicy(ctx, 7, library.ID, "refresh-undo-conflict-policy", 0,
+		LibraryMetadataPolicy{Mode: MetadataLocalFirst, ConnectionID: connection.ID, Language: "zh-CN", Region: "CN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, _ := fixtureRefreshMatch(t, store, library, connection, "English", "en-US")
+	if _, err := store.EnqueueMetadataRefreshJob(ctx, 7, "refresh-undo-conflict-enqueue", library.ID, policy.Revision); err != nil {
+		t.Fatal(err)
+	}
+	coordinator := testCoordinator(t, store)
+	job, err := coordinator.ClaimNextMetadataRefreshJob(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	target, err := coordinator.NextMetadataRefreshJobTarget(ctx, job)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := ProviderMatchRequest{LibraryID: library.ID, ItemID: item.ID, Kind: "movie", ExternalID: 42,
+		ItemRevision: target.ItemRevision, StructureRevision: target.StructureRevision}
+	document := ProviderMatchDocument{Item: mediametadata.Item{Kind: mediametadata.Movie, Fields: map[string][]string{"title": {"中文"}}}}
+	if _, err := coordinator.CommitMetadataRefreshTarget(ctx, job, target, request, "zh-CN", time.Now().UnixMilli(), document,
+		ProviderMatchAudit{Source: "refresh"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := coordinator.FinishMetadataRefreshJob(ctx, job, "completed", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	progress, err := store.MetadataRefreshJob(ctx, 7, library.ID, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var applied int64
+	if err := store.db.QueryRow(`SELECT applied_item_revision FROM metadata_refresh_target WHERE job_id=? AND item_id=?`, job.ID, item.ID).Scan(&applied); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.ApplyMetadata(ctx, 7, library.ID, item.ID, applied, "later-edit",
+		MetadataPatch{Fields: map[string]MetadataFieldPatch{"plot": {Values: []string{"later"}}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := coordinator.UndoMetadataRefreshJob(ctx, 7, "refresh-undo-conflict-operation", progress, progress.Generation); !errors.Is(err, ErrRevisionConflict) {
+		t.Fatalf("undo accepted a later item change: %v", err)
+	}
+	var language string
+	if err := store.db.QueryRow(`SELECT language FROM item_provider_match WHERE library_id=? AND item_id=?`, library.ID, item.ID).Scan(&language); err != nil || language != "zh-CN" {
+		t.Fatalf("conflicting undo changed provider: %s %v", language, err)
+	}
+}
+
 func TestMetadataRefreshJobRecoversAfterReopen(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "catalog.db")

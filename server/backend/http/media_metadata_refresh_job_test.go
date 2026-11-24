@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -17,6 +19,10 @@ import (
 
 func TestMetadataRefreshJobRefreshesLockedEnglishMatchThroughAPI(t *testing.T) {
 	var calls atomic.Int32
+	var block atomic.Bool
+	requestStarted := make(chan struct{})
+	releaseRequest := make(chan struct{})
+	var startedOnce sync.Once
 	f := newMediaScanHTTPFixture(t, func(h *trashHTTPHarness) {
 		vault, err := mediaprovider.NewCredentialVault(bytes.Repeat([]byte{41}, 32))
 		if err != nil {
@@ -27,6 +33,13 @@ func TestMetadataRefreshJobRefreshesLockedEnglishMatchThroughAPI(t *testing.T) {
 			calls.Add(1)
 			if r.URL.Path != "/3/movie/55" || r.URL.Query().Get("language") != "zh-CN" {
 				t.Errorf("unexpected refresh request: %s language=%s", r.URL.Path, r.URL.Query().Get("language"))
+			}
+			if block.Load() {
+				startedOnce.Do(func() { close(requestStarted) })
+				select {
+				case <-r.Context().Done():
+				case <-releaseRequest:
+				}
 			}
 			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
 				`{"id":55,"title":"中文电影","overview":"中文简介","release_date":"2020-01-01","credits":{"cast":[{"id":8,"name":"中文演员"}]}}`))}, nil
@@ -116,5 +129,71 @@ func TestMetadataRefreshJobRefreshesLockedEnglishMatchThroughAPI(t *testing.T) {
 	var replayed metadataRefreshJobResponse
 	if replay.Code != http.StatusAccepted || json.Unmarshal(replay.Body.Bytes(), &replayed) != nil || replayed.JobID != job.JobID || calls.Load() != 1 {
 		t.Fatalf("enqueue replay: %d %s calls=%d", replay.Code, replay.Body, calls.Load())
+	}
+	undo := f.call(t, owner, http.MethodPost, base+"/metadata-refresh-jobs/"+job.JobID+"/undo", map[string]any{
+		"operationId": "refresh-job-undo", "generation": job.Generation,
+	})
+	var undone medialibrary.MetadataRefreshUndoResult
+	if undo.Code != http.StatusOK || json.Unmarshal(undo.Body.Bytes(), &undone) != nil || undone.Undone != 1 {
+		t.Fatalf("undo: %d %s", undo.Code, undo.Body)
+	}
+	restored := fixtureDetail(t, f, owner, library.ID, itemID)
+	if restored.Item.Title != "手动锁定标题" || restored.Fields["plot"].Values[0] != "English plot" ||
+		restored.OnlineMatch == nil || restored.OnlineMatch.Language != "en-US" {
+		t.Fatalf("restored detail: %+v", restored)
+	}
+	progress := f.call(t, owner, http.MethodGet, base+"/metadata-refresh-jobs/"+job.JobID, nil)
+	if progress.Code != http.StatusOK || json.Unmarshal(progress.Body.Bytes(), &job) != nil || job.Undone != 1 {
+		t.Fatalf("undo progress: %d %s", progress.Code, progress.Body)
+	}
+	block.Store(true)
+	enqueueAgain := f.call(t, owner, http.MethodPost, base+"/metadata-refresh-jobs", map[string]any{
+		"operationId": "refresh-job-retry-enqueue", "mode": "refresh_unlocked", "expectedPolicyRevision": policy.Revision,
+	})
+	var retryJob metadataRefreshJobResponse
+	if enqueueAgain.Code != http.StatusAccepted || json.Unmarshal(enqueueAgain.Body.Bytes(), &retryJob) != nil {
+		t.Fatal(enqueueAgain.Code, enqueueAgain.Body)
+	}
+	select {
+	case <-requestStarted:
+	case <-time.After(12 * time.Second):
+		t.Fatal("retry fixture request did not start")
+	}
+	runningResponse := f.call(t, owner, http.MethodGet, base+"/metadata-refresh-jobs/"+retryJob.JobID, nil)
+	if runningResponse.Code != http.StatusOK || json.Unmarshal(runningResponse.Body.Bytes(), &retryJob) != nil || retryJob.Status != "running" {
+		t.Fatalf("running retry job: %d %s", runningResponse.Code, runningResponse.Body)
+	}
+	canceled := f.call(t, owner, http.MethodDelete, base+"/metadata-refresh-jobs/"+retryJob.JobID+"?generation="+strconv.FormatInt(retryJob.Generation, 10), nil)
+	if canceled.Code != http.StatusNoContent {
+		t.Fatal(canceled.Code, canceled.Body)
+	}
+	block.Store(false)
+	close(releaseRequest)
+	canceledResponse := f.call(t, owner, http.MethodGet, base+"/metadata-refresh-jobs/"+retryJob.JobID, nil)
+	if canceledResponse.Code != http.StatusOK || json.Unmarshal(canceledResponse.Body.Bytes(), &retryJob) != nil || retryJob.Status != "canceled" {
+		t.Fatalf("canceled retry job: %d %s", canceledResponse.Code, canceledResponse.Body)
+	}
+	retried := f.call(t, owner, http.MethodPost, base+"/metadata-refresh-jobs/"+retryJob.JobID+"/retry", map[string]any{
+		"operationId": "refresh-job-retry", "generation": retryJob.Generation,
+	})
+	if retried.Code != http.StatusAccepted || json.Unmarshal(retried.Body.Bytes(), &retryJob) != nil || retryJob.Status != "queued" {
+		t.Fatalf("retry: %d %s", retried.Code, retried.Body)
+	}
+	deadline = time.Now().Add(12 * time.Second)
+	for {
+		response := f.call(t, owner, http.MethodGet, base+"/metadata-refresh-jobs/"+retryJob.JobID, nil)
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &retryJob) != nil {
+			t.Fatal(response.Code, response.Body)
+		}
+		if retryJob.Status != "queued" && retryJob.Status != "running" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("retry did not finish: %+v", retryJob)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if retryJob.Status != "completed" || retryJob.Refreshed != 1 || calls.Load() != 3 {
+		t.Fatalf("retried job: %+v calls=%d", retryJob, calls.Load())
 	}
 }

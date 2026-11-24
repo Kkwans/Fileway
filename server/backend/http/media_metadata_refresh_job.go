@@ -17,6 +17,48 @@ type metadataRefreshJobBody struct {
 	ExpectedPolicyRevision int64  `json:"expectedPolicyRevision"`
 }
 
+type metadataRefreshJobActionBody struct {
+	OperationID string `json:"operationId"`
+	Generation  int64  `json:"generation"`
+}
+
+func mediaMetadataRefreshJobActionHandler(scheduler *mediascan.Scheduler, undo bool) handleFunc {
+	return providerConfig(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
+		var body metadataRefreshJobActionBody
+		if decodeMediaScanBody(w, r, &body) != nil || body.Generation < 1 || scheduler == nil {
+			return catalogError(w, medialibrary.ErrInvalid)
+		}
+		library, err := itemLibrary(r, d)
+		if err != nil {
+			return catalogError(w, err)
+		}
+		job, err := d.store.MediaLibrary.MetadataRefreshJob(r.Context(), d.user.ID, library.ID, mux.Vars(r)["jobId"])
+		if err != nil {
+			return catalogError(w, err)
+		}
+		if undo {
+			result, err := scheduler.UndoMetadataRefreshJob(r.Context(), d.user.ID, body.OperationID, job, body.Generation)
+			if err != nil {
+				if errors.Is(err, medialibrary.ErrCoordinatorUnavailable) {
+					return http.StatusServiceUnavailable, fmt.Errorf("后台资料刷新服务暂不可用")
+				}
+				return catalogError(w, err)
+			}
+			return renderJSON(w, r, result)
+		}
+		job, err = scheduler.RetryMetadataRefreshJobWithOperation(r.Context(), d.user.ID, body.OperationID, job, body.Generation)
+		if err != nil {
+			if errors.Is(err, medialibrary.ErrCoordinatorUnavailable) {
+				return http.StatusServiceUnavailable, fmt.Errorf("后台资料刷新服务暂不可用")
+			}
+			return catalogError(w, err)
+		}
+		w.Header().Set("Cache-Control", "no-store")
+		w.WriteHeader(http.StatusAccepted)
+		return renderMetadataRefreshJob(w, r, job)
+	})
+}
+
 type metadataRefreshJobResponse struct {
 	JobID          string `json:"jobId"`
 	LibraryID      string `json:"libraryId"`

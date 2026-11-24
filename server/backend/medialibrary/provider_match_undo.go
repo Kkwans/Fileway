@@ -66,71 +66,75 @@ func (store *Store) UndoProviderMatch(ctx context.Context, actor uint, operation
 		_, err := editableCatalogLibrary(ctx, tx, actor, request.LibraryID)
 		return err
 	}, func(tx *sql.Tx) (*ProviderUndoResult, error) {
-		var previous sql.NullString
-		err := tx.QueryRowContext(ctx, `SELECT h.previous_json FROM item_provider_match pm
+		return undoProviderMatchTx(ctx, tx, actor, request)
+	})
+}
+
+func undoProviderMatchTx(ctx context.Context, tx *sql.Tx, actor uint, request ProviderUndoRequest) (*ProviderUndoResult, error) {
+	var previous sql.NullString
+	err := tx.QueryRowContext(ctx, `SELECT h.previous_json FROM item_provider_match pm
 JOIN provider_match_revision h ON h.library_id=pm.library_id AND h.item_id=pm.item_id AND h.match_revision=pm.revision
 JOIN library_item i ON i.library_id=pm.library_id AND i.id=pm.item_id
 JOIN item_structure st ON st.library_id=i.library_id AND st.item_id=i.id AND st.superseded_by IS NULL
 WHERE pm.library_id=? AND pm.item_id=? AND pm.revision=? AND i.revision=?
 AND st.structure_revision=? AND h.structure_revision=st.structure_revision`, request.LibraryID, request.ItemID,
-			request.MatchRevision, request.ItemRevision, request.StructureRevision).Scan(&previous)
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrRevisionConflict
-		}
-		if err != nil {
-			return nil, err
-		}
-		revision := request.ItemRevision + 1
-		if previous.Valid {
-			_, err = tx.ExecContext(ctx, `UPDATE item_provider_match SET
+		request.MatchRevision, request.ItemRevision, request.StructureRevision).Scan(&previous)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrRevisionConflict
+	}
+	if err != nil {
+		return nil, err
+	}
+	revision := request.ItemRevision + 1
+	if previous.Valid {
+		_, err = tx.ExecContext(ctx, `UPDATE item_provider_match SET
 connection_id=json_extract(?1,'$.connectionId'),entity_kind=json_extract(?1,'$.kind'),external_id=json_extract(?1,'$.externalId'),
 language=json_extract(?1,'$.language'),document_json=json_extract(?1,'$.document'),fetched_at=json_extract(?1,'$.fetchedAt'),revision=?2
 WHERE library_id=?3 AND item_id=?4`, previous.String, revision, request.LibraryID, request.ItemID)
-			if err == nil {
-				var prior struct {
-					Revision  int64  `json:"revision"`
-					FetchedAt int64  `json:"fetchedAt"`
-					Language  string `json:"language"`
-					Audit     struct {
-						Source         string   `json:"source"`
-						Region         string   `json:"region"`
-						AdapterVersion string   `json:"adapterVersion"`
-						Evidence       []string `json:"evidence"`
-					} `json:"audit"`
-				}
-				if err := json.Unmarshal([]byte(previous.String), &prior); err != nil {
-					return nil, err
-				}
-				// Preserve the older undo chain while assigning fresh public
-				// revisions so a restored document cannot reuse an old cache key.
-				_, err = tx.ExecContext(ctx, `INSERT INTO provider_match_revision(library_id,item_id,match_revision,structure_revision,previous_json)
+		if err == nil {
+			var prior struct {
+				Revision  int64  `json:"revision"`
+				FetchedAt int64  `json:"fetchedAt"`
+				Language  string `json:"language"`
+				Audit     struct {
+					Source         string   `json:"source"`
+					Region         string   `json:"region"`
+					AdapterVersion string   `json:"adapterVersion"`
+					Evidence       []string `json:"evidence"`
+				} `json:"audit"`
+			}
+			if err := json.Unmarshal([]byte(previous.String), &prior); err != nil {
+				return nil, err
+			}
+			// Preserve the older undo chain while assigning fresh public
+			// revisions so a restored document cannot reuse an old cache key.
+			_, err = tx.ExecContext(ctx, `INSERT INTO provider_match_revision(library_id,item_id,match_revision,structure_revision,previous_json)
 SELECT library_id,item_id,?,structure_revision,previous_json FROM provider_match_revision
 WHERE library_id=? AND item_id=? AND match_revision=? AND structure_revision=?`, revision,
-					request.LibraryID, request.ItemID, prior.Revision, request.StructureRevision)
-				if err == nil {
-					source := prior.Audit.Source
-					if source == "" {
-						source = "legacy"
-					}
-					err = recordProviderMatchProvenanceTx(ctx, tx, request.LibraryID, request.ItemID, revision,
-						source, prior.Language, prior.Audit.Region, prior.Audit.AdapterVersion, prior.Audit.Evidence, prior.FetchedAt)
-				}
-			}
-		} else {
-			_, err = tx.ExecContext(ctx, `DELETE FROM item_provider_match WHERE library_id=? AND item_id=?`, request.LibraryID, request.ItemID)
+				request.LibraryID, request.ItemID, prior.Revision, request.StructureRevision)
 			if err == nil {
-				_, err = tx.ExecContext(ctx, `INSERT INTO provider_match_manual_review(library_id,item_id) VALUES(?,?) ON CONFLICT DO NOTHING`, request.LibraryID, request.ItemID)
+				source := prior.Audit.Source
+				if source == "" {
+					source = "legacy"
+				}
+				err = recordProviderMatchProvenanceTx(ctx, tx, request.LibraryID, request.ItemID, revision,
+					source, prior.Language, prior.Audit.Region, prior.Audit.AdapterVersion, prior.Audit.Evidence, prior.FetchedAt)
 			}
 		}
-		if err != nil {
-			return nil, err
+	} else {
+		_, err = tx.ExecContext(ctx, `DELETE FROM item_provider_match WHERE library_id=? AND item_id=?`, request.LibraryID, request.ItemID)
+		if err == nil {
+			_, err = tx.ExecContext(ctx, `INSERT INTO provider_match_manual_review(library_id,item_id) VALUES(?,?) ON CONFLICT DO NOTHING`, request.LibraryID, request.ItemID)
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE library_item SET revision=? WHERE library_id=? AND id=?`, revision, request.LibraryID, request.ItemID); err != nil {
-			return nil, err
-		}
-		if err := publishCatalogChange(ctx, tx, actor, request.LibraryID, "catalog.item.metadata.changed", catalogChange{ItemID: request.ItemID, Revision: revision}); err != nil {
-			return nil, err
-		}
-		return &ProviderUndoResult{request.LibraryID, request.ItemID, revision, previous.Valid}, nil
-	})
+	}
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE library_item SET revision=? WHERE library_id=? AND id=?`, revision, request.LibraryID, request.ItemID); err != nil {
+		return nil, err
+	}
+	if err := publishCatalogChange(ctx, tx, actor, request.LibraryID, "catalog.item.metadata.changed", catalogChange{ItemID: request.ItemID, Revision: revision}); err != nil {
+		return nil, err
+	}
+	return &ProviderUndoResult{request.LibraryID, request.ItemID, revision, previous.Valid}, nil
 }
