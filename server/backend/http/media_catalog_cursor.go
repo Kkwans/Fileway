@@ -48,6 +48,9 @@ type catalogCursor struct {
 	Expires               int64
 	AfterID               string                   `json:"i,omitempty"`
 	AfterFileID           string                   `json:"ff,omitempty"`
+	AfterLibrary          string                   `json:"al,omitempty"`
+	AfterName             string                   `json:"an,omitempty"`
+	AfterExternal         string                   `json:"ae,omitempty"`
 	AfterValue            *int64                   `json:"n,omitempty"`
 	AfterNumber           *int                     `json:"p,omitempty"`
 	OrderID               string                   `json:"oid,omitempty"`

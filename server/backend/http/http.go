@@ -141,6 +141,8 @@ func NewHandler(
 	api.Handle("/media-library/v1/catalog/files", monkey(mediaCatalogFilesHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/catalog/people", monkey(mediaCatalogPeopleHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/catalog/people/{personId}/works", monkey(mediaCatalogPersonWorksHandler, "")).Methods("GET")
+	api.Handle("/media-library/v1/catalog/collections", monkey(mediaCatalogCollectionsHandler, "")).Methods("GET")
+	api.Handle("/media-library/v1/catalog/collections/{collectionId}/works", monkey(mediaCatalogCollectionWorksHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries", monkey(mediaLibraryListHandler, "")).Methods("GET")
 	api.Handle("/media-library/v1/libraries", monkey(mediaLibraryCreateHandler, "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}", monkey(mediaLibraryGetHandler, "")).Methods("GET")
