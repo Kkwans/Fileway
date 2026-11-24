@@ -22,6 +22,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
 import io.github.kkwans.nasfilebrowser.R
+import io.github.kkwans.nasfilebrowser.data.MediaMetadataRefreshPreview
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayEmptyState
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
@@ -46,6 +47,19 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp)) }
                 if (state.canUndo) TextButton(onClick = { confirmUndo = true }, enabled = !state.busy) { Text("撤销 TMDB 匹配") }
                 if (state.canUndoMapping) TextButton(onClick = { confirmMappingUndo = true }, enabled = !state.busy) { Text("撤销剧集关联") }
+                if (state.canRefresh) {
+                    state.refreshPreview?.let { preview ->
+                        Text("资料语言：${preview.currentLanguage.ifBlank { "未记录" }} → ${preview.targetLanguage}",
+                            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp))
+                        if (preview.changedFields.isNotEmpty()) Text("将更新：${preview.changedFields.joinToString("、")}",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (preview.protectedFields.isNotEmpty()) Text("保留人工锁定：${preview.protectedFields.joinToString("、")}",
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Button(onClick = { onAction(PhoneMediaAction.ApplyMetadataRefresh) }, enabled = !state.busy && preview.canRefresh,
+                            modifier = Modifier.heightIn(min = 48.dp)) { Text("刷新中文资料") }
+                    } ?: TextButton(onClick = { onAction(PhoneMediaAction.PreviewMetadataRefresh) }, enabled = !state.busy,
+                        modifier = Modifier.heightIn(min = 48.dp)) { Text("预览资料刷新") }
+                }
             }
             if (state.canChooseSeries) item(key = "kind") {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {

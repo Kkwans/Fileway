@@ -74,15 +74,24 @@ class MediaProviderCandidate internal constructor(
     val ref: MediaCatalogRef, val kind: MediaProviderMatchKind, val externalId: String,
     val title: String, val originalTitle: String?, val year: Int?, val evidence: List<String>,
     val itemRevision: Long, val structureRevision: Long, val canConfirm: Boolean, internal val connectionId: String?,
+    val candidateSetId: String = "",
 ) {
     override fun toString(): String = "MediaProviderCandidate(redacted)"
 }
-data class MediaProviderCandidatePage(val items: List<MediaProviderCandidate>, val page: Int, val hasMore: Boolean)
+data class MediaProviderCandidatePage(val items: List<MediaProviderCandidate>, val page: Int, val hasMore: Boolean, val candidateSetId: String = "")
 data class MediaProviderMatchReceipt(
     val libraryId: String, val itemId: String, val kind: MediaProviderMatchKind, val externalId: String, val itemRevision: Long,
 )
 data class MediaProviderUndoReceipt(val libraryId: String, val itemId: String, val itemRevision: Long, val restored: Boolean)
-data class MediaOnlineMatch(val provider: String, val kind: MediaProviderMatchKind, val externalId: String, val fetchedAt: Long)
+data class MediaOnlineMatch(
+    val provider: String, val kind: MediaProviderMatchKind, val externalId: String, val fetchedAt: Long,
+    val decisionSource: String = "", val language: String = "", val region: String = "", val evidence: List<String> = emptyList(),
+)
+
+data class MediaMetadataRefreshPreview(
+    val currentLanguage: String, val targetLanguage: String, val changedFields: List<String>,
+    val protectedFields: List<String>, val preservedFields: List<String>, val canRefresh: Boolean,
+)
 
 internal fun requireProviderConnectionId(value: String) {
     require(value.matches(Regex("pc_[0-9a-f]{32}"))) { "资料连接标识无效" }
@@ -152,8 +161,8 @@ internal fun parseProviderPolicy(row: JSONObject): MediaProviderPolicy {
     val mode = MediaProviderPolicyMode.entries.firstOrNull { it != MediaProviderPolicyMode.UNKNOWN && it.wire == row.providerText("mode", 32) }
         ?: MediaProviderPolicyMode.UNKNOWN
     val connection = row.providerOptionalText("connectionId", 64)?.also(::requireProviderConnectionId)
-    val language = row.providerText("language", 64)
-    val region = row.providerText("region", 2)
+    val language = row.providerText("language", 64).ifEmpty { "zh-CN" }
+    val region = row.providerText("region", 2).ifEmpty { "CN" }
     if (mode != MediaProviderPolicyMode.UNKNOWN) requireProviderPolicy(mode, connection, language, region)
     return MediaProviderPolicy(library, mode, connection, language, region, row.providerBoolean("allowEditorJobs"), row.providerLong("revision"))
 }
@@ -228,9 +237,10 @@ internal fun parseProviderCandidates(
             MediaProviderMatchKind.SERIES -> identification.structureKind == MediaItemKind.SERIES
         }
         MediaProviderCandidate(identification.ref, kind, id, candidate.providerText("title", 4096), candidate.providerOptionalText("originalTitle", 4096),
-            year, candidate.providerStrings("evidence", 32, 128), identification.itemRevision, identification.structureRevision, canConfirm, connectionId)
+            year, candidate.providerStrings("evidence", 32, 128), identification.itemRevision, identification.structureRevision, canConfirm, connectionId,
+            row.providerOptionalText("candidateSetId", 200)?.also(::requireMediaRouteId) ?: "")
     }
-    return MediaProviderCandidatePage(items, page, more)
+    return MediaProviderCandidatePage(items, page, more, row.providerOptionalText("candidateSetId", 200)?.also(::requireMediaRouteId) ?: "")
 }
 
 internal fun parseProviderMatchReceipt(row: JSONObject): MediaProviderMatchReceipt = MediaProviderMatchReceipt(
@@ -242,5 +252,13 @@ internal fun parseMediaOnlineMatch(row: JSONObject): MediaOnlineMatch {
     val provider = row.providerText("provider", 64)
     require(provider == "tmdb")
     return MediaOnlineMatch(provider, providerKind(row.providerText("kind", 32)),
-        row.providerText("externalId", 32).also(::requireProviderExternalId), row.providerLong("fetchedAt"))
+        row.providerText("externalId", 32).also(::requireProviderExternalId), row.providerLong("fetchedAt"),
+        row.providerOptionalText("decisionSource", 32) ?: "", row.providerOptionalText("language", 64) ?: "",
+        row.providerOptionalText("region", 2) ?: "", row.providerStrings("evidence", 32, 128))
 }
+
+internal fun parseMetadataRefreshPreview(row: JSONObject): MediaMetadataRefreshPreview = MediaMetadataRefreshPreview(
+    row.providerText("currentLanguage", 64), row.providerText("targetLanguage", 64),
+    row.providerStrings("changedFields", 64, 128), row.providerStrings("protectedFields", 64, 128),
+    row.providerStrings("preservedFields", 64, 128), row.providerBoolean("canRefresh"),
+)

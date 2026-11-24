@@ -22,6 +22,7 @@ internal fun PhoneMediaMatchRoute(repository: MediaLibraryRepository, ref: Media
         var seasonNumber by rememberSaveable { mutableStateOf("1") }
         var episodeNumbers by rememberSaveable { mutableStateOf("1") }
         var seriesPreview by remember { mutableStateOf<MediaSeriesMappingPreview?>(null) }
+        var refreshPreview by remember { mutableStateOf<MediaMetadataRefreshPreview?>(null) }
         var nextPage by remember { mutableStateOf<Int?>(null) }
         var error by remember { mutableStateOf<MediaProblem?>(null) }
         var busy by remember { mutableStateOf(false) }
@@ -32,7 +33,7 @@ internal fun PhoneMediaMatchRoute(repository: MediaLibraryRepository, ref: Media
         var refresh by remember { mutableIntStateOf(0) }
         LaunchedEffect(refresh) {
             searchGeneration++; searchJob?.cancel()
-            loading = true; error = null; candidates = emptyList(); selected = null; seriesPreview = null; searchedQuery = ""
+            loading = true; error = null; candidates = emptyList(); selected = null; seriesPreview = null; refreshPreview = null; searchedQuery = ""
             try {
                 pending = repository.pendingMatchConfirmation(ref)
                 when (val result = repository.identification(ref)) {
@@ -101,6 +102,19 @@ internal fun PhoneMediaMatchRoute(repository: MediaLibraryRepository, ref: Media
                 } finally { busy = false }
             }
         }
+        fun previewRefresh() {
+            val item = identification ?: return
+            if (busy || pending != null || item.matchState != MediaCatalogMatchState.PROVIDER_CONFIRMED) return
+            busy = true; error = null
+            scope.launch {
+                try {
+                    when (val result = repository.previewMetadataRefresh(item.ref)) {
+                        is MediaReadResult.Success -> refreshPreview = result.value
+                        is MediaReadResult.Failure -> error = MediaProblem("无法预览资料刷新", providerProblem(result.error), "重试")
+                    }
+                } finally { busy = false }
+            }
+        }
         fun submit(candidate: MediaProviderCandidate? = null, undo: MediaProviderIdentification? = null, undoMapping: Boolean = false) {
             val previous = pending
             val mapping = seriesPreview
@@ -123,6 +137,25 @@ internal fun PhoneMediaMatchRoute(repository: MediaLibraryRepository, ref: Media
                             pending = operation.takeIf { result.error.mutationMayHaveCommitted }
                             error = MediaProblem(if (pending != null) "结果待确认" else "无法保存匹配", providerProblem(result.error),
                                 if (pending != null) "确认上次操作" else "刷新资料")
+                        }
+                    }
+                } finally { busy = false }
+            }
+        }
+        fun applyRefresh() {
+            val item = identification ?: return
+            if (pending != null) { submit(); return }
+            if (busy || refreshPreview?.canRefresh != true) return
+            val operation = repository.newOperation()
+            busy = true; error = null
+            scope.launch {
+                try {
+                    when (val result = repository.refreshMetadata(operation, item)) {
+                        is MediaWriteResult.Success -> { repository.forgetResolvedOperation(operation); onMatched() }
+                        is MediaWriteResult.Failure -> {
+                            pending = operation.takeIf { result.error.mutationMayHaveCommitted }
+                            error = MediaProblem(if (pending != null) "结果待确认" else "无法刷新资料", providerProblem(result.error),
+                                if (pending != null) "确认上次操作" else "重试")
                         }
                     }
                 } finally { busy = false }
@@ -152,7 +185,8 @@ internal fun PhoneMediaMatchRoute(repository: MediaLibraryRepository, ref: Media
             canChooseSeries = item?.structureKind == MediaItemKind.VIDEO, seriesMode = seriesMode,
             seasonNumber = seasonNumber, episodeNumbers = episodeNumbers,
             canUndoMapping = pending == null && !loading && item?.undoMappingRevision != null,
-            searched = searchedQuery.isNotBlank()),
+            searched = searchedQuery.isNotBlank(), refreshPreview = refreshPreview,
+            canRefresh = pending == null && item?.matchState == MediaCatalogMatchState.PROVIDER_CONFIRMED),
             imageLoader, onAction = { action ->
                 when (action) {
                     PhoneMediaAction.Back -> if (!busy) onBack()
@@ -166,6 +200,8 @@ internal fun PhoneMediaMatchRoute(repository: MediaLibraryRepository, ref: Media
                     is PhoneMediaAction.PreviewMatch -> { selected = candidates.firstOrNull { it.externalId == action.candidateId }; seriesPreview = null }
                     is PhoneMediaAction.ApplyMatch -> if (seriesMode) submit() else submit(selected?.takeIf { it.externalId == action.candidateId })
                     PhoneMediaAction.UndoMatch -> submit(undo = identification)
+                    PhoneMediaAction.PreviewMetadataRefresh -> previewRefresh()
+                    PhoneMediaAction.ApplyMetadataRefresh -> applyRefresh()
                     is PhoneMediaAction.LoadMore -> nextPage?.let { search(searchedQuery, it) }
                     is PhoneMediaAction.Retry -> if (pending != null) submit() else refresh++
                     is PhoneMediaAction.ReloadMatch -> refresh++

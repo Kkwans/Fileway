@@ -371,7 +371,7 @@ class MediaLibraryRepository(
     }
 
     suspend fun updateMetadataPolicy(operation: MediaOperation, libraryId: String, expectedRevision: Long,
-        mode: MediaProviderPolicyMode, connectionId: String? = null, language: String = "", region: String = "",
+        mode: MediaProviderPolicyMode, connectionId: String? = null, language: String = "zh-CN", region: String = "CN",
         allowEditorJobs: Boolean = false): MediaWriteResult<MediaProviderPolicy> {
         requireProviderPolicy(mode, connectionId, language, region)
         return providerWrite(mutation(operation, MediaMutationKind.UPDATE_METADATA_POLICY, libraryId,
@@ -406,7 +406,7 @@ class MediaLibraryRepository(
         return providerWrite(mutation(operation, MediaMutationKind.CONFIRM_PROVIDER_MATCH, candidate.ref.libraryId, itemId = candidate.ref.itemId,
             body = operationBody(operation).put("kind", candidate.kind.wire).put("externalId", candidate.externalId)
                 .put("itemRevision", candidate.itemRevision).put("structureRevision", candidate.structureRevision)
-                .put("connectionId", candidate.connectionId ?: "")))
+                .put("connectionId", candidate.connectionId ?: "").put("candidateSetId", candidate.candidateSetId)))
     }
 
     /** Preview only: a server-side draft cannot alter the item's structure. */
@@ -468,7 +468,21 @@ class MediaLibraryRepository(
     suspend fun pendingMatchConfirmation(ref: MediaCatalogRef): MediaOperation? {
         ref.requireBound(scope, catalogDeviceSession); checkCurrent(); checkCatalogCredential()
         return journal.firstUnresolved(scope.account, setOf(MediaMutationKind.CONFIRM_PROVIDER_MATCH, MediaMutationKind.UNDO_PROVIDER_MATCH,
-            MediaMutationKind.CONFIRM_SERIES_MAPPING, MediaMutationKind.UNDO_SERIES_MAPPING), ref.libraryId, ref.itemId)
+            MediaMutationKind.CONFIRM_SERIES_MAPPING, MediaMutationKind.UNDO_SERIES_MAPPING,
+            MediaMutationKind.REFRESH_METADATA), ref.libraryId, ref.itemId)
+    }
+
+    suspend fun previewMetadataRefresh(ref: MediaCatalogRef): MediaReadResult<MediaMetadataRefreshPreview> {
+        ref.requireBound(scope, catalogDeviceSession)
+        return catalogRead(null) {
+            parseMetadataRefreshPreview(context.api.request("POST", "${itemEndpoint(ref.libraryId, ref.itemId)}/metadata-refresh-preview", JSONObject()))
+        }
+    }
+
+    suspend fun refreshMetadata(operation: MediaOperation, item: MediaProviderIdentification): MediaWriteResult<MediaProviderMatchReceipt> {
+        item.ref.requireBound(scope, catalogDeviceSession)
+        return providerWrite(mutation(operation, MediaMutationKind.REFRESH_METADATA, item.ref.libraryId, itemId = item.ref.itemId,
+            body = operationBody(operation).put("itemRevision", item.itemRevision).put("structureRevision", item.structureRevision)))
     }
 
     suspend fun undoMatch(operation: MediaOperation, item: MediaProviderIdentification): MediaWriteResult<MediaProviderUndoReceipt> {

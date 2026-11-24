@@ -327,6 +327,8 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
     val scope = rememberCoroutineScope()
     var policy by remember(repository, libraryId) { mutableStateOf<MediaProviderPolicy?>(null) }
     var mode by remember(repository, libraryId) { mutableStateOf(MediaProviderPolicyMode.LOCAL_ONLY) }
+    var language by remember(repository, libraryId) { mutableStateOf("zh-CN") }
+    var region by remember(repository, libraryId) { mutableStateOf("CN") }
     var connections by remember(repository, libraryId) { mutableStateOf<List<MediaProviderConnection>?>(null) }
     var connectionsLoading by remember(repository, libraryId) { mutableStateOf(true) }
     var connectionsError by remember(repository, libraryId) { mutableStateOf<MediaFailure?>(null) }
@@ -343,6 +345,7 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
             when (val result = repository.metadataPolicy(libraryId)) {
                 is MediaReadResult.Success -> if (result.scope == repository.scope) {
                     policy = result.value; mode = result.value.mode; chosen = result.value.connectionId
+                    language = result.value.language; region = result.value.region
                 }
                 is MediaReadResult.Failure -> if (result.scope == repository.scope) error = providerProblem(result.error)
             }
@@ -374,7 +377,7 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
                 try {
                     val result = if (existing != null) repository.retryOperation(existing) else repository.updateMetadataPolicy(
                         operation, libraryId, original.revision, mode, chosen.takeUnless { mode == MediaProviderPolicyMode.LOCAL_ONLY },
-                        original.language, original.region, original.allowEditorJobs)
+                        language, region, original.allowEditorJobs)
                     when (result) {
                         is MediaWriteResult.Success -> { repository.forgetResolvedOperation(operation); onSaved() }
                         is MediaWriteResult.Failure -> {
@@ -391,6 +394,14 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
             listOf(MediaProviderPolicyMode.LOCAL_ONLY to "仅本地资料", MediaProviderPolicyMode.LOCAL_FIRST_ONLINE to "本地优先，TMDB 补缺",
                 MediaProviderPolicyMode.ONLINE_FIRST to "TMDB 优先").forEach { (value, label) ->
                 FilewaySelectionRow(label, selected = mode == value, enabled = !busy && pending == null, onClick = { mode = value })
+            }
+        }
+        SettingsGroup("语言与地区") {
+            listOf("zh-CN" to "简体中文", "zh-TW" to "繁体中文", "en-US" to "English", "ja-JP" to "日本語").forEach { (value, label) ->
+                FilewaySelectionRow(label, selected = language == value, enabled = !busy && pending == null, onClick = { language = value })
+            }
+            listOf("CN" to "中国大陆", "TW" to "台湾", "HK" to "香港", "US" to "美国", "JP" to "日本").forEach { (value, label) ->
+                FilewaySelectionRow(label, subtitle = "发行地区", selected = region == value, enabled = !busy && pending == null, onClick = { region = value })
             }
         }
         if (mode != MediaProviderPolicyMode.LOCAL_ONLY) SettingsGroup("TMDB 连接") {

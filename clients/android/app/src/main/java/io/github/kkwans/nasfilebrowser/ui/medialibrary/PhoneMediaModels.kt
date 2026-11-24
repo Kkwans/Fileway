@@ -2,6 +2,7 @@ package io.github.kkwans.nasfilebrowser.ui.medialibrary
 
 import coil3.request.ImageRequest
 import io.github.kkwans.nasfilebrowser.data.MediaCatalogArtwork
+import io.github.kkwans.nasfilebrowser.data.MediaMetadataRefreshPreview
 
 /** Presentation only. IDs are opaque; adapters own authorization, formatting and wire versions.
  * Image requests must already be authorized and scoped to account/instance/asset revision.
@@ -68,7 +69,8 @@ internal data class PhoneMediaMatchState(val itemId: String, val revision: Strin
     val problem: MediaProblem? = null, val canUndo: Boolean = false,
     val canChooseSeries: Boolean = false, val seriesMode: Boolean = false,
     val seasonNumber: String = "1", val episodeNumbers: String = "1", val canUndoMapping: Boolean = false,
-    val searched: Boolean = false)
+    val searched: Boolean = false, val refreshPreview: MediaMetadataRefreshPreview? = null,
+    val canRefresh: Boolean = false)
 
 internal data class MediaSourceRoot(val id: String, val name: String, val description: String,
     val available: Boolean, val unavailableReason: String? = null)
@@ -123,6 +125,8 @@ internal sealed interface PhoneMediaAction {
     data class ApplyMatch(val candidateId: String, val expectedRevision: String, val suggestion: Boolean) : PhoneMediaAction
     data class ReloadMatch(val itemId: String) : PhoneMediaAction
     data object UndoMatch : PhoneMediaAction
+    data object PreviewMetadataRefresh : PhoneMediaAction
+    data object ApplyMetadataRefresh : PhoneMediaAction
     data class SetupDraft(val value: MediaLibraryDraft) : PhoneMediaAction
     data class SubmitLibrary(val value: MediaLibraryDraft) : PhoneMediaAction
 }
