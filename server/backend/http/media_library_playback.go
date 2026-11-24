@@ -34,23 +34,59 @@ type mediaVariantResponse struct {
 	WeakIdentity    bool     `json:"weakIdentity"`
 	DurationSeconds *float64 `json:"durationSeconds"`
 	Resolution      *string  `json:"resolution"`
+	SourceKind      string   `json:"sourceKind,omitempty"`
+	Availability    string   `json:"availability,omitempty"`
+	ReasonCode      string   `json:"reasonCode,omitempty"`
+	RecoveryAction  string   `json:"recoveryAction,omitempty"`
 }
 
 func variantResponse(item *medialibrary.PlaybackAccess, variant medialibrary.PlaybackVariant, info os.FileInfo) mediaVariantResponse {
 	return mediaVariantResponse{ItemID: item.ItemID, EditionID: item.EditionID, VariantID: item.VariantID, BindingID: item.BindingID,
 		SourceFileID: item.SourceFileID, EditionName: variant.EditionName, IsDefault: variant.IsDefault, SourceLabel: "本地来源",
 		DisplayName: mediaDisplayName(item.Locator), ContentType: mediaContentType(item.Locator), Size: info.Size(),
-		FileRevision: item.FileRevision, IdentityEpoch: item.IdentityEpoch, WeakIdentity: item.IdentityKind != string(mediascan.IdentityNative)}
+		FileRevision: item.FileRevision, IdentityEpoch: item.IdentityEpoch, WeakIdentity: item.IdentityKind != string(mediascan.IdentityNative),
+		SourceKind: "server", Availability: "available"}
 }
 
-// First playable binding is selected only after proving live owner authority;
-// no hidden source count or raw locator is included in the response.
-func firstPlayableBinding(ctx context.Context, d *data, libraryID, itemID string, variant medialibrary.PlaybackVariant) (*medialibrary.PlaybackAccess, os.FileInfo, error) {
+func unavailableVariantResponse(item *medialibrary.PlaybackAccess, variant medialibrary.PlaybackVariant, availability, reason, recovery string) mediaVariantResponse {
+	return mediaVariantResponse{ItemID: item.ItemID, EditionID: item.EditionID, VariantID: item.VariantID, BindingID: item.BindingID,
+		SourceFileID: item.SourceFileID, EditionName: variant.EditionName, IsDefault: variant.IsDefault, SourceLabel: "本地来源",
+		DisplayName: mediaDisplayName(item.Locator), ContentType: mediaContentType(item.Locator),
+		FileRevision: item.FileRevision, IdentityEpoch: item.IdentityEpoch, WeakIdentity: item.IdentityKind != string(mediascan.IdentityNative),
+		SourceKind: "server", Availability: availability, ReasonCode: reason, RecoveryAction: recovery}
+}
+
+type playbackBindingInspection struct {
+	evidence                       *medialibrary.PlaybackAccess
+	info                           os.FileInfo
+	availability, reason, recovery string
+}
+
+func playbackSourceState(evidence *medialibrary.PlaybackAccess, err error) (string, string, string) {
+	if evidence != nil && evidence.MissingSince != nil {
+		return "missing", "file_missing", "rescan"
+	}
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return "missing", "file_missing", "rescan"
+	case errors.Is(err, mediascan.ErrBindingChanged):
+		return "changed", "binding_changed", "rescan"
+	case errors.Is(err, mediascan.ErrBindingUnverified):
+		return "unverified", "binding_unverified", "rescan"
+	case errors.Is(err, fs.ErrPermission):
+		return "denied", "permission_denied", "permission"
+	default:
+		return "unavailable", "source_unavailable", "retry"
+	}
+}
+
+func inspectPlaybackBindings(ctx context.Context, d *data, libraryID, itemID string, variant medialibrary.PlaybackVariant) (playbackBindingInspection, error) {
+	var unavailable *playbackBindingInspection
 	after := ""
 	for pageCount := 0; pageCount < 10; pageCount++ {
 		page, err := d.store.MediaLibrary.ListPlaybackAccess(ctx, d.user.ID, libraryID, itemID, variant.EditionID, variant.VariantID, after, 100)
 		if err != nil {
-			return nil, nil, err
+			return playbackBindingInspection{}, err
 		}
 		for i := range page.Items {
 			evidence := &page.Items[i]
@@ -58,25 +94,48 @@ func firstPlayableBinding(ctx context.Context, d *data, libraryID, itemID string
 			opened, err := access.openPlayback(ctx, d)
 			if err != nil {
 				if ctx.Err() != nil {
-					return nil, nil, ctx.Err()
+					return playbackBindingInspection{}, ctx.Err()
+				}
+				if unavailable == nil {
+					availability, reason, recovery := playbackSourceState(evidence, err)
+					unavailable = &playbackBindingInspection{evidence: evidence, availability: availability, reason: reason, recovery: recovery}
 				}
 				continue
 			}
-			info, _, err := opened.State()
+			info, _, stateErr := opened.State()
 			_ = opened.Close()
-			if err == nil && info != nil {
-				return evidence, info, nil
+			if stateErr == nil && info != nil {
+				return playbackBindingInspection{evidence: evidence, info: info, availability: "available"}, nil
+			}
+			if unavailable == nil {
+				availability, reason, recovery := playbackSourceState(evidence, stateErr)
+				unavailable = &playbackBindingInspection{evidence: evidence, availability: availability, reason: reason, recovery: recovery}
 			}
 		}
 		if page.NextCursor == "" {
-			return nil, nil, fs.ErrNotExist
+			break
 		}
 		if page.NextCursor == after {
-			return nil, nil, fs.ErrInvalid
+			return playbackBindingInspection{}, fs.ErrInvalid
 		}
 		after = page.NextCursor
 	}
-	return nil, nil, fs.ErrNotExist
+	if unavailable != nil {
+		return *unavailable, nil
+	}
+	return playbackBindingInspection{}, fs.ErrNotExist
+}
+
+// First playable binding is selected only after proving live owner authority.
+func firstPlayableBinding(ctx context.Context, d *data, libraryID, itemID string, variant medialibrary.PlaybackVariant) (*medialibrary.PlaybackAccess, os.FileInfo, error) {
+	result, err := inspectPlaybackBindings(ctx, d, libraryID, itemID, variant)
+	if err != nil {
+		return nil, nil, err
+	}
+	if result.availability != "available" || result.evidence == nil || result.info == nil {
+		return nil, nil, fs.ErrNotExist
+	}
+	return result.evidence, result.info, nil
 }
 
 var mediaVariantsHandler = mediaLibraryRead(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
@@ -91,15 +150,30 @@ var mediaVariantsHandler = mediaLibraryRead(func(w http.ResponseWriter, r *http.
 			return http.StatusBadRequest, fmt.Errorf("片源分页参数无效")
 		}
 	}
+	includeUnavailable := false
+	if raw := r.URL.Query().Get("includeUnavailable"); raw != "" {
+		if raw != "true" && raw != "false" {
+			return http.StatusBadRequest, fmt.Errorf("片源状态参数无效")
+		}
+		includeUnavailable = raw == "true"
+	}
+	for key := range r.URL.Query() {
+		if key != "limit" && key != "cursor" && key != "includeUnavailable" {
+			return http.StatusBadRequest, fmt.Errorf("片源查询参数无效")
+		}
+	}
 	page, err := d.store.MediaLibrary.ListPlaybackVariants(r.Context(), d.user.ID, library.ID, mux.Vars(r)["itemId"], r.URL.Query().Get("cursor"), limit)
 	if err != nil {
 		return mediaLibraryError(err)
 	}
 	results := make([]mediaVariantResponse, 0, len(page.Items))
 	for _, variant := range page.Items {
-		evidence, info, err := firstPlayableBinding(r.Context(), d, library.ID, mux.Vars(r)["itemId"], variant)
-		if err == nil {
-			results = append(results, variantResponse(evidence, variant, info))
+		inspection, err := inspectPlaybackBindings(r.Context(), d, library.ID, mux.Vars(r)["itemId"], variant)
+		if err == nil && inspection.availability == "available" {
+			results = append(results, variantResponse(inspection.evidence, variant, inspection.info))
+		} else if err == nil && includeUnavailable {
+			results = append(results, unavailableVariantResponse(inspection.evidence, variant,
+				inspection.availability, inspection.reason, inspection.recovery))
 		}
 		if r.Context().Err() != nil {
 			return mediaAccessError(r.Context().Err())

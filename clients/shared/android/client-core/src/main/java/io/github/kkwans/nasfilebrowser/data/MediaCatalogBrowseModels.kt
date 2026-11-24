@@ -185,6 +185,9 @@ data class MediaCatalogEpisode(
     val orderId: String, val card: MediaCatalogCard, val playback: MediaCatalogEpisodePlayback?,
 )
 
+enum class MediaCatalogSourceKind { SERVER, CLOUD, NETWORK, UNKNOWN }
+enum class MediaCatalogSourceAvailability { AVAILABLE, MISSING, OFFLINE, CHANGED, UNVERIFIED, DENIED, UNAVAILABLE, UNKNOWN }
+
 /** Never persist or log this lease-bearing value. It is not an origin URL. */
 class MediaPlaybackEndpoint internal constructor(private val value: String) {
     internal fun serviceRelativePath(): String = value
@@ -195,7 +198,13 @@ class MediaCatalogVariant internal constructor(
     val editionName: String, val isDefault: Boolean, val sourceLabel: String, val displayName: String,
     val contentType: String, val size: Long, val fileRevision: Long, val identityEpoch: Long,
     val weakIdentity: Boolean, val durationSeconds: Double?, val resolution: String?,
-) { override fun toString(): String = "MediaCatalogVariant(redacted)" }
+    val sourceKind: MediaCatalogSourceKind = MediaCatalogSourceKind.SERVER,
+    val availability: MediaCatalogSourceAvailability = MediaCatalogSourceAvailability.AVAILABLE,
+    val reasonCode: String? = null, val recoveryAction: String? = null,
+) {
+    val available: Boolean get() = availability == MediaCatalogSourceAvailability.AVAILABLE
+    override fun toString(): String = "MediaCatalogVariant(redacted)"
+}
 data class MediaCatalogVariantPage(val items: List<MediaCatalogVariant>, val nextCursor: MediaCatalogCursor?)
 
 /** The legacy `url` is deliberately not retained. A missing endpoint requires a newer server. */
@@ -549,10 +558,31 @@ internal fun parseCatalogCounts(row: JSONObject, series: MediaCatalogRef, season
 internal fun parseCatalogVariant(row: JSONObject, ref: MediaCatalogRef): MediaCatalogVariant {
     require(row.routeId("itemId") == ref.itemId)
     val duration = row.optionalDecimalValue("durationSeconds")?.also { require(it >= 0) }
+    val sourceKind = when (row.optionalTextValue("sourceKind")) {
+        null, "server" -> MediaCatalogSourceKind.SERVER
+        "cloud" -> MediaCatalogSourceKind.CLOUD
+        "network" -> MediaCatalogSourceKind.NETWORK
+        else -> MediaCatalogSourceKind.UNKNOWN
+    }
+    val availability = when (row.optionalTextValue("availability")) {
+        null -> MediaCatalogSourceAvailability.AVAILABLE
+        "available" -> MediaCatalogSourceAvailability.AVAILABLE
+        "missing" -> MediaCatalogSourceAvailability.MISSING
+        "offline" -> MediaCatalogSourceAvailability.OFFLINE
+        "changed" -> MediaCatalogSourceAvailability.CHANGED
+        "unverified" -> MediaCatalogSourceAvailability.UNVERIFIED
+        "denied" -> MediaCatalogSourceAvailability.DENIED
+        "unavailable" -> MediaCatalogSourceAvailability.UNAVAILABLE
+        else -> MediaCatalogSourceAvailability.UNKNOWN
+    }
+    fun stateCode(key: String): String? = row.optionalTextValue(key)?.also {
+        require(it.matches(Regex("[a-z0-9_]{1,128}"))) { "影视片源状态格式无效" }
+    }
     return MediaCatalogVariant(ref, row.routeId("editionId"), row.routeId("variantId"), row.routeId("bindingId"), row.routeId("sourceFileId"),
         row.textValue("editionName"), row.booleanValue("isDefault"), row.textValue("sourceLabel"), row.textValue("displayName"),
         row.textValue("contentType"), row.integerValue("size"), row.integerValue("fileRevision", 1), row.integerValue("identityEpoch", 1),
-        row.booleanValue("weakIdentity"), duration, row.optionalTextValue("resolution"))
+        row.booleanValue("weakIdentity"), duration, row.optionalTextValue("resolution"), sourceKind, availability,
+        stateCode("reasonCode"), stateCode("recoveryAction"))
 }
 
 internal fun parseCatalogVariants(row: JSONObject, ref: MediaCatalogRef, deviceSession: String, queryKey: String, limit: Int, requestedCursor: MediaCatalogCursor?): MediaCatalogVariantPage =

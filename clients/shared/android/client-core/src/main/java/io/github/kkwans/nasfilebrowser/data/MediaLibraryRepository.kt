@@ -219,7 +219,7 @@ class MediaLibraryRepository(
     /** Variants are current source choices, not a download permission or a promise of timeline continuity. */
     suspend fun playbackVariants(ref: MediaCatalogRef, limit: Int = 20, cursor: MediaCatalogCursor? = null): MediaReadResult<MediaCatalogVariantPage> {
         ref.requireBound(scope, catalogDeviceSession); require(limit in 1..100)
-        val base = "${itemEndpoint(ref.libraryId, ref.itemId)}/variants?limit=$limit"
+        val base = "${itemEndpoint(ref.libraryId, ref.itemId)}/variants?limit=$limit&includeUnavailable=true"
         val endpoint = catalogContinuation(base, cursor, 512)
         return catalogRead(cursor) { parseCatalogVariants(context.api.request("GET", endpoint), ref, catalogDeviceSession, base, limit, cursor) }
     }
