@@ -91,6 +91,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
         var watchMenu by remember { mutableStateOf<MediaCatalogContinue?>(null) }
         var searching by rememberSaveable { mutableStateOf(false) }
         var personPage by remember(route) { mutableStateOf<MediaCatalogPersonRef?>(null) }
+        var collectionPage by remember(route) { mutableStateOf<MediaCatalogCollectionRef?>(null) }
         val libraryId = library
         val itemId = item
         val homeFocusIds = (route.home?.hero?.items.orEmpty().map { tvMediaKey(it.ref) } +
@@ -159,19 +160,31 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
             route.closePerson(); personPage = null
             restore(target.id, target.origin)
         }
-        fun closeSearch() { closePersonPage(); searching = false; restoreHome(homeAnchor, homeOrigin) }
+        fun closeCollectionPage() {
+            val target = resolveTvCatalogSearchFocusTarget(lastAnchor, lastOrigin,
+                route.collections.map { "collection:${it.ref.collectionId}" })
+            route.closeCollection(); collectionPage = null
+            restore(target.id, target.origin)
+        }
+        fun closeSearch() {
+            if (personPage != null) closePersonPage()
+            if (collectionPage != null) closeCollectionPage()
+            searching = false; restoreHome(homeAnchor, homeOrigin)
+        }
         fun back() {
             when {
                 route.sourceRef != null -> closeSources()
                 item != null -> {
                     item = null; library = null; season = null
-                    if (personPage != null) restore("person-back", "search-person")
+                    if (collectionPage != null) restore("collection-back", "search-collection")
+                    else if (personPage != null) restore("person-back", "search-person")
                     else if (searching && lastOrigin == "file-result") {
                         val target = resolveTvCatalogSearchFocusTarget(lastAnchor, lastOrigin,
                             route.files.map { "file:${it.fileId}" })
                         restore(target.id, target.origin)
                     } else if (searching) restore("search-field", "search") else restoreHome(homeAnchor, homeOrigin)
                 }
+                collectionPage != null -> closeCollectionPage()
                 personPage != null -> closePersonPage()
                 searching -> closeSearch()
                 else -> onExit()
@@ -188,7 +201,25 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
         TvMediaTheme {
             CompositionLocalProvider(LocalTvMediaFocusBinding provides focus) {
                 if (itemId == null || !route.supported) {
-                    if (searching && personPage != null && route.supported) {
+                    if (searching && collectionPage != null && route.supported) {
+                        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            TvMediaCollectionWorksHeader(route.collectionName, ::closeCollectionPage)
+                            when {
+                                route.collectionWorksLoading -> MediaLoadingStatus("正在加载合集作品")
+                                route.collectionWorksError != null -> MediaStatus(route.collectionWorksError!!, { route.loadCollectionWorks(true) })
+                                route.collectionWorks.isEmpty() -> MediaStatus("暂无可见作品，该合集可能没有当前账号可访问的影视。")
+                                else -> MediaShelf(TvMediaShelf("collection-works", "作品", route.collectionWorks.map { tvCard(it, art) }),
+                                    imageLoader, onItem = { id ->
+                                        route.collectionWorks.firstOrNull { tvMediaKey(it.ref) == id }?.let {
+                                            library = it.ref.libraryId; item = it.ref.itemId; season = null
+                                        }
+                                    })
+                            }
+                            if (route.collectionWorksCursor != null && !route.collectionWorksLoading) {
+                                MediaAction("加载更多作品", { route.loadCollectionWorks(false) }, modifier = Modifier.padding(horizontal = MediaLayout.pageInset))
+                            }
+                        }
+                    } else if (searching && personPage != null && route.supported) {
                         val selected = personPage
                         val person = route.people.firstOrNull { it.ref == selected }
                         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -214,21 +245,28 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             route.people, route.peopleLoading, route.peopleError, route.peopleCursor != null,
                             route.files.map { TvMediaFileResult(it.fileId, it.fileName, tvCard(it.card, art)) },
                             route.filesLoading, route.filesError, route.filesCursor != null,
+                            route.collections.map { TvMediaCollectionResult(it.ref.libraryId, it.ref.collectionId, it.name, tvCard(it.preview.first(), art)) },
+                            route.collectionsLoading, route.collectionsError, route.collectionsCursor != null,
                             route.home?.capabilities?.get("fileSearch") == true, imageLoader,
                             onQuery = route::editSearch, onSubmit = { route.submitSearch(route.searchQuery) }, onMode = route::chooseSearchMode,
                             onBack = ::closeSearch, onItem = { id ->
-                                (route.searchResults + route.files.map { it.card } + route.personWorks + route.catalog + route.home?.hero?.items.orEmpty()).firstOrNull { tvMediaKey(it.ref) == id }?.let {
+                                (route.searchResults + route.files.map { it.card } + route.collectionWorks + route.personWorks + route.catalog + route.home?.hero?.items.orEmpty()).firstOrNull { tvMediaKey(it.ref) == id }?.let {
                                     library = it.ref.libraryId; item = it.ref.itemId; season = null
                                 }
                             }, onPerson = { libraryId, personId ->
                                 route.people.firstOrNull { it.ref.libraryId == libraryId && it.ref.personId == personId }?.let {
                                     personPage = it.ref; route.openPerson(it.ref, it.name); restore("person-back", "search-person")
                                 }
+                            }, onCollection = { libraryId, collectionId ->
+                                route.collections.firstOrNull { it.ref.libraryId == libraryId && it.ref.collectionId == collectionId }?.let {
+                                    collectionPage = it.ref; route.openCollection(it.ref, it.name); restore("collection-back", "search-collection")
+                                }
                             }, onRetry = route::retrySearch, onMore = {
                                 when (route.searchMode) {
                                     TvMediaSearchMode.WORKS -> route.loadSearch(false)
                                     TvMediaSearchMode.PEOPLE -> route.loadPeople(false)
                                     TvMediaSearchMode.FILES -> route.loadFiles(false)
+                                    TvMediaSearchMode.COLLECTIONS -> route.loadCollections(false)
                                 }
                             })
                     } else {
@@ -270,11 +308,21 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                                 val navigation = listOf(TvMediaNavigationItem("files", "文件")) +
                                     if (route.supported && route.home?.state != MediaCatalogHomeState.NO_LIBRARIES)
                                         listOf(TvMediaNavigationItem("all", "全部"), TvMediaNavigationItem("movie", "电影"),
-                                            TvMediaNavigationItem("series", "剧集"), TvMediaNavigationItem("video", "视频"))
+                                            TvMediaNavigationItem("series", "剧集"), TvMediaNavigationItem("video", "视频")) +
+                                            if (route.home?.capabilities?.get("collections") == true)
+                                                listOf(TvMediaNavigationItem("collections", "合集")) else emptyList()
                                     else emptyList()
                                 TvMediaTopBar(navigation, route.filter, { id ->
-                                    if (id == "files") onExit() else { filter = id; route.selectFilter(id) }
+                                    when (id) {
+                                        "files" -> onExit()
+                                        "collections" -> {
+                                            route.editSearch(""); route.chooseSearchMode(TvMediaSearchMode.COLLECTIONS)
+                                            searching = true; homeAnchor = "search"; homeOrigin = "navigation"
+                                        }
+                                        else -> { filter = id; route.selectFilter(id) }
+                                    }
                                 }, onSearch = if (route.home?.capabilities?.get("search") == true) ({
+                                    route.chooseSearchMode(TvMediaSearchMode.WORKS)
                                     searching = true; homeAnchor = "search"; homeOrigin = "navigation"
                                 }) else null)
                                 if (route.catalogCursor != null) Row(Modifier.fillMaxWidth().padding(horizontal = 40.dp)) {

@@ -25,37 +25,42 @@ import io.github.kkwans.fileway.tv.LocalTvInteractive
 import io.github.kkwans.fileway.tv.TvField
 import io.github.kkwans.fileway.design.R as Art
 
-internal enum class TvMediaSearchMode { WORKS, PEOPLE, FILES }
+internal enum class TvMediaSearchMode { WORKS, PEOPLE, FILES, COLLECTIONS }
 
 @Composable
 internal fun TvMediaSearchScreen(query: String, searched: Boolean, mode: TvMediaSearchMode,
     entries: List<TvMediaCard>, loading: Boolean, error: String?, hasMore: Boolean,
     people: List<MediaCatalogPerson>, peopleLoading: Boolean, peopleError: String?, peopleHasMore: Boolean,
     files: List<TvMediaFileResult>, filesLoading: Boolean, filesError: String?, filesHasMore: Boolean,
+    collections: List<TvMediaCollectionResult>, collectionsLoading: Boolean, collectionsError: String?, collectionsHasMore: Boolean,
     canSearchFiles: Boolean, imageLoader: ImageLoader, onQuery: (String) -> Unit, onSubmit: () -> Unit,
     onMode: (TvMediaSearchMode) -> Unit, onBack: () -> Unit, onItem: (String) -> Unit,
-    onPerson: (String, String) -> Unit, onRetry: () -> Unit, onMore: () -> Unit) {
+    onPerson: (String, String) -> Unit, onCollection: (String, String) -> Unit, onRetry: () -> Unit, onMore: () -> Unit) {
     val focus = remember { FocusRequester() }
     val interactive = LocalTvInteractive.current
     val busy = when (mode) {
         TvMediaSearchMode.WORKS -> loading
         TvMediaSearchMode.PEOPLE -> peopleLoading
         TvMediaSearchMode.FILES -> filesLoading
+        TvMediaSearchMode.COLLECTIONS -> collectionsLoading
     }
     val issue = when (mode) {
         TvMediaSearchMode.WORKS -> error
         TvMediaSearchMode.PEOPLE -> peopleError
         TvMediaSearchMode.FILES -> filesError
+        TvMediaSearchMode.COLLECTIONS -> collectionsError
     }
     val more = when (mode) {
         TvMediaSearchMode.WORKS -> hasMore
         TvMediaSearchMode.PEOPLE -> peopleHasMore
         TvMediaSearchMode.FILES -> filesHasMore
+        TvMediaSearchMode.COLLECTIONS -> collectionsHasMore
     }
     val empty = when (mode) {
         TvMediaSearchMode.WORKS -> entries.isEmpty()
         TvMediaSearchMode.PEOPLE -> people.isEmpty()
         TvMediaSearchMode.FILES -> files.isEmpty()
+        TvMediaSearchMode.COLLECTIONS -> collections.isEmpty()
     }
     LaunchedEffect(interactive) {
         if (interactive) {
@@ -71,6 +76,7 @@ internal fun TvMediaSearchScreen(query: String, searched: Boolean, mode: TvMedia
                 TvMediaSearchMode.WORKS -> "作品标题或原名"
                 TvMediaSearchMode.PEOPLE -> "演员、导演或编剧姓名"
                 TvMediaSearchMode.FILES -> "媒体文件名"
+                TvMediaSearchMode.COLLECTIONS -> "合集名称"
             }, query, onQuery, Modifier.weight(1f).focusGroup().focusRequester(focus).tvMediaReturnFocus("search-field", "search"),
                 showLabel = false, options = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { onSubmit() }))
@@ -86,15 +92,18 @@ internal fun TvMediaSearchScreen(query: String, searched: Boolean, mode: TvMedia
                 TvMediaSearchMode.WORKS -> "正在搜索影视"
                 TvMediaSearchMode.PEOPLE -> "正在搜索人物"
                 TvMediaSearchMode.FILES -> "正在搜索文件"
+                TvMediaSearchMode.COLLECTIONS -> "正在搜索合集"
             })
             issue != null -> MediaStatus(issue, onRetry)
             searched && empty -> MediaStatus(when (mode) {
                 TvMediaSearchMode.WORKS -> "没有找到相关影视，试试缩短片名或使用原名。"
                 TvMediaSearchMode.PEOPLE -> "没有找到相关人物，试试使用姓名中的一部分。"
                 TvMediaSearchMode.FILES -> "没有找到相关文件，试试使用文件名中的一部分。"
+                TvMediaSearchMode.COLLECTIONS -> "没有找到相关合集，试试使用合集名称中的一部分。"
             })
             mode == TvMediaSearchMode.PEOPLE -> TvMediaPeopleShelf(people, onPerson)
             mode == TvMediaSearchMode.FILES -> TvMediaFileShelf(files, imageLoader, onItem)
+            mode == TvMediaSearchMode.COLLECTIONS -> TvMediaCollectionShelf(collections, imageLoader, onCollection)
             else -> MediaShelf(TvMediaShelf("search-results", "搜索结果", entries), imageLoader, onItem)
         }
         if (more && !busy) MediaAction("加载更多", onMore, modifier = Modifier.padding(horizontal = MediaLayout.pageInset))

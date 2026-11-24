@@ -37,6 +37,15 @@ class TvMediaFocusPolicyTest {
     }
 
     @Test
+    fun collectionSearchReturnsToVisibleResultOrSearchField() {
+        val id = "collection:collection_1"
+        assertEquals(TvMediaFocusTarget(id, "collection-result"), resolveTvCatalogSearchFocusTarget(
+            id, "collection-result", listOf(id)))
+        assertEquals(TvMediaFocusTarget("search-field", "search"), resolveTvCatalogSearchFocusTarget(
+            id, "collection-result", emptyList()))
+    }
+
+    @Test
     fun emptyHomeReturnsToNavigationWithoutTimedOverride() {
         assertEquals(TvMediaFocusTarget("files", "navigation"), resolveTvMediaFocusTarget(
             "item_1", "poster", emptyList(), 0))

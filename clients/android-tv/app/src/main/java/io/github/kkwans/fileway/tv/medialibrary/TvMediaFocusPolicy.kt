@@ -6,7 +6,7 @@ internal fun resolveTvCatalogSearchFocusTarget(
     requestedId: String?,
     requestedOrigin: String?,
     availableIds: List<String>,
-): TvMediaFocusTarget = if (requestedOrigin != null && requestedOrigin in setOf("person-result", "file-result") && requestedId != null && requestedId in availableIds) {
+): TvMediaFocusTarget = if (requestedOrigin != null && requestedOrigin in setOf("person-result", "file-result", "collection-result") && requestedId != null && requestedId in availableIds) {
     TvMediaFocusTarget(requestedId, requestedOrigin)
 } else {
     TvMediaFocusTarget("search-field", "search")
