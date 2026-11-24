@@ -28,6 +28,12 @@ internal class TvMediaRouteState(
     var catalogLoading by mutableStateOf(false); private set
     var catalogError by mutableStateOf<String?>(null); private set
     var catalogCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
+    var searchQuery by mutableStateOf(""); private set
+    var searchedQuery by mutableStateOf(""); private set
+    var searchResults by mutableStateOf<List<MediaCatalogCard>>(emptyList()); private set
+    var searchLoading by mutableStateOf(false); private set
+    var searchError by mutableStateOf<String?>(null); private set
+    var searchCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
     var detail by mutableStateOf<MediaCatalogDetail.Complete?>(null); private set
     var detailLoading by mutableStateOf(false); private set
     var detailError by mutableStateOf<String?>(null); private set
@@ -53,12 +59,13 @@ internal class TvMediaRouteState(
     private var capabilityKnown = false
     private var retryCatalogPage = false
     private var catalogJob: Job? = null
+    private var searchJob: Job? = null
     private var detailJob: Job? = null
     private var seasonsJob: Job? = null
     private var episodesJob: Job? = null
     private var sourcesJob: Job? = null
 
-    fun close() { listOf(homeJob, catalogJob, detailJob, seasonsJob, episodesJob, sourcesJob).forEach { it?.cancel() } }
+    fun close() { listOf(homeJob, catalogJob, searchJob, detailJob, seasonsJob, episodesJob, sourcesJob).forEach { it?.cancel() } }
 
     fun start(savedFilter: String) {
         filter = savedFilter.takeIf { it in setOf("all", "movie", "series", "video") } ?: "all"
@@ -84,6 +91,7 @@ internal class TvMediaRouteState(
                             catalogJob?.cancel(); catalogLoading = false
                             supported = false; closeDetail()
                             home = null; catalog = emptyList(); catalogCursor = null
+                            searchResults = emptyList(); searchCursor = null
                         }
                         checking = false; homeError = tvMediaFailure(result.error)
                     }
@@ -97,6 +105,49 @@ internal class TvMediaRouteState(
     fun selectFilter(value: String) {
         if (value !in setOf("all", "movie", "series", "video") || value == filter) return
         filter = value; loadCatalog(true, discardCurrent = true)
+        if (searchedQuery.isNotBlank()) loadSearch(true, discardCurrent = true)
+    }
+
+    fun editSearch(value: String) {
+        if (value.codePointCount(0, value.length) > 200 || value.toByteArray(Charsets.UTF_8).size > 800 || value.any(Char::isISOControl)) {
+            searchError = "请输入有效片名，最多 200 个字符。"
+            return
+        }
+        searchJob?.cancel()
+        searchQuery = value; searchedQuery = ""; searchLoading = false
+        searchResults = emptyList(); searchCursor = null; searchError = null
+    }
+
+    fun submitSearch(value: String) {
+        val query = value.trim()
+        if (query.isEmpty()) { searchError = "请输入作品标题或原名。"; return }
+        editSearch(query); searchedQuery = query
+        loadSearch(true, discardCurrent = true)
+    }
+
+    fun retrySearch() = if (searchedQuery.isBlank()) submitSearch(searchQuery) else loadSearch(reset = !searchLoading && searchCursor != null)
+
+    fun loadSearch(reset: Boolean, discardCurrent: Boolean = false) {
+        if (!supported || searchedQuery.isBlank() || (!reset && (searchLoading || searchCursor == null))) return
+        searchJob?.cancel()
+        val continuation = if (reset) null else searchCursor
+        if (discardCurrent) { searchResults = emptyList(); searchCursor = null }
+        searchLoading = true; searchError = null
+        val query = MediaCatalogQuery(query = searchedQuery, sort = MediaCatalogSort.ID, limit = 24)
+        searchJob = scope.launch {
+            when (val result = repository.catalog(query, continuation)) {
+                is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                    val page = result.value
+                    searchResults = (if (reset) page.items else searchResults + page.items).distinctBy { tvMediaKey(it.ref) }
+                    searchCursor = page.nextCursor; searchError = tvPageError(page.state, page.nextCursor != null)
+                }
+                is MediaReadResult.Failure -> if (result.scope == repository.scope) {
+                    if (result.error.invalidatesTvData()) { searchResults = emptyList(); searchCursor = null }
+                    searchError = tvMediaFailure(result.error)
+                }
+            }
+            coroutineContext.ensureActive(); searchLoading = false
+        }
     }
 
     fun retryCatalog() = loadCatalog(!retryCatalogPage)

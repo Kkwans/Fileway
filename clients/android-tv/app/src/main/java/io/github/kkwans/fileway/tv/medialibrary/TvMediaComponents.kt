@@ -286,7 +286,8 @@ fun TvMediaTopBar(
                 }
             }
         }
-        if (onSearch != null) MediaIconAction("搜索", onSearch, Art.drawable.fileway_ic_search)
+        if (onSearch != null) MediaIconAction("搜索", onSearch, Art.drawable.fileway_ic_search,
+            modifier = Modifier.tvMediaReturnFocus("search", "navigation"))
         if (onSettings != null) MediaIconAction("设置", onSettings, Art.drawable.fileway_ic_settings)
     }
 }

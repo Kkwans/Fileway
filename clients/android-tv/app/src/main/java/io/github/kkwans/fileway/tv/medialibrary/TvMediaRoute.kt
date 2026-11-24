@@ -89,6 +89,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
         var focusedDetail by remember { mutableStateOf<String?>(null) }
         var startFromBeginning by remember { mutableStateOf(false) }
         var watchMenu by remember { mutableStateOf<MediaCatalogContinue?>(null) }
+        var searching by rememberSaveable { mutableStateOf(false) }
         val libraryId = library
         val itemId = item
         val homeFocusIds = (route.home?.hero?.items.orEmpty().map { tvMediaKey(it.ref) } +
@@ -120,7 +121,9 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
             if (itemId == null || !route.supported) {
                 if (itemId == null) focusedDetail = null
                 if (!initialFocusRequested) {
-                    initialFocusRequested = true; restoreId = "files"; restoreOrigin = "navigation"
+                    initialFocusRequested = true
+                    if (searching && route.supported) { restoreId = "search-field"; restoreOrigin = "search" }
+                    else { restoreId = "files"; restoreOrigin = "navigation" }
                 }
             } else if (route.supported && libraryId != null) {
                 val id = "$libraryId/$itemId"
@@ -149,10 +152,15 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
             playerWasShown = false
             onPlayback(entry.variant, fromStart, entry)
         }
+        fun closeSearch() { searching = false; restoreHome(homeAnchor, homeOrigin) }
         fun back() {
             when {
                 route.sourceRef != null -> closeSources()
-                item != null -> { item = null; library = null; season = null; restoreHome(homeAnchor, homeOrigin) }
+                item != null -> {
+                    item = null; library = null; season = null
+                    if (searching) restore("search-field", "search") else restoreHome(homeAnchor, homeOrigin)
+                }
+                searching -> closeSearch()
                 else -> onExit()
             }
         }
@@ -167,6 +175,16 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
         TvMediaTheme {
             CompositionLocalProvider(LocalTvMediaFocusBinding provides focus) {
                 if (itemId == null || !route.supported) {
+                    if (searching && route.supported) {
+                        TvMediaSearchScreen(route.searchQuery, route.searchedQuery.isNotBlank(), route.searchResults.map { tvCard(it, art) },
+                            route.searchLoading, route.searchError, route.searchCursor != null, imageLoader,
+                            onQuery = route::editSearch, onSubmit = { route.submitSearch(route.searchQuery) },
+                            onBack = ::closeSearch, onItem = { id ->
+                                (route.searchResults + route.catalog + route.home?.hero?.items.orEmpty()).firstOrNull { tvMediaKey(it.ref) == id }?.let {
+                                    library = it.ref.libraryId; item = it.ref.itemId; season = null
+                                }
+                            }, onRetry = route::retrySearch, onMore = { route.loadSearch(false) })
+                    } else {
                     val featured = route.home?.hero?.items.orEmpty()
                     val entries = route.catalog.map { tvCard(it, art) }
                     val title = when (route.filter) { "movie" -> "电影"; "series" -> "剧集"; "video" -> "视频"; else -> "全部影视" }
@@ -209,12 +227,15 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                                     else emptyList()
                                 TvMediaTopBar(navigation, route.filter, { id ->
                                     if (id == "files") onExit() else { filter = id; route.selectFilter(id) }
-                                })
+                                }, onSearch = if (route.home?.capabilities?.get("search") == true) ({
+                                    searching = true; homeAnchor = "search"; homeOrigin = "navigation"
+                                }) else null)
                                 if (route.catalogCursor != null) Row(Modifier.fillMaxWidth().padding(horizontal = 40.dp)) {
                                     MediaAction(if (route.catalogLoading) "正在加载…" else "加载更多影视",
                                         { route.loadCatalog(false) }, enabled = !route.catalogLoading)
                                 }
                             })
+                    }
                     }
                 } else {
                     val result = route.detail
