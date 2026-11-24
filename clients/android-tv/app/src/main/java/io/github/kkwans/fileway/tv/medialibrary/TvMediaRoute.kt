@@ -90,6 +90,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
         var startFromBeginning by remember { mutableStateOf(false) }
         var watchMenu by remember { mutableStateOf<MediaCatalogContinue?>(null) }
         var searching by rememberSaveable { mutableStateOf(false) }
+        var personPage by remember(route) { mutableStateOf<MediaCatalogPersonRef?>(null) }
         val libraryId = library
         val itemId = item
         val homeFocusIds = (route.home?.hero?.items.orEmpty().map { tvMediaKey(it.ref) } +
@@ -152,14 +153,22 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
             playerWasShown = false
             onPlayback(entry.variant, fromStart, entry)
         }
-        fun closeSearch() { searching = false; restoreHome(homeAnchor, homeOrigin) }
+        fun closePersonPage() {
+            val target = resolveTvPersonSearchFocusTarget(lastAnchor, lastOrigin,
+                route.people.map { "person:${it.ref.libraryId}/${it.ref.personId}" })
+            route.closePerson(); personPage = null
+            restore(target.id, target.origin)
+        }
+        fun closeSearch() { closePersonPage(); searching = false; restoreHome(homeAnchor, homeOrigin) }
         fun back() {
             when {
                 route.sourceRef != null -> closeSources()
                 item != null -> {
                     item = null; library = null; season = null
-                    if (searching) restore("search-field", "search") else restoreHome(homeAnchor, homeOrigin)
+                    if (personPage != null) restore("person-back", "search-person")
+                    else if (searching) restore("search-field", "search") else restoreHome(homeAnchor, homeOrigin)
                 }
+                personPage != null -> closePersonPage()
                 searching -> closeSearch()
                 else -> onExit()
             }
@@ -175,15 +184,42 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
         TvMediaTheme {
             CompositionLocalProvider(LocalTvMediaFocusBinding provides focus) {
                 if (itemId == null || !route.supported) {
-                    if (searching && route.supported) {
-                        TvMediaSearchScreen(route.searchQuery, route.searchedQuery.isNotBlank(), route.searchResults.map { tvCard(it, art) },
-                            route.searchLoading, route.searchError, route.searchCursor != null, imageLoader,
-                            onQuery = route::editSearch, onSubmit = { route.submitSearch(route.searchQuery) },
+                    if (searching && personPage != null && route.supported) {
+                        val selected = personPage
+                        val person = route.people.firstOrNull { it.ref == selected }
+                        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            TvMediaPersonWorksHeader(route.personName.ifBlank { person?.name.orEmpty() }, person?.roles.orEmpty(), ::closePersonPage)
+                            when {
+                                route.personWorksLoading -> MediaLoadingStatus("正在加载人物作品")
+                                route.personWorksError != null -> MediaStatus(route.personWorksError!!, { route.loadPersonWorks(true) })
+                                route.personWorks.isEmpty() -> MediaStatus("暂无可见作品，该人物可能没有当前账号可访问的影视。")
+                                else -> MediaShelf(TvMediaShelf("person-works", "作品", route.personWorks.map { tvCard(it, art) }), imageLoader,
+                                    onItem = { id ->
+                                        route.personWorks.firstOrNull { tvMediaKey(it.ref) == id }?.let {
+                                            library = it.ref.libraryId; item = it.ref.itemId; season = null
+                                        }
+                                    })
+                            }
+                            if (route.personWorksCursor != null && !route.personWorksLoading) {
+                                MediaAction("加载更多作品", { route.loadPersonWorks(false) }, modifier = Modifier.padding(horizontal = MediaLayout.pageInset))
+                            }
+                        }
+                    } else if (searching && route.supported) {
+                        TvMediaSearchScreen(route.searchQuery, route.searchedQuery.isNotBlank(), route.searchMode,
+                            route.searchResults.map { tvCard(it, art) }, route.searchLoading, route.searchError, route.searchCursor != null,
+                            route.people, route.peopleLoading, route.peopleError, route.peopleCursor != null, imageLoader,
+                            onQuery = route::editSearch, onSubmit = { route.submitSearch(route.searchQuery) }, onMode = route::chooseSearchMode,
                             onBack = ::closeSearch, onItem = { id ->
-                                (route.searchResults + route.catalog + route.home?.hero?.items.orEmpty()).firstOrNull { tvMediaKey(it.ref) == id }?.let {
+                                (route.searchResults + route.personWorks + route.catalog + route.home?.hero?.items.orEmpty()).firstOrNull { tvMediaKey(it.ref) == id }?.let {
                                     library = it.ref.libraryId; item = it.ref.itemId; season = null
                                 }
-                            }, onRetry = route::retrySearch, onMore = { route.loadSearch(false) })
+                            }, onPerson = { libraryId, personId ->
+                                route.people.firstOrNull { it.ref.libraryId == libraryId && it.ref.personId == personId }?.let {
+                                    personPage = it.ref; route.openPerson(it.ref, it.name); restore("person-back", "search-person")
+                                }
+                            }, onRetry = route::retrySearch, onMore = {
+                                if (route.searchMode == TvMediaSearchMode.WORKS) route.loadSearch(false) else route.loadPeople(false)
+                            })
                     } else {
                     val featured = route.home?.hero?.items.orEmpty()
                     val entries = route.catalog.map { tvCard(it, art) }

@@ -5,7 +5,7 @@
 - One player, stable SurfaceView, original-source timeline and subtitle identity. SDR compatibility must preserve source ASS/fonts and bitmap subtitles.
 - Native HDR signal, decoder output, display capability and physical HDR acceptance are distinct evidence.
 - Default dark and optional light Fileway themes, 12dp controls, coherent static icon groups, no live blur or continuous decorative animation.
-- No source-scraping/media-library metadata system in this version.
+- The TV media catalog reuses the shared server catalog and read-only metadata APIs; do not fork source scraping or persist a separate TV metadata database.
 - Keep private plans, receipts, APKs and device logs outside Git. Never commit credentials or private addresses.
 - Use subagents when appropriate under the global model-routing and ownership rules;
   the user authorized delegation on 2026-11-10. Test complete modules in batches.

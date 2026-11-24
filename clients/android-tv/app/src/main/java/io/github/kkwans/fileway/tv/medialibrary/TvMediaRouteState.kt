@@ -34,6 +34,17 @@ internal class TvMediaRouteState(
     var searchLoading by mutableStateOf(false); private set
     var searchError by mutableStateOf<String?>(null); private set
     var searchCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
+    var searchMode by mutableStateOf(TvMediaSearchMode.WORKS); private set
+    var people by mutableStateOf<List<MediaCatalogPerson>>(emptyList()); private set
+    var peopleLoading by mutableStateOf(false); private set
+    var peopleError by mutableStateOf<String?>(null); private set
+    var peopleCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
+    var personRef by mutableStateOf<MediaCatalogPersonRef?>(null); private set
+    var personName by mutableStateOf(""); private set
+    var personWorks by mutableStateOf<List<MediaCatalogCard>>(emptyList()); private set
+    var personWorksLoading by mutableStateOf(false); private set
+    var personWorksError by mutableStateOf<String?>(null); private set
+    var personWorksCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
     var detail by mutableStateOf<MediaCatalogDetail.Complete?>(null); private set
     var detailLoading by mutableStateOf(false); private set
     var detailError by mutableStateOf<String?>(null); private set
@@ -60,12 +71,14 @@ internal class TvMediaRouteState(
     private var retryCatalogPage = false
     private var catalogJob: Job? = null
     private var searchJob: Job? = null
+    private var peopleJob: Job? = null
+    private var personWorksJob: Job? = null
     private var detailJob: Job? = null
     private var seasonsJob: Job? = null
     private var episodesJob: Job? = null
     private var sourcesJob: Job? = null
 
-    fun close() { listOf(homeJob, catalogJob, searchJob, detailJob, seasonsJob, episodesJob, sourcesJob).forEach { it?.cancel() } }
+    fun close() { listOf(homeJob, catalogJob, searchJob, peopleJob, personWorksJob, detailJob, seasonsJob, episodesJob, sourcesJob).forEach { it?.cancel() } }
 
     fun start(savedFilter: String) {
         filter = savedFilter.takeIf { it in setOf("all", "movie", "series", "video") } ?: "all"
@@ -92,6 +105,7 @@ internal class TvMediaRouteState(
                             supported = false; closeDetail()
                             home = null; catalog = emptyList(); catalogCursor = null
                             searchResults = emptyList(); searchCursor = null
+                            people = emptyList(); peopleCursor = null; personRef = null; personWorks = emptyList(); personWorksCursor = null
                         }
                         checking = false; homeError = tvMediaFailure(result.error)
                     }
@@ -105,27 +119,108 @@ internal class TvMediaRouteState(
     fun selectFilter(value: String) {
         if (value !in setOf("all", "movie", "series", "video") || value == filter) return
         filter = value; loadCatalog(true, discardCurrent = true)
-        if (searchedQuery.isNotBlank()) loadSearch(true, discardCurrent = true)
+        if (searchedQuery.isNotBlank()) when (searchMode) {
+            TvMediaSearchMode.WORKS -> loadSearch(true, discardCurrent = true)
+            TvMediaSearchMode.PEOPLE -> loadPeople(true, discardCurrent = true)
+        }
+    }
+
+    fun chooseSearchMode(mode: TvMediaSearchMode) {
+        if (searchMode == mode) return
+        searchMode = mode
+        if (searchedQuery.isNotBlank()) when (mode) {
+            TvMediaSearchMode.WORKS -> loadSearch(true, discardCurrent = true)
+            TvMediaSearchMode.PEOPLE -> loadPeople(true, discardCurrent = true)
+        }
     }
 
     fun editSearch(value: String) {
         if (value.codePointCount(0, value.length) > 200 || value.toByteArray(Charsets.UTF_8).size > 800 || value.any(Char::isISOControl)) {
-            searchError = "请输入有效片名，最多 200 个字符。"
+            searchError = "请输入有效搜索内容，最多 200 个字符。"
             return
         }
-        searchJob?.cancel()
-        searchQuery = value; searchedQuery = ""; searchLoading = false
+        searchJob?.cancel(); peopleJob?.cancel()
+        searchQuery = value; searchedQuery = ""; searchLoading = false; peopleLoading = false
         searchResults = emptyList(); searchCursor = null; searchError = null
+        people = emptyList(); peopleCursor = null; peopleError = null
     }
 
     fun submitSearch(value: String) {
         val query = value.trim()
-        if (query.isEmpty()) { searchError = "请输入作品标题或原名。"; return }
+        if (query.isEmpty()) {
+            searchError = if (searchMode == TvMediaSearchMode.PEOPLE) "请输入演员、导演或编剧姓名。" else "请输入作品标题或原名。"
+            return
+        }
         editSearch(query); searchedQuery = query
-        loadSearch(true, discardCurrent = true)
+        when (searchMode) {
+            TvMediaSearchMode.WORKS -> loadSearch(true, discardCurrent = true)
+            TvMediaSearchMode.PEOPLE -> loadPeople(true, discardCurrent = true)
+        }
     }
 
-    fun retrySearch() = if (searchedQuery.isBlank()) submitSearch(searchQuery) else loadSearch(reset = !searchLoading && searchCursor != null)
+    fun retrySearch() {
+        if (searchedQuery.isBlank()) submitSearch(searchQuery)
+        else when (searchMode) {
+            TvMediaSearchMode.WORKS -> loadSearch(reset = !searchLoading && searchCursor == null)
+            TvMediaSearchMode.PEOPLE -> loadPeople(reset = !peopleLoading && peopleCursor == null)
+        }
+    }
+
+    fun loadPeople(reset: Boolean, discardCurrent: Boolean = false) {
+        if (!supported || searchedQuery.isBlank() || (!reset && (peopleLoading || peopleCursor == null))) return
+        peopleJob?.cancel()
+        val cursor = if (reset) null else peopleCursor
+        if (discardCurrent) { people = emptyList(); peopleCursor = null }
+        peopleLoading = true; peopleError = null
+        peopleJob = scope.launch {
+            when (val result = repository.searchPeople(searchedQuery, cursor = cursor)) {
+                is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                    val page = result.value
+                    people = (if (reset) page.items else people + page.items).distinctBy { "${it.ref.libraryId}/${it.ref.personId}" }
+                    peopleCursor = page.nextCursor; peopleError = tvPageError(page.state, page.nextCursor != null)
+                }
+                is MediaReadResult.Failure -> if (result.scope == repository.scope) {
+                    if (result.error.invalidatesTvData()) { people = emptyList(); peopleCursor = null }
+                    peopleError = tvMediaFailure(result.error)
+                }
+            }
+            coroutineContext.ensureActive(); peopleLoading = false
+        }
+    }
+
+    fun openPerson(ref: MediaCatalogPersonRef, name: String) {
+        personWorksJob?.cancel()
+        personRef = ref; personName = name
+        personWorks = emptyList(); personWorksCursor = null; personWorksError = null
+        loadPersonWorks(true)
+    }
+
+    fun closePerson() {
+        personWorksJob?.cancel()
+        personRef = null; personName = ""; personWorks = emptyList(); personWorksCursor = null; personWorksError = null
+    }
+
+    fun loadPersonWorks(reset: Boolean) {
+        val item = personRef ?: return
+        if (!reset && (personWorksLoading || personWorksCursor == null)) return
+        personWorksJob?.cancel(); val cursor = if (reset) null else personWorksCursor
+        if (reset) { personWorks = emptyList(); personWorksCursor = null }
+        personWorksLoading = true; personWorksError = null
+        personWorksJob = scope.launch {
+            when (val result = repository.personWorks(item, cursor = cursor)) {
+                is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                    val page = result.value
+                    personWorks = (if (reset) page.items else personWorks + page.items).distinctBy { tvMediaKey(it.ref) }
+                    personWorksCursor = page.nextCursor; personWorksError = tvPageError(page.state, page.nextCursor != null)
+                }
+                is MediaReadResult.Failure -> if (result.scope == repository.scope) {
+                    if (result.error.invalidatesTvData()) { personWorks = emptyList(); personWorksCursor = null }
+                    personWorksError = tvMediaFailure(result.error)
+                }
+            }
+            coroutineContext.ensureActive(); personWorksLoading = false
+        }
+    }
 
     fun loadSearch(reset: Boolean, discardCurrent: Boolean = false) {
         if (!supported || searchedQuery.isBlank() || (!reset && (searchLoading || searchCursor == null))) return
