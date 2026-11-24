@@ -34,6 +34,25 @@ type BrowseCandidatePage struct {
 	HasMore bool
 }
 
+type BrowseFileCandidate struct {
+	BrowseCandidate
+	FileID, Locator string
+}
+
+type BrowseFileCandidateOptions struct {
+	LibraryID   string
+	OnlyOwned   bool
+	Query       string
+	AfterID     string
+	AfterFileID string
+	Limit       int
+}
+
+type BrowseFileCandidatePage struct {
+	Items   []BrowseFileCandidate
+	HasMore bool
+}
+
 func (store *Store) GetBrowseItemFence(ctx context.Context, viewer uint, libraryID, itemID string) (int64, int64, bool, error) {
 	if viewer == 0 {
 		return 0, 0, false, ErrForbidden
@@ -117,6 +136,56 @@ AND EXISTS(SELECT 1 FROM json_each(f.value_json) v WHERE v.type='text' AND v.val
 		var c BrowseCandidate
 		var updated sql.NullInt64
 		if err = rows.Scan(&c.ID, &c.LibraryID, &c.Kind, &c.Revision, &c.MatchState, &c.StructureRevision, &c.FirstAddedAt, &updated); err != nil {
+			return nil, err
+		}
+		if len(page.Items) == options.Limit {
+			page.HasMore = true
+			break
+		}
+		if updated.Valid {
+			c.SeriesUpdatedAt = &updated.Int64
+		}
+		page.Items = append(page.Items, c)
+	}
+	return page, rows.Err()
+}
+
+// ListBrowseFileCandidates performs a bounded filename prefilter. The service
+// must authorize the exact matched file before publishing its item or name.
+func (store *Store) ListBrowseFileCandidates(ctx context.Context, viewer uint, options BrowseFileCandidateOptions) (*BrowseFileCandidatePage, error) {
+	if viewer == 0 {
+		return nil, ErrForbidden
+	}
+	query := strings.TrimSpace(options.Query)
+	if options.Limit < 1 || options.Limit > 100 || query == "" || utf8.RuneCountInString(query) > 200 || len(query) > 800 || strings.IndexFunc(query, unicode.IsControl) >= 0 {
+		return nil, fmt.Errorf("%w: file candidate options", ErrInvalid)
+	}
+	args := []any{viewer, viewer, options.OnlyOwned, viewer, options.LibraryID, options.LibraryID,
+		options.AfterID, options.AfterID, options.AfterFileID, "%" + escapeCatalogLike(query) + "%", options.Limit + 1}
+	rows, err := store.db.QueryContext(ctx, `SELECT i.id,i.library_id,i.kind,i.revision,st.match_state,st.structure_revision,st.first_added_at,st.series_updated_at,f.id,CAST(f.locator AS TEXT)
+FROM library_item i JOIN item_structure st ON st.library_id=i.library_id AND st.item_id=i.id
+JOIN edition e ON e.library_id=i.library_id AND e.item_id=i.id
+JOIN variant v ON v.library_id=e.library_id AND v.edition_id=e.id
+JOIN source_file f ON f.id=v.source_file_id
+JOIN file_item_mapping fm ON fm.library_id=v.library_id AND fm.variant_id=v.id AND fm.item_id=e.item_id AND fm.source_file_id=v.source_file_id AND fm.active=1
+JOIN library_file lf ON lf.library_id=v.library_id AND lf.source_file_id=f.id AND lf.binding_epoch=(
+ SELECT ls.proof_epoch FROM library_source ls WHERE ls.library_id=lf.library_id AND ls.source_id=f.source_id AND ls.root_locator=lf.root_locator AND ls.active_proof_version=1 AND ls.proof_epoch>0)
+JOIN library_source ls ON ls.library_id=lf.library_id AND ls.source_id=lf.source_id AND ls.root_locator=lf.root_locator AND ls.binding_id=fm.binding_id AND ls.proof_epoch=fm.binding_epoch AND ls.active_proof_version=1 AND ls.proof_epoch>0
+JOIN library l ON l.id=i.library_id LEFT JOIN library_member m ON m.library_id=l.id AND m.user_id=? AND m.revoked_at IS NULL
+WHERE `+libraryVisibility+` AND l.archived_at IS NULL AND (?=0 OR l.owner_user_id=?) AND (?='' OR i.library_id=?)
+AND i.kind IN ('movie','video','episode') AND st.superseded_by IS NULL
+AND (i.id>? OR (i.id=? AND f.id>?)) AND CAST(f.locator AS TEXT) LIKE ? ESCAPE '\'
+AND (i.kind!='episode' OR fm.confirmed_by='manual' OR fm.evidence_id IS NULL OR EXISTS(SELECT 1 FROM identification_evidence ie WHERE ie.id=fm.evidence_id AND ie.match_state!='needs_review'))
+ORDER BY i.id,f.id LIMIT ?`, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	page := &BrowseFileCandidatePage{Items: make([]BrowseFileCandidate, 0, options.Limit)}
+	for rows.Next() {
+		var c BrowseFileCandidate
+		var updated sql.NullInt64
+		if err = rows.Scan(&c.ID, &c.LibraryID, &c.Kind, &c.Revision, &c.MatchState, &c.StructureRevision, &c.FirstAddedAt, &updated, &c.FileID, &c.Locator); err != nil {
 			return nil, err
 		}
 		if len(page.Items) == options.Limit {

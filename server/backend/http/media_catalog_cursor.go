@@ -30,6 +30,7 @@ const catalogCursorTTL = 15 * time.Minute
 
 type catalogVisibilityCursor struct {
 	ItemID                  string `json:"i,omitempty"`
+	FileID                  string `json:"sf,omitempty"`
 	SourceAfter             string `json:"f,omitempty"`
 	Stage                   string `json:"t,omitempty"`
 	Season                  int    `json:"s,omitempty"`
@@ -46,6 +47,7 @@ type catalogCursor struct {
 	Session, Query, Scope string
 	Expires               int64
 	AfterID               string                   `json:"i,omitempty"`
+	AfterFileID           string                   `json:"ff,omitempty"`
 	AfterValue            *int64                   `json:"n,omitempty"`
 	AfterNumber           *int                     `json:"p,omitempty"`
 	OrderID               string                   `json:"oid,omitempty"`

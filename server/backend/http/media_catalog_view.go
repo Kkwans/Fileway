@@ -260,6 +260,57 @@ func (v *catalogView) leafAccess(ctx context.Context, library *medialibrary.Libr
 	}
 }
 
+func (v *catalogView) fileAccess(ctx context.Context, library *medialibrary.Library, itemID, fileID, after string) (catalogAccess, bool, bool, string, error) {
+	for {
+		if v.budget.remaining <= catalogContinuationReserve {
+			return catalogAccess{}, false, false, after, nil
+		}
+		page, err := v.d.store.MediaLibrary.ListItemSourceAccess(ctx, v.d.user.ID, library.ID, itemID, after, min(100, v.budget.remaining-catalogContinuationReserve))
+		if err != nil {
+			return catalogAccess{}, false, false, after, err
+		}
+		for _, entry := range page.Items {
+			if !v.budget.take() {
+				return catalogAccess{}, false, false, after, nil
+			}
+			after = entry.ID
+			if entry.SourceFileID != fileID {
+				continue
+			}
+			state, err := v.checkSource(ctx, library, itemID, entry)
+			if err != nil {
+				if ctx.Err() != nil {
+					return catalogAccess{}, false, false, after, ctx.Err()
+				}
+				if errors.Is(err, medialibrary.ErrNotFound) || errors.Is(err, fs.ErrPermission) || errors.Is(err, mediascan.ErrBindingChanged) || errors.Is(err, mediascan.ErrBindingUnverified) {
+					return catalogAccess{}, false, true, "", nil
+				}
+				return catalogAccess{}, false, false, after, err
+			}
+			if state == mediascan.ReferenceReplaced {
+				return catalogAccess{}, false, true, "", nil
+			}
+			if entry.MissingSince != nil && (state == mediascan.ReferenceAvailable || state == mediascan.ReferenceUnverified) {
+				state = mediascan.ReferenceState("checking")
+			}
+			var size *int64
+			if state == mediascan.ReferenceAvailable {
+				size = entry.SizeBytes
+			}
+			return catalogAccess{mediaItemAccess: mediaItemAccess{sourceState: state, metadataState: "none", fallbackTitle: mediascan.DisplayFilename(path.Base(string(entry.Locator))), allowedInputs: make(map[string]bool), budget: v.budget, view: v},
+				size: size, extension: strings.ToLower(strings.TrimPrefix(path.Ext(string(entry.Locator)), ".")),
+				playable:     state == mediascan.ReferenceAvailable || state == mediascan.ReferenceUnverified,
+				sourceFileID: entry.SourceFileID, bindingID: entry.BindingID, proofEpoch: entry.Binding.ProofEpoch}, true, true, "", nil
+		}
+		if page.NextCursor == "" {
+			return catalogAccess{}, false, true, "", nil
+		}
+		if page.NextCursor != after {
+			return catalogAccess{}, false, false, after, medialibrary.ErrInvalid
+		}
+	}
+}
+
 func (v *catalogView) contextAccess(ctx context.Context, library *medialibrary.Library, itemID, after string) (catalogAccess, bool, bool, string, error) {
 	var access catalogAccess
 	for {
