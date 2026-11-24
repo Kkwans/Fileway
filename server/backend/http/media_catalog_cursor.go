@@ -31,6 +31,11 @@ const catalogCursorTTL = 15 * time.Minute
 type catalogVisibilityCursor struct {
 	ItemID                  string `json:"i,omitempty"`
 	FileID                  string `json:"sf,omitempty"`
+	CollectionAfterInput    string `json:"cai,omitempty"`
+	CollectionAfterItem     string `json:"cai2,omitempty"`
+	CollectionAuthorized    bool   `json:"ca,omitempty"`
+	CollectionAllowedInput  string `json:"cali,omitempty"`
+	CollectionAllowedItem   string `json:"cait,omitempty"`
 	SourceAfter             string `json:"f,omitempty"`
 	Stage                   string `json:"t,omitempty"`
 	Season                  int    `json:"s,omitempty"`

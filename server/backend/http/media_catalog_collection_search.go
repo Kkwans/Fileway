@@ -32,31 +32,52 @@ type catalogCollectionPage struct {
 	Revision   string              `json:"revision"`
 }
 
-func (v *catalogView) collectionAllowed(ctx context.Context, library *medialibrary.Library, candidate medialibrary.CollectionCandidate) (bool, error) {
-	sources, err := v.d.store.MediaLibrary.ListCollectionSources(ctx, v.d.user.ID, candidate, 100)
+func (v *catalogView) collectionSourceAllowed(ctx context.Context, library *medialibrary.Library, inputID, itemID string) (bool, error) {
+	entry, err := v.d.store.MediaLibrary.GetItemMetadataSourceAccess(ctx, v.d.user.ID, library.ID, itemID, inputID)
 	if err != nil {
+		if errors.Is(err, medialibrary.ErrNotFound) {
+			return false, nil
+		}
 		return false, err
 	}
-	for _, source := range sources {
-		entry, err := v.d.store.MediaLibrary.GetItemMetadataSourceAccess(ctx, v.d.user.ID, library.ID, source.ItemID, source.InputID)
-		if err != nil {
-			if errors.Is(err, medialibrary.ErrNotFound) {
-				continue
-			}
-			return false, err
+	state, allowed, err := v.checkMetadata(ctx, library, *entry)
+	if err != nil {
+		if errors.Is(err, medialibrary.ErrNotFound) || errors.Is(err, fs.ErrPermission) || errors.Is(err, mediascan.ErrBindingChanged) || errors.Is(err, mediascan.ErrBindingUnverified) {
+			return false, nil
 		}
-		state, allowed, err := v.checkMetadata(ctx, library, *entry)
-		if err != nil {
-			if errors.Is(err, medialibrary.ErrNotFound) || errors.Is(err, fs.ErrPermission) || errors.Is(err, mediascan.ErrBindingChanged) || errors.Is(err, mediascan.ErrBindingUnverified) {
-				continue
-			}
-			return false, err
-		}
-		if allowed && state != mediascan.ReferenceReplaced {
-			return true, nil
-		}
+		return false, err
 	}
-	return false, nil
+	return allowed && state != mediascan.ReferenceReplaced, nil
+}
+
+func (v *catalogView) collectionAllowed(ctx context.Context, library *medialibrary.Library, candidate medialibrary.CollectionCandidate, afterInput, afterItem string) (bool, string, string, error) {
+	for {
+		if v.budget.remaining <= catalogContinuationReserve {
+			return false, afterInput, afterItem, errCatalogWorkPending
+		}
+		page, err := v.d.store.MediaLibrary.ListCollectionSources(ctx, v.d.user.ID, candidate, afterInput, afterItem, 100)
+		if err != nil {
+			return false, afterInput, afterItem, err
+		}
+		for _, source := range page.Items {
+			if !v.budget.take() {
+				return false, afterInput, afterItem, errCatalogWorkPending
+			}
+			afterInput, afterItem = source.InputID, source.ItemID
+			allowed, err := v.collectionSourceAllowed(ctx, library, source.InputID, source.ItemID)
+			if err != nil {
+				return false, afterInput, afterItem, err
+			}
+			if allowed {
+				return true, afterInput, afterItem, nil
+			}
+		}
+		if !page.HasMore {
+			return false, "", "", nil
+		}
+		last := page.Items[len(page.Items)-1]
+		afterInput, afterItem = last.InputID, last.ItemID
+	}
 }
 
 var mediaCatalogCollectionsHandler = catalogLibraryRead(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
@@ -91,9 +112,7 @@ var mediaCatalogCollectionsHandler = catalogLibraryRead(func(w http.ResponseWrit
 			break
 		}
 		candidate := candidates.Items[0]
-		before := cursor
 		if !view.budget.take() {
-			cursor = before
 			page.PageState, page.HasMore = "deferred", true
 			break
 		}
@@ -104,9 +123,33 @@ var mediaCatalogCollectionsHandler = catalogLibraryRead(func(w http.ResponseWrit
 		if !mediaLibraryAccessAllowed(d, library) {
 			return catalogError(w, medialibrary.ErrNotFound)
 		}
-		allowed, err := view.collectionAllowed(r.Context(), library, candidate)
-		if err != nil {
-			return catalogError(w, err)
+		if cursor.Pending != nil && (cursor.Pending.ItemID != candidate.ID || cursor.Pending.FileID != candidate.LibraryID) {
+			return catalogError(w, errCatalogCursorStale)
+		}
+		if cursor.Pending == nil {
+			cursor.Pending = &catalogVisibilityCursor{ItemID: candidate.ID, FileID: candidate.LibraryID}
+		}
+		allowed := cursor.Pending.CollectionAuthorized
+		if !allowed {
+			var nextInput, nextItem string
+			allowed, nextInput, nextItem, err = view.collectionAllowed(r.Context(), library, candidate,
+				cursor.Pending.CollectionAfterInput, cursor.Pending.CollectionAfterItem)
+			if err != nil {
+				if errors.Is(err, errCatalogWorkPending) {
+					cursor.Pending.CollectionAfterInput, cursor.Pending.CollectionAfterItem = nextInput, nextItem
+					page.PageState, page.HasMore = "deferred", true
+					break
+				}
+				return catalogError(w, err)
+			}
+			cursor.Pending.CollectionAuthorized = allowed
+			cursor.Pending.CollectionAllowedInput, cursor.Pending.CollectionAllowedItem = nextInput, nextItem
+		} else {
+			allowed, err = view.collectionSourceAllowed(r.Context(), library, cursor.Pending.CollectionAllowedInput, cursor.Pending.CollectionAllowedItem)
+			if err != nil {
+				return catalogError(w, err)
+			}
+			cursor.Pending.CollectionAuthorized = allowed
 		}
 		preview := make([]catalogCard, 0, 3)
 		if allowed {
@@ -121,14 +164,12 @@ var mediaCatalogCollectionsHandler = catalogLibraryRead(func(w http.ResponseWrit
 				}
 				for _, work := range works.Items {
 					if !view.budget.take() {
-						cursor = before
 						page.PageState, page.HasMore = "deferred", true
 						break
 					}
 					card, visible, err := view.projectPersonWork(r.Context(), library, work)
 					if err != nil {
 						if errors.Is(err, errCatalogWorkPending) {
-							cursor = before
 							page.PageState, page.HasMore = "deferred", true
 							break
 						}
@@ -152,7 +193,6 @@ var mediaCatalogCollectionsHandler = catalogLibraryRead(func(w http.ResponseWrit
 		}
 		if len(preview) != 0 {
 			if len(page.Items) == limit {
-				cursor = before
 				page.HasMore = true
 				break
 			}
@@ -161,10 +201,14 @@ var mediaCatalogCollectionsHandler = catalogLibraryRead(func(w http.ResponseWrit
 				Name: candidate.Name, Preview: preview,
 			})
 		}
+		cursor.Pending = nil
 		cursor.AfterLibrary, cursor.AfterName, cursor.AfterExternal = candidate.LibraryID, candidate.NameKey, candidate.ExternalID
 		if !candidates.HasMore {
 			break
 		}
+	}
+	if !page.HasMore {
+		cursor.Pending = nil
 	}
 	if page.HasMore {
 		page.NextCursor, err = encodeCatalogCursor(d.settings.Key, cursor)
@@ -225,9 +269,34 @@ var mediaCatalogCollectionWorksHandler = catalogLibraryRead(func(w http.Response
 	if err != nil {
 		return catalogError(w, err)
 	}
-	allowed, err := view.collectionAllowed(r.Context(), library, *candidate)
-	if err != nil {
-		return catalogError(w, err)
+	if cursor.Pending != nil && (cursor.Pending.ItemID != candidate.ID || cursor.Pending.FileID != candidate.LibraryID) {
+		return catalogError(w, errCatalogCursorStale)
+	}
+	if cursor.Pending == nil {
+		cursor.Pending = &catalogVisibilityCursor{ItemID: candidate.ID, FileID: candidate.LibraryID}
+	}
+	allowed := cursor.Pending.CollectionAuthorized
+	if !allowed {
+		var nextInput, nextItem string
+		allowed, nextInput, nextItem, err = view.collectionAllowed(r.Context(), library, *candidate,
+			cursor.Pending.CollectionAfterInput, cursor.Pending.CollectionAfterItem)
+		if err != nil {
+			if errors.Is(err, errCatalogWorkPending) {
+				cursor.Pending.CollectionAfterInput, cursor.Pending.CollectionAfterItem = nextInput, nextItem
+				page.PageState, page.HasMore = "deferred", true
+			} else {
+				return catalogError(w, err)
+			}
+		} else {
+			cursor.Pending.CollectionAuthorized = allowed
+			cursor.Pending.CollectionAllowedInput, cursor.Pending.CollectionAllowedItem = nextInput, nextItem
+		}
+	} else {
+		allowed, err = view.collectionSourceAllowed(r.Context(), library, cursor.Pending.CollectionAllowedInput, cursor.Pending.CollectionAllowedItem)
+		if err != nil {
+			return catalogError(w, err)
+		}
+		cursor.Pending.CollectionAuthorized = allowed
 	}
 	if allowed {
 		for {
@@ -243,16 +312,13 @@ var mediaCatalogCollectionWorksHandler = catalogLibraryRead(func(w http.Response
 				break
 			}
 			work := candidates.Items[0]
-			before := cursor
 			if !view.budget.take() {
-				cursor = before
 				page.PageState, page.HasMore = "deferred", true
 				break
 			}
 			card, visible, err := view.projectPersonWork(r.Context(), library, work)
 			if err != nil {
 				if errors.Is(err, errCatalogWorkPending) {
-					cursor = before
 					page.PageState, page.HasMore = "deferred", true
 					break
 				}
@@ -260,7 +326,6 @@ var mediaCatalogCollectionWorksHandler = catalogLibraryRead(func(w http.Response
 			}
 			if visible {
 				if len(page.Items) == limit {
-					cursor = before
 					page.HasMore = true
 					break
 				}
@@ -271,6 +336,9 @@ var mediaCatalogCollectionWorksHandler = catalogLibraryRead(func(w http.Response
 				break
 			}
 		}
+	}
+	if !page.HasMore {
+		cursor.Pending = nil
 	}
 	if page.HasMore {
 		page.NextCursor, err = encodeCatalogCursor(d.settings.Key, cursor)

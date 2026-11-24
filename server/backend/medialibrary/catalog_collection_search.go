@@ -46,6 +46,11 @@ type CollectionSource struct {
 	InputID, ItemID string
 }
 
+type CollectionSourcePage struct {
+	Items   []CollectionSource
+	HasMore bool
+}
+
 func collectionCandidateID(libraryID, nameKey, externalID string) string {
 	if externalID != "" {
 		return "tmdb_collection_" + externalID
@@ -115,7 +120,7 @@ func (store *Store) FindCollectionCandidate(ctx context.Context, viewer uint, li
 	return nil, ErrNotFound
 }
 
-func (store *Store) ListCollectionSources(ctx context.Context, viewer uint, candidate CollectionCandidate, limit int) ([]CollectionSource, error) {
+func (store *Store) ListCollectionSources(ctx context.Context, viewer uint, candidate CollectionCandidate, afterInput, afterItem string, limit int) (*CollectionSourcePage, error) {
 	if viewer == 0 || limit < 1 || limit > 200 {
 		return nil, ErrInvalid
 	}
@@ -125,20 +130,25 @@ func (store *Store) ListCollectionSources(ctx context.Context, viewer uint, cand
 	rows, err := store.db.QueryContext(ctx, nfoCollectionCTE+` SELECT DISTINCT d.input_id,d.item_id FROM declaration d
 JOIN item_structure st ON st.library_id=d.library_id AND st.item_id=d.item_id AND st.superseded_by IS NULL
 WHERE d.library_id=? AND d.name_key=? AND ((?='' AND d.external_id IS NULL) OR d.external_id=?)
-ORDER BY d.input_id,d.item_id LIMIT ?`, candidate.LibraryID, candidate.NameKey, candidate.ExternalID, candidate.ExternalID, limit)
+AND (d.input_id,d.item_id)>(?,?) ORDER BY d.input_id,d.item_id LIMIT ?`,
+		candidate.LibraryID, candidate.NameKey, candidate.ExternalID, candidate.ExternalID, afterInput, afterItem, limit+1)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
-	items := make([]CollectionSource, 0, limit)
+	page := &CollectionSourcePage{Items: make([]CollectionSource, 0, limit)}
 	for rows.Next() {
 		var item CollectionSource
 		if err := rows.Scan(&item.InputID, &item.ItemID); err != nil {
 			return nil, err
 		}
-		items = append(items, item)
+		if len(page.Items) == limit {
+			page.HasMore = true
+			break
+		}
+		page.Items = append(page.Items, item)
 	}
-	return items, rows.Err()
+	return page, rows.Err()
 }
 
 func (store *Store) ListCollectionWorkCandidates(ctx context.Context, viewer uint, candidate CollectionCandidate, afterID string, limit int) (*BrowseCandidatePage, error) {
