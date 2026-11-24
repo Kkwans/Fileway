@@ -98,6 +98,31 @@ class MediaLibraryRepository(
         }
     }
 
+    suspend fun searchPeople(query: String, libraryId: String? = null, limit: Int = 20, cursor: MediaCatalogCursor? = null): MediaReadResult<MediaCatalogPage<MediaCatalogPerson>> {
+        val term = query.trim()
+        require(term.isNotEmpty() && term.codePointCount(0, term.length) <= 200 && term.toByteArray(Charsets.UTF_8).size <= 800 && term.none(Char::isISOControl))
+        libraryId?.let(::requireMediaRouteId); require(limit in 1..50)
+        val base = "/api/media-library/v1/catalog/people?q=${URLEncoder.encode(term, "UTF-8")}&limit=$limit" +
+            (libraryId?.let { "&libraryId=$it" } ?: "")
+        val endpoint = catalogContinuation(base, cursor)
+        return catalogRead(cursor) {
+            parseCatalogPage(context.api.request("GET", endpoint), scope, catalogDeviceSession, base, limit, cursor) {
+                parseCatalogPerson(it, scope, catalogDeviceSession)
+            }
+        }
+    }
+
+    suspend fun personWorks(person: MediaCatalogPersonRef, limit: Int = 20, cursor: MediaCatalogCursor? = null): MediaReadResult<MediaCatalogPage<MediaCatalogCard>> {
+        requireMediaRouteId(person.libraryId); requireMediaRouteId(person.personId); require(limit in 1..100)
+        val base = "/api/media-library/v1/catalog/people/${person.personId}/works?libraryId=${person.libraryId}&limit=$limit"
+        val endpoint = catalogContinuation(base, cursor)
+        return catalogRead(cursor) {
+            parseCatalogPage(context.api.request("GET", endpoint), scope, catalogDeviceSession, base, limit, cursor) {
+                parseCatalogCard(it, scope, catalogDeviceSession).also { card -> require(card.ref.libraryId == person.libraryId) }
+            }
+        }
+    }
+
     /** A partial detail contains only its scoped continuation, not an empty item. */
     suspend fun catalogDetail(ref: MediaCatalogRef, cursor: MediaCatalogCursor? = null): MediaReadResult<MediaCatalogDetail> {
         ref.requireBound(scope, catalogDeviceSession)

@@ -123,6 +123,14 @@ data class MediaCatalogCard(
     val backdrop: MediaCatalogArtwork? = null,
     val userState: MediaCatalogUserState? = null,
 ) { override fun toString(): String = "MediaCatalogCard(redacted)" }
+data class MediaCatalogPersonRef(val libraryId: String, val personId: String) {
+    init { requireMediaRouteId(libraryId); requireMediaRouteId(personId) }
+}
+
+data class MediaCatalogPerson(
+    val ref: MediaCatalogPersonRef, val name: String, val roles: List<String>, val preview: List<MediaCatalogCard>,
+)
+
 data class MediaCatalogPage<T>(
     val items: List<T>, val nextCursor: MediaCatalogCursor?, val hasMore: Boolean,
     val state: MediaCatalogPageState, val revision: String, val orderId: String? = null,
@@ -309,6 +317,23 @@ private fun parseCounts(row: JSONObject, libraryId: String, seriesId: String?, s
         require(endpoint == expected) { "影视计数地址无效" }
     }
     return MediaCatalogEpisodeCounts(collected, available, specials, row.optionalIntegerValue("unmappedFileCount"), total, totalBasis, orderId, state, totalSource, totalAsOf, endpoint != null)
+}
+
+internal fun parseCatalogPerson(row: JSONObject, scope: MediaSessionScope, deviceSession: String): MediaCatalogPerson {
+    val rawRef = row.getJSONObject("ref")
+    val ref = MediaCatalogPersonRef(rawRef.textValue("libraryId"), rawRef.textValue("personId"))
+    require(rawRef.keys().asSequence().toSet() == setOf("libraryId", "personId"))
+    val roles = row.getJSONArray("roles")
+    require(roles.length() <= 20)
+    val preview = row.getJSONArray("preview").catalogRows(3) { parseCatalogCard(it, scope, deviceSession) }
+    require(preview.isNotEmpty() && preview.all { it.ref.libraryId == ref.libraryId })
+    return MediaCatalogPerson(ref, row.textValue("name").also {
+        require(it.isNotBlank() && it.toByteArray(Charsets.UTF_8).size <= 200)
+    }, (0 until roles.length()).map { index ->
+        (roles.get(index) as? String ?: error("影视人物响应格式无效")).also {
+            require(it.toByteArray(Charsets.UTF_8).size <= 128)
+        }
+    }, preview)
 }
 
 internal fun parseCatalogCard(row: JSONObject, scope: MediaSessionScope, deviceSession: String, parentSeriesId: String? = null): MediaCatalogCard {
