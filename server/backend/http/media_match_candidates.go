@@ -174,18 +174,29 @@ func mediaMatchCandidatesHandler(slots chan struct{}, starts <-chan time.Time) h
 		}
 		ranked := mediaprovider.RankCandidates(hint, page.Items)
 		items := make([]matchCandidateRow, 0, len(ranked))
+		records := make([]medialibrary.MatchCandidateRecord, 0, len(ranked))
 		for _, candidate := range ranked {
 			items = append(items, matchCandidateRow{candidate.Entity.Provider, candidate.Entity.Kind,
 				strconv.FormatInt(candidate.Entity.ID, 10), candidate.Title, candidate.OriginalTitle, candidate.Year, candidate.Evidence})
+			records = append(records, medialibrary.MatchCandidateRecord{Provider: candidate.Entity.Provider, Kind: string(candidate.Entity.Kind),
+				ExternalID: candidate.Entity.ID, Title: candidate.Title, OriginalTitle: candidate.OriginalTitle, Year: candidate.Year, Evidence: candidate.Evidence})
+		}
+		candidateSetID, err := d.store.MediaLibrary.SaveMatchCandidates(r.Context(), d.user.ID, *fence,
+			medialibrary.MatchCandidateSearch{LibraryID: library.ID, ItemID: item.Ref.ItemID, ConnectionID: input.ConnectionID,
+				Kind: string(kind), Title: title, Year: year, Page: input.Page, ItemRevision: item.ItemRevision,
+				StructureRevision: item.StructureRevision, Language: policy.Language, Region: policy.Region, RulesVersion: "tmdb-match-v1"}, records)
+		if err != nil {
+			return catalogError(w, err)
 		}
 		return renderJSON(w, r, struct {
 			Ref               catalogRef          `json:"ref"`
 			ItemRevision      int64               `json:"itemRevision"`
 			StructureRevision int64               `json:"structureRevision"`
+			CandidateSetID    string              `json:"candidateSetId"`
 			Items             []matchCandidateRow `json:"items"`
 			Page              int                 `json:"page"`
 			HasMore           bool                `json:"hasMore"`
-		}{item.Ref, item.ItemRevision, item.StructureRevision, items, page.Page, page.Page < min(page.TotalPages, 500)})
+		}{item.Ref, item.ItemRevision, item.StructureRevision, candidateSetID, items, page.Page, page.Page < min(page.TotalPages, 500)})
 	})
 }
 

@@ -1,5 +1,39 @@
 package medialibrary
 
+// Candidate tickets bind manual confirmation to a bounded provider search.
+const schemaV20 = `
+CREATE TABLE IF NOT EXISTS provider_match_candidate_set (
+    id TEXT PRIMARY KEY NOT NULL,
+    actor_user_id INTEGER NOT NULL CHECK(actor_user_id>0),
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    connection_id TEXT NOT NULL REFERENCES provider_connection(id),
+    kind TEXT NOT NULL CHECK(kind IN ('movie','series')),
+    query_json TEXT NOT NULL CHECK(json_valid(query_json)),
+    language TEXT NOT NULL,
+    region TEXT NOT NULL DEFAULT '',
+    policy_revision INTEGER NOT NULL CHECK(policy_revision>0),
+    item_revision INTEGER NOT NULL CHECK(item_revision>0),
+    structure_revision INTEGER NOT NULL CHECK(structure_revision>0),
+    rules_version TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL,
+    FOREIGN KEY(library_id,item_id) REFERENCES library_item(library_id,id)
+) STRICT;
+CREATE TABLE IF NOT EXISTS provider_match_candidate (
+    set_id TEXT NOT NULL REFERENCES provider_match_candidate_set(id) ON DELETE CASCADE,
+    provider TEXT NOT NULL,
+    entity_kind TEXT NOT NULL CHECK(entity_kind IN ('movie','series')),
+    external_id INTEGER NOT NULL CHECK(external_id>0),
+    title TEXT NOT NULL,
+    original_title TEXT NOT NULL DEFAULT '',
+    year INTEGER NOT NULL DEFAULT 0,
+    evidence_json TEXT NOT NULL CHECK(json_valid(evidence_json)),
+    position INTEGER NOT NULL CHECK(position>=0),
+    PRIMARY KEY(set_id,provider,entity_kind,external_id)
+) STRICT;
+`
+
 // Provider decisions retain evidence independently from mutable projections.
 const schemaV19 = `
 CREATE TABLE IF NOT EXISTS provider_match_provenance (

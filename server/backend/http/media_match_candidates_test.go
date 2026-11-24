@@ -78,6 +78,13 @@ func TestMediaCandidatesChecksPolicyAndRejectsRevocationDuringLookup(t *testing.
 	}
 	if res := f.call(t, owner, http.MethodPost, base+"/match-candidates", body); res.Code != http.StatusOK || !strings.Contains(res.Body.String(), "Fixture work") || outbound != 1 {
 		t.Fatalf("candidate result: %d %s", res.Code, res.Body)
+	} else {
+		var page struct {
+			CandidateSetID string `json:"candidateSetId"`
+		}
+		if json.Unmarshal(res.Body.Bytes(), &page) != nil || page.CandidateSetID == "" {
+			t.Fatalf("candidate ticket missing: %s", res.Body)
+		}
 	}
 	switchOffline = true
 	if res := f.call(t, owner, http.MethodPost, base+"/match-candidates", body); res.Code == http.StatusOK || strings.Contains(res.Body.String(), "Fixture work") || outbound != 2 {

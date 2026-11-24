@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"time"
 
 	"github.com/Kkwans/nas-file-browser/backend/mediametadata"
 )
@@ -13,7 +14,8 @@ import (
 type ProviderMatchRequest struct {
 	LibraryID, ItemID, ConnectionID, Kind       string
 	ExternalID, ItemRevision, StructureRevision int64
-	Automatic                                   bool `json:",omitempty"`
+	CandidateSetID                              string `json:",omitempty"`
+	Automatic                                   bool   `json:",omitempty"`
 	job                                         *MetadataJob
 }
 
@@ -134,6 +136,13 @@ UNION ALL SELECT 1 FROM provider_match_manual_review WHERE library_id=?1 AND ite
 			if existing {
 				return nil, ErrRevisionConflict
 			}
+		}
+		if !request.Automatic && request.CandidateSetID != "" {
+			_, evidence, err := resolveMatchCandidate(ctx, tx, actor, authority, request, request.CandidateSetID, time.Now().UnixMilli())
+			if err != nil {
+				return nil, err
+			}
+			audit.Evidence = append(audit.Evidence, evidence...)
 		}
 		if job := request.job; job != nil {
 			scan, err := getScan(ctx, tx, actor, job.ScanID)

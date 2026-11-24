@@ -61,7 +61,7 @@ func TestProviderMatchUndoRestoresDecisionAudit(t *testing.T) {
 	}
 }
 
-func TestSchema19MigratesPopulatedV18Catalog(t *testing.T) {
+func TestSchema20MigratesPopulatedV19Catalog(t *testing.T) {
 	ctx := t.Context()
 	path := filepath.Join(t.TempDir(), "catalog.db")
 	store, err := Open(ctx, path)
@@ -77,7 +77,7 @@ func TestSchema19MigratesPopulatedV18Catalog(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := db.ExecContext(ctx, `DROP TABLE provider_match_provenance; PRAGMA user_version=18`); err != nil {
+	if _, err := db.ExecContext(ctx, `DROP TABLE provider_match_candidate; DROP TABLE provider_match_candidate_set; PRAGMA user_version=19`); err != nil {
 		t.Fatal(err)
 	}
 	if err := db.Close(); err != nil {
@@ -90,10 +90,10 @@ func TestSchema19MigratesPopulatedV18Catalog(t *testing.T) {
 	defer store.Close()
 	var count int
 	if err := store.db.QueryRow(`SELECT count(*) FROM library_item WHERE library_id=? AND id=?`, library.ID, item.ID).Scan(&count); err != nil || count != 1 {
-		t.Fatalf("populated v18 item was lost: count=%d err=%v", count, err)
+		t.Fatalf("populated v19 item was lost: count=%d err=%v", count, err)
 	}
 	var version int
-	if err := store.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 19 {
+	if err := store.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 20 {
 		t.Fatalf("schema was not upgraded: version=%d err=%v", version, err)
 	}
 }

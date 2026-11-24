@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -85,6 +86,10 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 			}
 		}
 		calls++
+		if r.URL.Path == "/3/search/movie" {
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
+				`{"page":1,"total_pages":1,"total_results":1,"results":[{"id":55,"title":"TMDB film","original_title":"Online original","release_date":"2020-01-01"}]}`))}, nil
+		}
 		if r.URL.Path != "/3/movie/55" || r.URL.Query().Get("language") != "zh-CN" ||
 			r.URL.Query().Get("append_to_response") != "credits,external_ids" || r.Header.Get("Authorization") != "Bearer fixture-confirm-token" {
 			t.Errorf("unexpected provider route: %s", r.URL.Path)
@@ -105,17 +110,37 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 	if _, err := f.store.SetLibraryMetadataPolicy(t.Context(), owner, library.ID, "enable-match", 0, policy); err != nil {
 		t.Fatal(err)
 	}
+	if rejected := f.call(t, owner, http.MethodPost, base+"/match-confirmation", body); rejected.Code != http.StatusUnprocessableEntity || calls != 0 ||
+		!strings.Contains(rejected.Body.String(), `"code":"candidate_ticket_required"`) {
+		t.Fatalf("confirmation without candidate ticket: %d %s", rejected.Code, rejected.Body)
+	}
+	search := f.call(t, owner, http.MethodPost, base+"/match-candidates", matchCandidateSearch{ConnectionID: connection,
+		Title: "TMDB film", Kind: "movie", Page: 1, ItemRevision: identity.ItemRevision, StructureRevision: identity.StructureRevision})
+	var candidates struct {
+		CandidateSetID string `json:"candidateSetId"`
+	}
+	if search.Code != http.StatusOK || json.Unmarshal(search.Body.Bytes(), &candidates) != nil || candidates.CandidateSetID == "" {
+		t.Fatalf("candidate ticket: %d %s", search.Code, search.Body)
+	}
+	body.CandidateSetID = candidates.CandidateSetID
+	body.ExternalID = "999"
+	if rejected := f.call(t, owner, http.MethodPost, base+"/match-confirmation", body); rejected.Code != http.StatusUnprocessableEntity ||
+		!strings.Contains(rejected.Body.String(), `"code":"candidate_ticket_invalid"`) || calls != 1 {
+		t.Fatalf("candidate outside ticket: %d %s", rejected.Code, rejected.Body)
+	}
+	body.ExternalID = "55"
 	response := f.call(t, owner, http.MethodPost, base+"/match-confirmation", body)
-	if response.Code != http.StatusOK || calls != 1 {
+	if response.Code != http.StatusOK || calls != 2 {
 		t.Fatalf("confirmation: %d %s", response.Code, response.Body)
 	}
-	if replay := f.call(t, owner, http.MethodPost, base+"/match-confirmation", body); replay.Code != http.StatusOK || calls != 1 || replay.Body.String() != response.Body.String() {
+	if replay := f.call(t, owner, http.MethodPost, base+"/match-confirmation", body); replay.Code != http.StatusOK || calls != 2 || replay.Body.String() != response.Body.String() {
 		t.Fatalf("receipt replay: %d %s", replay.Code, replay.Body)
 	}
 	local := fixtureDetail(t, f, owner, library.ID, itemID)
 	if local.Item.Title != "Local film" || local.Fields["plot"].Source != "online" || local.OnlineMatch == nil || local.OnlineMatch.ExternalID != "55" ||
 		local.OnlineMatch.DecisionSource != "manual" || local.OnlineMatch.Language != "zh-CN" || local.OnlineMatch.Region != "CN" ||
-		len(local.OnlineMatch.Evidence) != 1 || local.OnlineMatch.Evidence[0] != "manual_selection" || len(local.Ratings) != 1 || local.Ratings[0].Origin != "online" || local.Card == nil || local.Card.MatchState != "provider_confirmed" ||
+		len(local.OnlineMatch.Evidence) != 2 || !slices.Contains(local.OnlineMatch.Evidence, "title_match") ||
+		!slices.Contains(local.OnlineMatch.Evidence, "manual_selection") || len(local.Ratings) != 1 || local.Ratings[0].Origin != "online" || local.Card == nil || local.Card.MatchState != "provider_confirmed" ||
 		local.Card.Artwork == nil || !strings.HasPrefix(local.Card.Artwork.AssetID, "art_") ||
 		local.Card.Backdrop == nil || !strings.HasPrefix(local.Card.Backdrop.AssetID, "tmdb_backdrop_") || imageCalls != 0 {
 		t.Fatalf("local-first projection: %+v", local)
@@ -125,7 +150,7 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 		t.Fatal(err)
 	}
 	online := fixtureDetail(t, f, owner, library.ID, itemID)
-	if online.Item.Title != "TMDB film" || calls != 1 || online.Card.Artwork == nil || !strings.HasPrefix(online.Card.Artwork.AssetID, "tmdb_poster_") {
+	if online.Item.Title != "TMDB film" || calls != 2 || online.Card.Artwork == nil || !strings.HasPrefix(online.Card.Artwork.AssetID, "tmdb_poster_") {
 		t.Fatalf("online-first projection: %+v", online)
 	}
 	if len(online.Credits) != 2 || online.Credits[0].Role != "Hero" || online.Credits[1].Kind != "director" {
@@ -182,7 +207,7 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 		t.Fatal(err)
 	}
 	offline := fixtureDetail(t, f, owner, library.ID, itemID)
-	if offline.Item.Title != "Manual title" || offline.OnlineMatch != nil || len(offline.Ratings) != 0 || len(offline.Credits) != 0 || calls != 1 {
+	if offline.Item.Title != "Manual title" || offline.OnlineMatch != nil || len(offline.Ratings) != 0 || len(offline.Credits) != 0 || calls != 2 {
 		t.Fatalf("local-only projection: %+v", offline)
 	}
 	if response := f.call(t, owner, http.MethodGet, backdrop, nil); response.Code != http.StatusNotFound || imageCalls != 2 {
@@ -199,6 +224,10 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 	}
 	f.h.storage.TMDBHTTPClient = &http.Client{Transport: matchTestTransport(func(r *http.Request) (*http.Response, error) {
 		calls++
+		if r.URL.Path == "/3/search/movie" {
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
+				`{"page":1,"total_pages":1,"total_results":1,"results":[{"id":56,"title":"Replacement film"}]}`))}, nil
+		}
 		if r.URL.Path != "/3/movie/56" {
 			t.Error("wrong replacement document route")
 		}
@@ -206,6 +235,18 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 			`{"id":56,"title":"Replacement film","vote_average":6.1,"vote_count":50}`))}, nil
 	})}
 	body = matchConfirmBody{OperationID: "rematch-selection", Kind: "movie", ExternalID: "56", ItemRevision: identity.ItemRevision, StructureRevision: identity.StructureRevision}
+	if rejected := f.call(t, owner, http.MethodPost, base+"/match-confirmation", body); rejected.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("replacement without ticket: %d %s", rejected.Code, rejected.Body)
+	}
+	replacementSearch := f.call(t, owner, http.MethodPost, base+"/match-candidates", matchCandidateSearch{ConnectionID: connection,
+		Title: "Replacement film", Kind: "movie", Page: 1, ItemRevision: identity.ItemRevision, StructureRevision: identity.StructureRevision})
+	candidates = struct {
+		CandidateSetID string `json:"candidateSetId"`
+	}{}
+	if replacementSearch.Code != http.StatusOK || json.Unmarshal(replacementSearch.Body.Bytes(), &candidates) != nil || candidates.CandidateSetID == "" {
+		t.Fatalf("replacement candidate ticket: %d %s", replacementSearch.Code, replacementSearch.Body)
+	}
+	body.CandidateSetID = candidates.CandidateSetID
 	if changed := f.call(t, owner, http.MethodPost, base+"/match-confirmation", body); changed.Code != http.StatusOK {
 		t.Fatalf("replacement: %d %s", changed.Code, changed.Body)
 	}
@@ -228,7 +269,7 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 	restored := fixtureDetail(t, f, owner, library.ID, itemID)
 	if restored.OnlineMatch == nil || restored.OnlineMatch.ExternalID != "55" || restored.Item.Title != "Manual title" ||
 		!restored.Fields["plot"].ExplicitClear || restored.UserState == nil || restored.UserState.ManualWatched == nil || !*restored.UserState.ManualWatched ||
-		restored.Card.Backdrop == nil || restored.Card.Backdrop.Endpoint == backdrop || calls != 2 {
+		restored.Card.Backdrop == nil || restored.Card.Backdrop.Endpoint == backdrop || calls != 4 {
 		t.Fatalf("restore lost fields, user state, or artwork revision: %+v", restored)
 	}
 }

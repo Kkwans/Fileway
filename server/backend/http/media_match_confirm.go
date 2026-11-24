@@ -2,6 +2,7 @@ package fbhttp
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -15,6 +16,7 @@ type matchConfirmBody struct {
 	ConnectionID      string `json:"connectionId"`
 	Kind              string `json:"kind"`
 	ExternalID        string `json:"externalId"`
+	CandidateSetID    string `json:"candidateSetId,omitempty"`
 	ItemRevision      int64  `json:"itemRevision"`
 	StructureRevision int64  `json:"structureRevision"`
 }
@@ -52,7 +54,7 @@ func mediaMatchConfirmHandler(slots chan struct{}, starts <-chan time.Time) hand
 		// Keep the client request stable for receipt replay, including the case
 		// where the library's default connection has since changed.
 		request := medialibrary.ProviderMatchRequest{LibraryID: library.ID, ItemID: item.Ref.ItemID,
-			ConnectionID: body.ConnectionID, Kind: body.Kind, ExternalID: externalID,
+			ConnectionID: body.ConnectionID, Kind: body.Kind, ExternalID: externalID, CandidateSetID: body.CandidateSetID,
 			ItemRevision: body.ItemRevision, StructureRevision: body.StructureRevision}
 		if receipt, found, err := store.ReplayProviderMatch(ctx, d.user.ID, body.OperationID, request); err != nil {
 			return catalogError(w, err)
@@ -99,6 +101,25 @@ func mediaMatchConfirmHandler(slots chan struct{}, starts <-chan time.Time) hand
 		}
 		if fence.PolicyRevision != policy.Revision {
 			return catalogError(w, medialibrary.ErrRevisionConflict)
+		}
+		candidateSetID, err := store.ResolveMatchCandidate(ctx, d.user.ID, *fence, request, body.CandidateSetID)
+		if err != nil {
+			if errors.Is(err, medialibrary.ErrNotFound) {
+				if body.CandidateSetID == "" {
+					return writeCatalogError(w, http.StatusUnprocessableEntity, "candidate_ticket_required", "请先搜索并选择候选", false)
+				}
+				return writeCatalogError(w, http.StatusUnprocessableEntity, "candidate_ticket_invalid", "候选已过期或条目已变化，请重新搜索", false)
+			}
+			return catalogError(w, err)
+		}
+		request.CandidateSetID = candidateSetID
+		if receipt, found, err := store.ReplayProviderMatch(ctx, d.user.ID, body.OperationID, request); err != nil {
+			return catalogError(w, err)
+		} else if found {
+			if err = view.revalidateSources(ctx); err != nil {
+				return catalogError(w, err)
+			}
+			return renderJSON(w, r, receipt)
 		}
 		scope, err := medialibrary.ProviderCredentialContext(connection)
 		if err != nil {
