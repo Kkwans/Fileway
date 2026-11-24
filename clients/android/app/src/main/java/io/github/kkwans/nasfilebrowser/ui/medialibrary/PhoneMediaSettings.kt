@@ -461,6 +461,8 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
                         color = MaterialTheme.colorScheme.error)
                 }
             }
+            PhoneMediaRefreshJobSection(repository, libraryId, libraryRefreshPreview?.takeIf { !dirty && it.policyRevision == currentPolicy?.revision }, dirty,
+                enabled = !busy && !libraryRefreshBusy && pending == null)
         }
         if (mode != MediaProviderPolicyMode.LOCAL_ONLY) SettingsGroup("TMDB 连接") {
             when {

@@ -126,6 +126,26 @@ WHERE pm.library_id=? AND pm.language<>?`, id, id, libraryID, policy.Language)
 	})
 }
 
+func (store *Store) LatestMetadataRefreshJob(ctx context.Context, actor uint, libraryID string) (MetadataRefreshJob, error) {
+	library, err := activeCatalogLibrary(ctx, store.db, actor, libraryID)
+	if err != nil {
+		return MetadataRefreshJob{}, err
+	}
+	if library.Role != RoleOwner {
+		return MetadataRefreshJob{}, ErrForbidden
+	}
+	job, err := readMetadataRefreshJob(store.db.QueryRowContext(ctx, metadataRefreshJobSelection+` WHERE j.library_id=? AND j.owner_user_id=? ORDER BY j.created_at DESC,j.id DESC LIMIT 1`, libraryID, actor))
+	if err != nil {
+		return job, err
+	}
+	tx, err := store.db.BeginTx(ctx, nil)
+	if err != nil {
+		return job, err
+	}
+	defer tx.Rollback()
+	return readMetadataRefreshProgress(ctx, tx, job)
+}
+
 func (c *ScanCoordinator) EnqueueMetadataRefreshJob(ctx context.Context, actor uint, operationID, libraryID string, expectedPolicyRevision int64) (MetadataRefreshJob, error) {
 	return coordinatedCall(ctx, c, func(ctx context.Context, store *Store) (MetadataRefreshJob, error) {
 		return store.EnqueueMetadataRefreshJob(ctx, actor, operationID, libraryID, expectedPolicyRevision)
@@ -357,8 +377,9 @@ func retryMetadataRefreshJobTx(ctx context.Context, tx *sql.Tx, actor uint, job 
 		return ErrRevisionConflict
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE job SET status='queued',generation=generation+1,attempt=0,retry_at=NULL,updated_at=max(updated_at,?)
-WHERE id=? AND library_id=? AND owner_user_id=? AND kind=? AND generation=? AND status IN ('failed','canceled','interrupted')`,
-		time.Now().UnixMilli(), job.ID, job.LibraryID, actor, metadataRefreshJobKind, generation)
+WHERE id=? AND library_id=? AND owner_user_id=? AND kind=? AND generation=? AND (status IN ('failed','canceled','interrupted')
+OR status='completed' AND EXISTS(SELECT 1 FROM metadata_refresh_target WHERE job_id=? AND outcome='failed'))`,
+		time.Now().UnixMilli(), job.ID, job.LibraryID, actor, metadataRefreshJobKind, generation, job.ID)
 	if err := metadataJobUpdated(result, err); err != nil {
 		return err
 	}

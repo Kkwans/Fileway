@@ -300,6 +300,41 @@ func TestMetadataRefreshCommitRejectsCanceledOrChangedTarget(t *testing.T) {
 	}
 }
 
+func TestMetadataRefreshRetriesCompletedJobWithFailedTargets(t *testing.T) {
+	store := openTestStore(t)
+	ctx := t.Context()
+	library := createLibrary(t, store, 7, "部分失败重试")
+	connection := fixtureProvider(t, store, 7, false, "user", "refresh-partial-retry-connection")
+	policy, err := store.SetLibraryMetadataPolicy(ctx, 7, library.ID, "refresh-partial-retry-policy", 0,
+		LibraryMetadataPolicy{Mode: MetadataLocalFirst, ConnectionID: connection.ID, Language: "zh-CN", Region: "CN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	item, _ := fixtureRefreshMatch(t, store, library, connection, "English", "en-US")
+	if _, err := store.EnqueueMetadataRefreshJob(ctx, 7, "refresh-partial-retry-enqueue", library.ID, policy.Revision); err != nil {
+		t.Fatal(err)
+	}
+	coordinator := testCoordinator(t, store)
+	job, err := coordinator.ClaimNextMetadataRefreshJob(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := coordinator.ResolveMetadataRefreshJobTarget(ctx, job, item.ID, "failed", "provider_unavailable"); err != nil {
+		t.Fatal(err)
+	}
+	if err := coordinator.FinishMetadataRefreshJob(ctx, job, "completed", "", nil); err != nil {
+		t.Fatal(err)
+	}
+	progress, err := store.MetadataRefreshJob(ctx, 7, library.ID, job.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	retried, err := coordinator.RetryMetadataRefreshJobWithOperation(ctx, 7, "refresh-partial-retry", progress, progress.Generation)
+	if err != nil || retried.Status != "queued" || retried.Pending != 1 {
+		t.Fatalf("partial retry: %+v %v", retried, err)
+	}
+}
+
 func TestMetadataRefreshRetryOperationIsReplayable(t *testing.T) {
 	store := openTestStore(t)
 	ctx := t.Context()

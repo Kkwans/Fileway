@@ -100,6 +100,11 @@ func TestMetadataRefreshJobRefreshesLockedEnglishMatchThroughAPI(t *testing.T) {
 	if enqueue.Code != http.StatusAccepted || json.Unmarshal(enqueue.Body.Bytes(), &job) != nil || job.JobID == "" || job.Total != 1 {
 		t.Fatalf("enqueue: %d %s", enqueue.Code, enqueue.Body)
 	}
+	latest := f.call(t, owner, http.MethodGet, base+"/metadata-refresh-jobs", nil)
+	var latestJob metadataRefreshJobResponse
+	if latest.Code != http.StatusOK || json.Unmarshal(latest.Body.Bytes(), &latestJob) != nil || latestJob.JobID != job.JobID {
+		t.Fatalf("latest job: %d %s", latest.Code, latest.Body)
+	}
 	deadline := time.Now().Add(12 * time.Second)
 	for {
 		response := f.call(t, owner, http.MethodGet, base+"/metadata-refresh-jobs/"+job.JobID, nil)

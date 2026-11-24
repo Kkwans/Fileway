@@ -88,13 +88,20 @@ func renderMetadataRefreshJob(w http.ResponseWriter, r *http.Request, job medial
 
 func mediaMetadataRefreshJobsHandler(scheduler *mediascan.Scheduler) handleFunc {
 	return providerConfig(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
-		var body metadataRefreshJobBody
-		if decodeMediaScanBody(w, r, &body) != nil || body.Mode != "refresh_unlocked" || body.ExpectedPolicyRevision < 1 {
-			return catalogError(w, medialibrary.ErrInvalid)
-		}
 		library, err := itemLibrary(r, d)
 		if err != nil {
 			return catalogError(w, err)
+		}
+		if r.Method == http.MethodGet {
+			job, err := d.store.MediaLibrary.LatestMetadataRefreshJob(r.Context(), d.user.ID, library.ID)
+			if err != nil {
+				return catalogError(w, err)
+			}
+			return renderMetadataRefreshJob(w, r, job)
+		}
+		var body metadataRefreshJobBody
+		if decodeMediaScanBody(w, r, &body) != nil || body.Mode != "refresh_unlocked" || body.ExpectedPolicyRevision < 1 {
+			return catalogError(w, medialibrary.ErrInvalid)
 		}
 		if scheduler == nil || !scheduler.RefreshMetadataAvailable(r.Context()) {
 			return http.StatusServiceUnavailable, fmt.Errorf("后台资料刷新服务暂不可用")

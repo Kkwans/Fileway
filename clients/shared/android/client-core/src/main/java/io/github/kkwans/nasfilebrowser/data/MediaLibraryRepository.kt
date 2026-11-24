@@ -495,6 +495,14 @@ class MediaLibraryRepository(
         }
     }
 
+    suspend fun latestMetadataRefreshJob(libraryId: String): MediaReadResult<MediaMetadataRefreshJob> {
+        requireMediaRouteId(libraryId)
+        return catalogRead(null) {
+            parseMetadataRefreshJob(context.api.request("GET", "${libraryEndpoint(libraryId)}/metadata-refresh-jobs"))
+                .also { require(it.libraryId == libraryId) }
+        }
+    }
+
     suspend fun metadataRefreshJob(libraryId: String, jobId: String): MediaReadResult<MediaMetadataRefreshJob> {
         requireMediaRouteId(libraryId); requireMediaRouteId(jobId)
         return catalogRead(null) {
