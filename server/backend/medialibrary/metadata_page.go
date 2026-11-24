@@ -155,6 +155,22 @@ func (store *Store) ListItemExternalIDs(ctx context.Context, viewer uint, librar
 	return &MetadataExternalIDPage{Items: page.Items, NextCursor: page.NextCursor, ItemRevision: page.ItemRevision}, nil
 }
 
+func (store *Store) ListItemCollections(ctx context.Context, viewer uint, libraryID, itemID, after string, limit int) (*MetadataCollectionPage, error) {
+	query := `SELECT x.id,CAST(c.key AS INTEGER),COALESCE(trim(json_extract(c.value,'$.fields.name[0]')),''),COALESCE(json_extract(doc_item.value,'$.fields.collectionnumber[0]'),'')
+FROM metadata_input x,json_each(x.evidence_json,'$.items') doc_item,json_each(doc_item.value,'$.collections') c` + metadataPageVisibility + ` AND x.is_current=1 AND x.source_type='nfo' AND x.status IN ('candidate','applied') AND EXISTS(SELECT 1 FROM library_source ls WHERE ls.binding_id=x.binding_id AND ls.library_id=x.library_id AND ls.proof_epoch=x.binding_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1) AND printf('%s:%020d',x.id,CAST(c.key AS INTEGER))>? AND length(COALESCE(trim(json_extract(c.value,'$.fields.name[0]')),'')) BETWEEN 1 AND 1024 ORDER BY x.id,CAST(c.key AS INTEGER) LIMIT ?`
+	page, err := queryMetadataPage(ctx, store.db, viewer, libraryID, itemID, after, limit, query, func(rows *sql.Rows) (MetadataCollection, string, error) {
+		var item MetadataCollection
+		var key int
+		err := rows.Scan(&item.InputID, &key, &item.Name, &item.Number)
+		item.Cursor = fmt.Sprintf("%s:%020d", item.InputID, key)
+		return item, item.Cursor, err
+	})
+	if err != nil {
+		return nil, err
+	}
+	return &MetadataCollectionPage{Items: page.Items, NextCursor: page.NextCursor, ItemRevision: page.ItemRevision}, nil
+}
+
 func (store *Store) ListItemMetadataIssues(ctx context.Context, viewer uint, libraryID, itemID, after string, limit int) (*MetadataIssuePage, error) {
 	query := `SELECT x.id,x.issue_code,x.evidence_json FROM metadata_input x` + metadataPageVisibility + ` AND x.is_current=1 AND x.status='candidate' AND x.issue_code!='' AND EXISTS(SELECT 1 FROM library_source ls WHERE ls.binding_id=x.binding_id AND ls.library_id=x.library_id AND ls.proof_epoch=x.binding_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1) AND x.id>? ORDER BY x.id LIMIT ?`
 	page, err := queryMetadataPage(ctx, store.db, viewer, libraryID, itemID, after, limit, query, func(rows *sql.Rows) (MetadataIssueSource, string, error) {

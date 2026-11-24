@@ -96,6 +96,13 @@ type MetadataExternalID struct {
 	Cursor     string `json:"-"`
 }
 
+type MetadataCollection struct {
+	Name    string `json:"name"`
+	Number  string `json:"number,omitempty"`
+	InputID string `json:"-"`
+	Cursor  string `json:"-"`
+}
+
 // ItemDetail intentionally excludes evidence, source paths, credentials and
 // artwork references. A client cannot use an artwork declaration as a URL.
 type ItemDetail struct {
@@ -138,6 +145,12 @@ type MetadataExternalIDPage struct {
 }
 type MetadataIssuePage struct {
 	Items        []MetadataIssueSource
+	NextCursor   string
+	ItemRevision int64
+}
+
+type MetadataCollectionPage struct {
+	Items        []MetadataCollection
 	NextCursor   string
 	ItemRevision int64
 }

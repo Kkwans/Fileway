@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/gorilla/mux"
@@ -164,6 +165,23 @@ func visibleExternalIDs(ctx context.Context, d *data, library *medialibrary.Libr
 	}, func(item medialibrary.MetadataExternalID) string { return item.Cursor })
 }
 
+func visibleCollections(ctx context.Context, d *data, library *medialibrary.Library, itemID string, revision int64, access *mediaItemAccess, after string, limit int) (visibleMetadataPage[medialibrary.MetadataCollection], error) {
+	return visibleMetadataPageFor(ctx, revision, limit, after, func(ctx context.Context, after string, n int) ([]medialibrary.MetadataCollection, string, int64, error) {
+		page, err := d.store.MediaLibrary.ListItemCollections(ctx, d.user.ID, library.ID, itemID, after, n)
+		if err != nil {
+			return nil, "", 0, err
+		}
+		return page.Items, page.NextCursor, page.ItemRevision, nil
+	}, func(item medialibrary.MetadataCollection) (bool, error) {
+		valid := strings.TrimSpace(item.Name) != "" && strings.IndexFunc(item.Name, unicode.IsControl) < 0 &&
+			strings.IndexFunc(item.Number, unicode.IsControl) < 0
+		if !valid {
+			return false, nil
+		}
+		return metadataInputAllowed(ctx, d, library, itemID, access, item.InputID)
+	}, func(item medialibrary.MetadataCollection) string { return item.Cursor })
+}
+
 func visibleIssues(ctx context.Context, d *data, library *medialibrary.Library, itemID string, revision int64, access *mediaItemAccess, after string, limit int) (visibleMetadataPage[medialibrary.MetadataIssueSource], error) {
 	return visibleMetadataPageFor(ctx, revision, limit, after, func(ctx context.Context, after string, n int) ([]medialibrary.MetadataIssueSource, string, int64, error) {
 		page, err := d.store.MediaLibrary.ListItemMetadataIssues(ctx, d.user.ID, library.ID, itemID, after, n)
@@ -203,6 +221,10 @@ func loadVisibleItemDetail(ctx context.Context, d *data, library *medialibrary.L
 	if err != nil {
 		return result, err
 	}
+	collections, err := visibleCollections(ctx, d, library, id, revision, access, "", 20)
+	if err != nil {
+		return result, err
+	}
 	issues, err := visibleIssues(ctx, d, library, id, revision, access, "", 20)
 	if err != nil {
 		return result, err
@@ -211,6 +233,7 @@ func loadVisibleItemDetail(ctx context.Context, d *data, library *medialibrary.L
 	result.Ratings, result.RatingsNextCursor = ratings.Items, ratings.NextCursor
 	result.Artwork, result.ArtworkNextCursor = artwork.Items, artwork.NextCursor
 	result.ExternalIDs, result.ExternalIDsNextCursor = externalIDs.Items, externalIDs.NextCursor
+	result.Collections, result.CollectionsNextCursor = collections.Items, collections.NextCursor
 	if match != nil {
 		externalID := strconv.FormatInt(match.ExternalID, 10)
 		result.OnlineMatch = &mediaOnlineMatch{Provider: "tmdb", Kind: match.Kind, ExternalID: externalID, FetchedAt: match.FetchedAt,
@@ -296,6 +319,8 @@ func mediaItemCollectionHandler(kind string) handleFunc {
 			response, err = visibleArtwork(r.Context(), d, library, itemID, detail.Item.Revision, &access, after, limit)
 		case "external-ids":
 			response, err = visibleExternalIDs(r.Context(), d, library, itemID, detail.Item.Revision, &access, after, limit)
+		case "collections":
+			response, err = visibleCollections(r.Context(), d, library, itemID, detail.Item.Revision, &access, after, limit)
 		case "issues":
 			var page visibleMetadataPage[medialibrary.MetadataIssueSource]
 			page, err = visibleIssues(r.Context(), d, library, itemID, detail.Item.Revision, &access, after, limit)

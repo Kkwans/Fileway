@@ -42,12 +42,14 @@ type mediaItemDetail struct {
 	Ratings               []medialibrary.MetadataRating         `json:"ratings"`
 	Artwork               []medialibrary.MetadataArtwork        `json:"artwork"`
 	ExternalIDs           []medialibrary.MetadataExternalID     `json:"externalIds"`
+	Collections           []medialibrary.MetadataCollection     `json:"collections"`
 	Issues                []string                              `json:"issues"`
 	Candidates            []mediaMetadataCandidate              `json:"candidates"`
 	CreditsNextCursor     string                                `json:"creditsNextCursor,omitempty"`
 	RatingsNextCursor     string                                `json:"ratingsNextCursor,omitempty"`
 	ArtworkNextCursor     string                                `json:"artworkNextCursor,omitempty"`
 	ExternalIDsNextCursor string                                `json:"externalIdsNextCursor,omitempty"`
+	CollectionsNextCursor string                                `json:"collectionsNextCursor,omitempty"`
 	IssuesNextCursor      string                                `json:"issuesNextCursor,omitempty"`
 	OnlineMatch           *mediaOnlineMatch                     `json:"onlineMatch,omitempty"`
 	providerMatch         *medialibrary.ProviderMatch
@@ -146,7 +148,7 @@ func itemDetailFields(ctx context.Context, d *data, library *medialibrary.Librar
 		item.Title = access.fallbackTitle
 	}
 	return mediaItemDetail{Item: itemSummary(item, *access), MetadataRevision: detail.MetadataRevision, Fields: fields, providerMatch: match,
-		Credits: []medialibrary.MetadataCredit{}, Ratings: []medialibrary.MetadataRating{}, Artwork: []medialibrary.MetadataArtwork{}, ExternalIDs: []medialibrary.MetadataExternalID{}, Issues: []string{}, Candidates: []mediaMetadataCandidate{}}, nil
+		Credits: []medialibrary.MetadataCredit{}, Ratings: []medialibrary.MetadataRating{}, Artwork: []medialibrary.MetadataArtwork{}, ExternalIDs: []medialibrary.MetadataExternalID{}, Collections: []medialibrary.MetadataCollection{}, Issues: []string{}, Candidates: []mediaMetadataCandidate{}}, nil
 }
 
 func itemLibrary(r *http.Request, d *data) (*medialibrary.Library, error) {
