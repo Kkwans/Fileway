@@ -1,6 +1,7 @@
 package io.github.kkwans.nasfilebrowser.app
 
 import io.github.kkwans.fileway.remote.*
+import io.github.kkwans.nasfilebrowser.data.MediaCatalogRef
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -16,7 +17,7 @@ internal data class TvHandoffUi(
 
 /** One explicit transfer. Reconnection reconciles state; it never replays open. */
 internal class TvHandoffFlow(private val scope:CoroutineScope,private val control:TvControlModel) {
-    private data class Source(val phone:ClientModel,val file:ResourceRef,val scope:String)
+    private data class Source(val phone:ClientModel,val file:ResourceRef,val scope:String,val catalogRef:MediaCatalogRef?=null)
     private data class Attempt(val device:String,val request:PhoneTvHandoff,var mediaEpoch:Long?=null,var sessionEpoch:Long?=null)
     private val mutable=MutableStateFlow<TvHandoffUi?>(null)
     val state=mutable.asStateFlow()
@@ -32,6 +33,14 @@ internal class TvHandoffFlow(private val scope:CoroutineScope,private val contro
         source=Source(phone,file,sourceScope)
         wantedDevice=null
         mutable.value=TvHandoffUi(file.name)
+        connected()
+    }
+    fun beginCatalog(phone:ClientModel,ref:MediaCatalogRef,title:String) {
+        dismiss()
+        val path="/@catalog/${ref.libraryId}/${ref.itemId}"
+        source=Source(phone,ResourceRef(path,path,title,false,"video",0,""),phone.tvAuthorizationContext()?.api?.id.orEmpty(),ref)
+        wantedDevice=null
+        mutable.value=TvHandoffUi(title)
         connected()
     }
     fun connected() {
@@ -70,12 +79,14 @@ internal class TvHandoffFlow(private val scope:CoroutineScope,private val contro
             try {
                 check(target.snapshot?.capabilities?.optInt("nativeHandoff",0)==1){"请先升级 TV 客户端，再使用原生接力"}
                 mutable.value=TvHandoffUi(input.file.name,TvHandoffStage.PREPARING)
-                var request=input.phone.prepareTvHandoff(input.file,input.scope)
+                var request=input.catalogRef?.let { input.phone.prepareCatalogTvHandoff(it) }
+                    ?: input.phone.prepareTvHandoff(input.file,input.scope)
                 guard(expected,selection,device.id,request)
                 if(authorize) {
                     control.authorizeBound(input.phone,request.source,device.id,selection);loginCompleted=true
                     guard(expected,selection,device.id,request)
-                    request=input.phone.prepareTvHandoff(input.file,input.scope)
+                    request=input.catalogRef?.let { input.phone.prepareCatalogTvHandoff(it) }
+                        ?: input.phone.prepareTvHandoff(input.file,input.scope)
                     guard(expected,selection,device.id,request)
                 }
                 val instance=request.source.api.request("GET","/api/instance")

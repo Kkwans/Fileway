@@ -54,6 +54,8 @@ internal fun PhoneMediaRoute(
     imageLoader: ImageLoader,
     onExit: () -> Unit,
     currentSourceId: () -> String?,
+    currentCatalogRef: MediaCatalogRef?,
+    onHandoff: ((MediaCatalogRef, String) -> Unit)?,
     onPlayback: (MediaCatalogVariant, Boolean, MediaCatalogContinue?) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -186,6 +188,12 @@ internal fun PhoneMediaRoute(
                 }
             }
             PhoneMediaAction.LoadMoreCollectionWorks -> route.loadCollectionWorks(reset = false)
+            is PhoneMediaAction.Handoff -> {
+                val ref = detailRef
+                if (ref != null && currentCatalogRef == ref && onHandoff != null) {
+                    onHandoff(ref, route.detail?.card?.title ?: route.detail?.detail?.item?.title ?: "影视")
+                }
+            }
             PhoneMediaAction.Settings -> mediaTab = "settings"
             PhoneMediaAction.CreateLibrary -> { createLibrary = true; managing = true }
             PhoneMediaAction.ManageLibraries -> { createLibrary = false; managing = true }
@@ -294,7 +302,10 @@ internal fun PhoneMediaRoute(
             }
         } else if (detailId != null) {
             pages.SaveableStateProvider("media-detail/$libraryId/$detailId") {
-                PhoneMediaDetail(route.detailState(session.owner, "$libraryId/$detailId"), imageLoader, action, subpage, rememberLazyListState())
+                val ref = repository.catalogRef(requireNotNull(libraryId), requireNotNull(detailId))
+                PhoneMediaDetail(route.detailState(session.owner, "$libraryId/$detailId")
+                    .copy(canHandoff = onHandoff != null && currentCatalogRef == ref),
+                    imageLoader, action, subpage, rememberLazyListState())
             }
         } else if (searching && collectionPage != null) {
             PhoneMediaCollectionWorks(route.collectionName, route.collectionWorks.map(::poster), route.collectionWorksLoading,

@@ -15,6 +15,7 @@ import io.github.kkwans.nasfilebrowser.player.DecoderRestore
 import io.github.kkwans.nasfilebrowser.player.DecoderSubtitleMode
 import io.github.kkwans.nasfilebrowser.player.transferJson
 import io.github.kkwans.fileway.remote.HandoffItem
+import io.github.kkwans.fileway.remote.HandoffMediaRef
 import io.github.kkwans.fileway.remote.HandoffQueue
 import io.github.kkwans.nasfilebrowser.data.*
 import io.github.kkwans.nasfilebrowser.download.DownloadController
@@ -201,10 +202,69 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
             check(version!=null){"字幕内容版本无法确认，请重新选择字幕后接力"}
             playbackPayload.put("externalTrackKey",choice.trackKey).put("externalVersion",version)
         }
-        return PhoneTvHandoff(bound,remoteQueue.items[remoteQueue.manifest.index],remoteQueue,identity,playbackPayload,subtitle,::current) {
+        return PhoneTvHandoff(bound,remoteQueue.items[remoteQueue.manifest.index],remoteQueue,identity,playbackPayload,subtitle,null,::current) {
             if(binding!=null)player.pause()
         }
     }
+    internal suspend fun prepareCatalogTvHandoff(ref: MediaCatalogRef): PhoneTvHandoff {
+        val bound = context ?: error("请先连接服务器")
+        val selection = catalogSelection ?: error("请先在手机打开影视")
+        val binding = catalogPlayback ?: error("请等待影视播放就绪")
+        check(selection.repository === catalogRepository?.second && catalogRepository?.first === bound && selection.variant.ref == ref) { "当前影视来源已变化" }
+        val generation = player.state.value.mediaGeneration
+        fun current() = context === bound && catalogSelection === selection && catalogPlayback === binding &&
+            player.state.value.mediaGeneration == generation
+        check(current() && player.state.value.canSavePosition && !mutable.value.busy) { "请等待视频就绪或跳转完成后再接力" }
+        val detail = selection.repository.catalogDetail(ref)
+        check(current())
+        val itemRevision = when (detail) {
+            is MediaReadResult.Success -> (detail.value as? MediaCatalogDetail.Complete)?.detail?.item?.revision
+                ?: error("影视详情尚未加载完成，请刷新后重试")
+            is MediaReadResult.Failure -> throw IllegalStateException("无法确认影视详情，请刷新后重试")
+        }
+        val variants = selection.repository.playbackVariants(ref)
+        check(current())
+        val variant = when (variants) {
+            is MediaReadResult.Success -> variants.value.items.firstOrNull {
+                it.editionId == selection.variant.editionId && it.variantId == selection.variant.variantId &&
+                    it.bindingId == selection.variant.bindingId && it.fileRevision == selection.variant.fileRevision &&
+                    it.identityEpoch == selection.variant.identityEpoch && it.available
+            } ?: error("当前片源已变化，请重新选择后接力")
+            is MediaReadResult.Failure -> throw IllegalStateException("无法确认当前片源，请刷新后重试")
+        }
+        val instance = bound.api.request("GET", "/api/instance")
+        check(current())
+        val mediaRef = HandoffMediaRef(instance.getString("id"), ref.libraryId, ref.itemId, itemRevision,
+            variant.editionId, variant.variantId, variant.bindingId, variant.sourceFileId,
+            variant.fileRevision, variant.identityEpoch)
+        val path = "/@catalog/${ref.libraryId}/${variant.variantId}"
+        val item = HandoffItem(path, path, variant.displayName, variant.contentType, variant.size, "")
+        val queue = HandoffQueue.snapshot(listOf(item), 0)
+        val restore = player.decoderRestoreSnapshot() ?: error("播放器尚未就绪")
+        val external = restore.externalSubtitle?.let { choice ->
+            val source = subtitleSources[choice.sourceKey] as? DecoderSubtitleSource.Server
+                ?: error("当前外挂字幕仅手机可访问，请改选服务器字幕或关闭字幕后接力")
+            check(source.bound === bound) { "字幕服务器已变化" }
+            val checked = subtitleVersion(bound, source.file)
+            check(current() && source.identity == "${checked.size}/${checked.modified}") { "外挂字幕版本已变化，请重新选择后接力" }
+            JSONObject().put("path", checked.path).put("wirePath", checked.wirePath).put("name", checked.name)
+                .put("size", checked.size).put("modified", checked.modified)
+        }
+        val payload = JSONObject().put("positionMs", restore.positionMs).put("wantsPlay", restore.wantsPlay)
+            .put("rate", restore.baseRate).put("audioOff", restore.audioOff)
+            .put("subtitleMode", restore.subtitleMode.name).put("subtitleDelayMs", restore.subtitleDelayMs)
+        restore.audio?.let { payload.put("audio", it.transferJson()) }
+        restore.subtitle?.let { payload.put("subtitle", it.transferJson()) }
+        if (restore.subtitleMode == DecoderSubtitleMode.EXTERNAL) {
+            val choice = requireNotNull(restore.externalSubtitle)
+            val version = choice.sourceVersion ?: restore.externalSources[choice.sourceKey]
+            check(version != null) { "字幕内容版本无法确认，请重新选择字幕后接力" }
+            payload.put("externalTrackKey", choice.trackKey).put("externalVersion", version)
+        }
+        check(current())
+        return PhoneTvHandoff(bound, item, queue, "", payload, external, mediaRef, ::current) { player.pause() }
+    }
+
     private var sessionSyncJob: Job? = null
     private var sessionSyncBound: SessionContext? = null
     private var sessionFlushJob: Job? = null
@@ -561,6 +621,8 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     internal fun currentCatalogSourceId(): String? = catalogSelection?.variant?.let {
         "${it.editionId}/${it.variantId}/${it.bindingId}"
     }
+
+    internal fun currentCatalogRef(): MediaCatalogRef? = catalogSelection?.variant?.ref
 
     internal fun openCatalogVideo(repository: MediaLibraryRepository, selected: MediaCatalogVariant,
         fromStart: Boolean = false, checkpoint: MediaCatalogContinue? = null) {

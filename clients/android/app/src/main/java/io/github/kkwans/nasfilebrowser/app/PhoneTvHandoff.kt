@@ -2,6 +2,7 @@ package io.github.kkwans.nasfilebrowser.app
 
 import io.github.kkwans.fileway.remote.HandoffItem
 import io.github.kkwans.fileway.remote.HandoffQueue
+import io.github.kkwans.fileway.remote.HandoffMediaRef
 import org.json.JSONObject
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicBoolean
@@ -9,7 +10,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 /** Phone-owned immutable request. The closures never cross the control channel. */
 internal class PhoneTvHandoff(
     val source:SessionContext,val item:HandoffItem,val queue:HandoffQueue,val identity:String,
-    private val playback:JSONObject,private val external:JSONObject?,
+    private val playback:JSONObject,private val external:JSONObject?,private val mediaRef:HandoffMediaRef?=null,
     private val current:()->Boolean,private val accepted:()->Unit,
 ) {
     val id:String=UUID.randomUUID().toString()
@@ -20,7 +21,10 @@ internal class PhoneTvHandoff(
         return JSONObject().put("handoff",JSONObject().put("id",id).put("instance",JSONObject()
             .put("id",instance.getString("id")).put("publicKey",instance.getString("publicKey")))
             .put("item",item.json()).put("queue",queue.manifest.json()).put("identity",identity)
-            .put("playback",JSONObject(playback.toString())).apply { external?.let{put("externalSubtitle",JSONObject(it.toString()))} })
+            .put("playback",JSONObject(playback.toString())).apply {
+                external?.let{put("externalSubtitle",JSONObject(it.toString()))}
+                mediaRef?.let{put("mediaRef",it.json())}
+            })
     }
     fun confirmReady() { requireCurrent();if(completed.compareAndSet(false,true))accepted() }
 }

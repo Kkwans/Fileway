@@ -20,8 +20,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.fileway.design.R as Art
 import io.github.kkwans.fileway.remote.RemotePhase
 import io.github.kkwans.nasfilebrowser.app.*
+import io.github.kkwans.nasfilebrowser.data.MediaCatalogRef
 
 internal val LocalTvHandoff=staticCompositionLocalOf<((ResourceRef,String)->Unit)?>{null}
+internal val LocalMediaTvHandoff=staticCompositionLocalOf<((MediaCatalogRef,String)->Unit)?>{null}
 internal val LocalOpenTvControl=staticCompositionLocalOf<()->Unit>{{}}
 
 /** Lives above route early returns, including video, image and reconnect pages. */
@@ -35,7 +37,8 @@ internal val LocalOpenTvControl=staticCompositionLocalOf<()->Unit>{{}}
     if(remoteOpen)TvControlScreen(phone,{remoteOpen=false},controlModel=control)
     TvHandoffSheet(control,visible=!remoteOpen,onRemote={remoteOpen=true})
     CompositionLocalProvider(LocalOpenTvControl provides {remoteOpen=true},
-        LocalTvHandoff provides {file,sourceScope->control.handoff.begin(phone,file,sourceScope)},content=content)
+        LocalTvHandoff provides {file,sourceScope->control.handoff.begin(phone,file,sourceScope)},
+        LocalMediaTvHandoff provides {ref,title->control.handoff.beginCatalog(phone,ref,title)},content=content)
 }
 
 @Composable internal fun TvHandoffIcon(file:ResourceRef,sourceScope:String,enabled:Boolean=true,tint:Color=LocalContentColor.current) {

@@ -251,7 +251,8 @@ private fun MediaCatalogDestination(model: ClientModel) {
     val repository = result?.getOrNull()
     if (repository != null) {
         PhoneMediaRoute(session, repository, model.previewImageLoader, onExit,
-            currentSourceId = model::currentCatalogSourceId) { variant, fromStart, checkpoint ->
+            currentSourceId = model::currentCatalogSourceId, currentCatalogRef = model.currentCatalogRef(),
+            onHandoff = LocalMediaTvHandoff.current) { variant, fromStart, checkpoint ->
             model.openCatalogVideo(repository, variant, fromStart, checkpoint)
         }
     } else Column(Modifier.fillMaxSize().statusBarsPadding().consumeWindowInsets(WindowInsets.statusBars)) {
