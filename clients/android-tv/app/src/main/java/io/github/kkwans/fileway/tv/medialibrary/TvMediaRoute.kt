@@ -306,6 +306,9 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                                 ratings = ratings.ifEmpty { listOfNotNull(tvRating(card.primaryRating)) })
                             else TvMediaCard("$libraryId/$itemId", detail?.item?.title ?: "影视详情"),
                             people = detail?.credits?.items.orEmpty().map { TvMediaPerson(it.id, it.name, it.role.ifBlank { it.kind }) },
+                            collections = detail?.collections?.items.orEmpty().map { collection ->
+                                listOfNotNull(collection.name, collection.number?.let { "编号 $it" }).joinToString(" · ")
+                            },
                             seasons = route.seasons.map { TvMediaSeason(it.ref.itemId, it.label) },
                             selectedSeasonId = route.selectedSeason,
                             episodes = route.episodes.map { episode -> TvMediaEpisode(

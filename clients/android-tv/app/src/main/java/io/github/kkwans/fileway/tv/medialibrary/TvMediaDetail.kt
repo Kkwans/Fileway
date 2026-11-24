@@ -70,6 +70,12 @@ fun TvMediaDetail(
                         }
                         if (state.item.metadataLabel.isNotBlank()) Text(state.item.metadataLabel,
                             style = MediaType.body, color = colors.text)
+                        if (state.collections.isNotEmpty()) {
+                            Text("合集", style = MediaType.sectionTitle, color = colors.text)
+                            state.collections.forEach { label ->
+                                Text(label, style = MediaType.body, color = colors.secondary)
+                            }
+                        }
                     }
                     val ratings = state.item.ratings.filter { it.valueLabel.isNotBlank() }
                     if (ratings.isNotEmpty()) Column(Modifier.padding(horizontal = MediaLayout.pageInset)

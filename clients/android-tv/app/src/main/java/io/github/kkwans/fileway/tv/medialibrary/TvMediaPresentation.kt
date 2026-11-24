@@ -109,6 +109,7 @@ data class TvMediaDetailState(
     val sourceCount: Int = 0,
     val sourceSummary: String? = null,
     val people: List<TvMediaPerson> = emptyList(),
+    val collections: List<String> = emptyList(),
     val seasons: List<TvMediaSeason> = emptyList(),
     val selectedSeasonId: String? = null,
     val episodes: List<TvMediaEpisode> = emptyList(),
