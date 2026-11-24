@@ -34,6 +34,17 @@ internal class PhoneMediaRouteState(
     var searchLoading by mutableStateOf(false); private set
     var searchProblem by mutableStateOf<MediaProblem?>(null); private set
     var searchCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
+    var searchMode by mutableStateOf(MediaSearchMode.WORKS); private set
+    var people by mutableStateOf<List<MediaCatalogPerson>>(emptyList()); private set
+    var peopleLoading by mutableStateOf(false); private set
+    var peopleProblem by mutableStateOf<MediaProblem?>(null); private set
+    var peopleCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
+    var person by mutableStateOf<MediaCatalogPersonRef?>(null); private set
+    var personName by mutableStateOf(""); private set
+    var personWorks by mutableStateOf<List<MediaCatalogCard>>(emptyList()); private set
+    var personWorksLoading by mutableStateOf(false); private set
+    var personWorksProblem by mutableStateOf<MediaProblem?>(null); private set
+    var personWorksCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
     var filter by mutableStateOf("all"); private set
     var libraryFilter by mutableStateOf<String?>(null); private set
     var detail by mutableStateOf<MediaCatalogDetail.Complete?>(null); private set
@@ -65,6 +76,8 @@ internal class PhoneMediaRouteState(
     private var retryCatalogPage = false
     private var catalogJob: Job? = null
     private var searchJob: Job? = null
+    private var peopleJob: Job? = null
+    private var personWorksJob: Job? = null
     private var detailJob: Job? = null
     private var seasonsJob: Job? = null
     private var episodesJob: Job? = null
@@ -72,7 +85,7 @@ internal class PhoneMediaRouteState(
     private var userStateJob: Job? = null
 
     fun close() {
-        listOf(homeJob, catalogJob, searchJob, detailJob, seasonsJob, episodesJob, sourcesJob, userStateJob).forEach { it?.cancel() }
+        listOf(homeJob, catalogJob, searchJob, peopleJob, personWorksJob, detailJob, seasonsJob, episodesJob, sourcesJob, userStateJob).forEach { it?.cancel() }
     }
 
     fun start(initialFilter: String) {
@@ -104,6 +117,7 @@ internal class PhoneMediaRouteState(
                             supported = false; closeDetail()
                             home = null; catalog = emptyList(); catalogCursor = null; catalogPageState = null
                             searchResults = emptyList(); searchCursor = null
+                            people = emptyList(); peopleCursor = null; person = null; personWorks = emptyList(); personWorksCursor = null
                         }
                         checking = false; homeProblem = problem(result.error, "无法加载影视中心")
                     }
@@ -131,7 +145,19 @@ internal class PhoneMediaRouteState(
         libraryFilter = id
         filter = kind
         loadCatalog(reset = true, discardCurrent = true)
-        if (searchedQuery.isNotBlank()) loadSearch(reset = true, discardCurrent = true)
+        if (searchedQuery.isNotBlank()) when (searchMode) {
+            MediaSearchMode.WORKS -> loadSearch(reset = true, discardCurrent = true)
+            MediaSearchMode.PEOPLE -> loadPeople(reset = true, discardCurrent = true)
+        }
+    }
+
+    fun chooseSearchMode(mode: MediaSearchMode) {
+        if (searchMode == mode) return
+        searchMode = mode
+        if (searchedQuery.isNotBlank()) when (mode) {
+            MediaSearchMode.WORKS -> loadSearch(reset = true, discardCurrent = true)
+            MediaSearchMode.PEOPLE -> loadPeople(reset = true, discardCurrent = true)
+        }
     }
 
     fun editSearch(value: String) {
@@ -139,23 +165,93 @@ internal class PhoneMediaRouteState(
             searchProblem = MediaProblem("请输入有效片名", "最多 200 个字符，不要包含控制字符。")
             return
         }
-        searchJob?.cancel()
-        searchQuery = value; searchedQuery = ""; searchLoading = false
+        searchJob?.cancel(); peopleJob?.cancel()
+        searchQuery = value; searchedQuery = ""; searchLoading = false; peopleLoading = false
         searchResults = emptyList(); searchCursor = null; searchProblem = null
+        people = emptyList(); peopleCursor = null; peopleProblem = null
     }
 
     fun submitSearch(value: String) {
         val query = value.trim()
         if (query.isEmpty()) {
-            searchProblem = MediaProblem("请输入片名", "可搜索作品标题或原名。")
+            val issue = MediaProblem("请输入搜索内容", if (searchMode == MediaSearchMode.PEOPLE) "可搜索演员、导演或编剧姓名。" else "可搜索作品标题或原名。")
+            if (searchMode == MediaSearchMode.PEOPLE) peopleProblem = issue else searchProblem = issue
             return
         }
         editSearch(query)
         searchedQuery = query
-        loadSearch(reset = true, discardCurrent = true)
+        when (searchMode) {
+            MediaSearchMode.WORKS -> loadSearch(reset = true, discardCurrent = true)
+            MediaSearchMode.PEOPLE -> loadPeople(reset = true, discardCurrent = true)
+        }
     }
 
-    fun retrySearch() = if (searchedQuery.isBlank()) submitSearch(searchQuery) else loadSearch(reset = !searchLoading && searchCursor != null)
+    fun retrySearch() {
+        if (searchedQuery.isBlank()) submitSearch(searchQuery)
+        else when (searchMode) {
+            MediaSearchMode.WORKS -> loadSearch(reset = !searchLoading && searchCursor == null)
+            MediaSearchMode.PEOPLE -> loadPeople(reset = !peopleLoading && peopleCursor == null)
+        }
+    }
+
+    fun loadPeople(reset: Boolean, discardCurrent: Boolean = false) {
+        if (!supported || searchedQuery.isBlank() || (!reset && (peopleLoading || peopleCursor == null))) return
+        peopleJob?.cancel()
+        val continuation = if (reset) null else peopleCursor
+        if (discardCurrent) { people = emptyList(); peopleCursor = null }
+        peopleLoading = true; peopleProblem = null
+        peopleJob = scope.launch {
+            when (val result = repository.searchPeople(searchedQuery, libraryFilter, cursor = continuation)) {
+                is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                    val page = result.value
+                    people = (if (reset) page.items else people + page.items).distinctBy { "${it.ref.libraryId}/${it.ref.personId}" }
+                    peopleCursor = page.nextCursor
+                    peopleProblem = pageProblem(page.state, page.nextCursor != null)
+                }
+                is MediaReadResult.Failure -> if (result.scope == repository.scope) {
+                    if (result.error.invalidatesVisibleData()) { people = emptyList(); peopleCursor = null }
+                    peopleProblem = problem(result.error, "无法搜索人物")
+                }
+            }
+            coroutineContext.ensureActive(); peopleLoading = false
+        }
+    }
+
+    fun openPerson(ref: MediaCatalogPersonRef, name: String) {
+        personWorksJob?.cancel()
+        person = ref; personName = name
+        personWorks = emptyList(); personWorksCursor = null; personWorksProblem = null
+        loadPersonWorks(reset = true)
+    }
+
+    fun closePerson() {
+        personWorksJob?.cancel()
+        person = null; personName = ""; personWorks = emptyList(); personWorksCursor = null; personWorksProblem = null
+    }
+
+    fun loadPersonWorks(reset: Boolean) {
+        val ref = person ?: return
+        if (!reset && (personWorksLoading || personWorksCursor == null)) return
+        personWorksJob?.cancel()
+        val cursor = if (reset) null else personWorksCursor
+        if (reset) { personWorks = emptyList(); personWorksCursor = null }
+        personWorksLoading = true; personWorksProblem = null
+        personWorksJob = scope.launch {
+            when (val result = repository.personWorks(ref, cursor = cursor)) {
+                is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                    val page = result.value
+                    personWorks = (if (reset) page.items else personWorks + page.items).distinctBy { key(it.ref) }
+                    personWorksCursor = page.nextCursor
+                    personWorksProblem = pageProblem(page.state, page.nextCursor != null)
+                }
+                is MediaReadResult.Failure -> if (result.scope == repository.scope) {
+                    if (result.error.invalidatesVisibleData()) { personWorks = emptyList(); personWorksCursor = null }
+                    personWorksProblem = problem(result.error, "无法加载人物作品")
+                }
+            }
+            coroutineContext.ensureActive(); personWorksLoading = false
+        }
+    }
 
     fun loadSearch(reset: Boolean, discardCurrent: Boolean = false) {
         if (!supported || searchedQuery.isBlank() || (!reset && (searchLoading || searchCursor == null))) return
