@@ -16,10 +16,14 @@ type WorkIdentifier struct {
 }
 
 type AutomaticMatchInput struct {
-	Kind        Kind
-	Year        int
-	Identifiers []WorkIdentifier
-	Ambiguities []string
+	Kind            Kind
+	Year            int
+	Title           string
+	Aliases         []string
+	Region          string
+	Identifiers     []WorkIdentifier
+	Ambiguities     []string
+	AllowTitleMatch bool
 	// Incomplete is set if any relevant evidence remains unread or invisible.
 	Incomplete bool
 }
@@ -35,6 +39,7 @@ const (
 type AutomaticMatch struct {
 	State      AutomaticMatchState
 	Reason     string
+	Evidence   []string
 	Document   Document
 	Projection TMDBProjection
 }
@@ -95,11 +100,14 @@ func (client *TMDBClient) ResolveAutomaticMatch(ctx context.Context, input Autom
 			external = append(external, ref)
 		}
 	}
-	if tmdbID == 0 && len(external) == 0 {
-		return review("typed_identifier_required")
-	}
 	if authorize == nil {
 		return AutomaticMatch{}, &Error{Code: InvalidRequest}
+	}
+	if tmdbID == 0 && len(external) == 0 {
+		if !input.AllowTitleMatch {
+			return review("typed_identifier_required")
+		}
+		return client.resolveTitleMatch(ctx, input, language, authorize)
 	}
 	entity := EntityRef{Provider: "tmdb", Kind: input.Kind, ID: tmdbID}
 	for _, ref := range external {
@@ -154,6 +162,90 @@ func (client *TMDBClient) ResolveAutomaticMatch(ctx context.Context, input Autom
 		return review("year_conflict")
 	}
 	return AutomaticMatch{State: AutoMatched, Document: document, Projection: projection}, nil
+}
+
+func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input AutomaticMatchInput, language string,
+	authorize func(context.Context) error) (AutomaticMatch, error) {
+	review := func(reason string) (AutomaticMatch, error) {
+		return AutomaticMatch{State: AutoNeedsReview, Reason: reason}, nil
+	}
+	title := strings.TrimSpace(input.Title)
+	if title == "" {
+		return review("title_required")
+	}
+	queries := []string{title}
+	for _, alias := range input.Aliases {
+		alias = strings.TrimSpace(alias)
+		if alias != "" && !slices.Contains(queries, alias) && len(queries) < 3 {
+			queries = append(queries, alias)
+		}
+	}
+	var documents []Document
+	for _, query := range queries {
+		if err := authorize(ctx); err != nil {
+			return AutomaticMatch{}, err
+		}
+		page, err := client.Search(ctx, SearchQuery{Kind: input.Kind, Title: query, Year: input.Year,
+			Language: language, Region: input.Region, Page: 1})
+		if err != nil {
+			return AutomaticMatch{}, err
+		}
+		documents = append(documents, page.Items...)
+		if len(page.Items) != 0 {
+			break
+		}
+	}
+	if len(documents) == 0 {
+		return AutomaticMatch{State: AutoNoMatch, Reason: "title_not_found"}, nil
+	}
+	ranked := RankCandidates(MatchHint{Kind: input.Kind, Title: title, Year: input.Year}, documents)
+	eligible := make([]MatchCandidate, 0, len(ranked))
+	for _, candidate := range ranked {
+		exact := false
+		for _, query := range queries {
+			exact = exact || matchTitle(query) == matchTitle(candidate.Title) || matchTitle(query) == matchTitle(candidate.OriginalTitle)
+		}
+		if exact && input.Year > 0 && candidate.Year == input.Year {
+			eligible = append(eligible, candidate)
+		}
+	}
+	if input.Year <= 0 {
+		return review("year_required")
+	}
+	if len(eligible) == 0 {
+		return review("title_year_conflict")
+	}
+	if len(eligible) != 1 {
+		return review("ambiguous_candidates")
+	}
+	candidate := eligible[0]
+	if err := authorize(ctx); err != nil {
+		return AutomaticMatch{}, err
+	}
+	document, err := client.Fetch(ctx, candidate.Entity, FetchOptions{Language: language, Parts: []Part{Credits, ExternalIDs}})
+	if err != nil {
+		if providerErrorIs(err, NotFound) {
+			return AutomaticMatch{State: AutoNoMatch, Reason: "identifier_not_found"}, nil
+		}
+		return AutomaticMatch{}, err
+	}
+	projection, err := ProjectTMDB(document)
+	if err != nil {
+		return AutomaticMatch{}, err
+	}
+	titleField, originalField := "title", "original_title"
+	if input.Kind == Series {
+		titleField, originalField = "name", "original_name"
+	}
+	exact := false
+	for _, query := range queries {
+		exact = exact || matchTitle(query) == matchTitle(textField(document, titleField)) || matchTitle(query) == matchTitle(textField(document, originalField))
+	}
+	if !exact || input.Year > 0 && len(projection.Item.Fields["year"]) != 0 && projection.Item.Fields["year"][0] != strconv.Itoa(input.Year) {
+		return review("title_year_conflict")
+	}
+	evidence := append(append([]string(nil), candidate.Evidence...), "unique_candidate")
+	return AutomaticMatch{State: AutoMatched, Evidence: evidence, Document: document, Projection: projection}, nil
 }
 
 func providerErrorIs(err error, code ErrorCode) bool {

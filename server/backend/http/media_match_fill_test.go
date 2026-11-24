@@ -12,6 +12,15 @@ import (
 	"github.com/Kkwans/nas-file-browser/backend/mediaprovider"
 )
 
+func TestAutomaticMatchInputCarriesTitleWithoutEnablingUnbenchmarkedMatches(t *testing.T) {
+	year := 2020
+	item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{ParsedTitle: "Echo", Year: &year}}
+	input := automaticMatchInput(item)
+	if input.Title != "Echo" || input.Year != 2020 || input.AllowTitleMatch {
+		t.Fatalf("unexpected automatic input: %+v", input)
+	}
+}
+
 func TestMediaMatchFillRespectsExplicitIdentityAndReplays(t *testing.T) {
 	f := newMediaScanHTTPFixture(t)
 	catalogFixtureWrite(t, f, "Echo (2020) [tmdb-movie-42].mkv", "owned video")

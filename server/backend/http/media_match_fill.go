@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
@@ -84,6 +85,7 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 		return fillMatchResult{}, err
 	}
 	input := automaticMatchInput(item)
+	input.Region = policy.Region
 	request := medialibrary.ProviderMatchRequest{LibraryID: library.ID, ItemID: itemID, Kind: string(input.Kind),
 		ItemRevision: itemRevision, StructureRevision: structureRevision, Automatic: true}
 	if receipt, found, err := store.ReplayProviderMatch(ctx, d.user.ID, operationID, request); err != nil {
@@ -209,6 +211,7 @@ func automaticMatchInput(item mediaIdentificationResponse) mediaprovider.Automat
 		input.Identifiers = append(input.Identifiers, mediaprovider.WorkIdentifier{Kind: kind, ExternalRef: mediaprovider.ExternalRef{Provider: id.Provider, ID: id.Value}})
 	}
 	if file := item.File; file != nil {
+		input.Title = strings.TrimSpace(file.ParsedTitle)
 		input.Ambiguities = append(input.Ambiguities, file.Ambiguities...)
 		if file.TypeHint == "episode" {
 			input.Ambiguities = append(input.Ambiguities, "episode_requires_parent")
@@ -223,6 +226,9 @@ func automaticMatchInput(item mediaIdentificationResponse) mediaprovider.Automat
 			}
 			input.Identifiers = append(input.Identifiers, mediaprovider.WorkIdentifier{Kind: kind, ExternalRef: mediaprovider.ExternalRef{Provider: id.Provider, ID: id.ID}})
 		}
+	}
+	if input.Title == "" {
+		input.Title = strings.TrimSpace(item.Title)
 	}
 	return input
 }

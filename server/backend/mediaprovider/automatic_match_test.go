@@ -60,6 +60,80 @@ func TestResolveAutomaticMatchRequiresConvergingExplicitEvidence(t *testing.T) {
 	}
 }
 
+func TestResolveAutomaticMatchTitleEvidenceIsConservative(t *testing.T) {
+	for _, tc := range []struct {
+		name, search, details string
+		input                 AutomaticMatchInput
+		want                  AutomaticMatchState
+		reason                string
+		calls                 int
+	}{
+		{
+			name:    "exact title and year unique",
+			search:  `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":42,"title":"回声","original_title":"Echo","release_date":"2020-09-01"}]}`,
+			details: `{"id":42,"title":"回声","original_title":"Echo","release_date":"2020-09-01"}`,
+			input:   AutomaticMatchInput{Kind: Movie, Title: "回声", Year: 2020, AllowTitleMatch: true},
+			want:    AutoMatched, calls: 2,
+		},
+		{
+			name:   "same title remake is review",
+			search: `{"page":1,"total_pages":1,"total_results":2,"results":[{"id":42,"title":"回声","release_date":"2020-09-01"},{"id":43,"title":"回声","release_date":"2020-09-01"}]}`,
+			input:  AutomaticMatchInput{Kind: Movie, Title: "回声", Year: 2020, AllowTitleMatch: true},
+			want:   AutoNeedsReview, reason: "ambiguous_candidates", calls: 1,
+		},
+		{
+			name:   "missing year is review",
+			search: `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":42,"title":"回声","release_date":"2020-09-01"}]}`,
+			input:  AutomaticMatchInput{Kind: Movie, Title: "回声", AllowTitleMatch: true},
+			want:   AutoNeedsReview, reason: "year_required", calls: 1,
+		},
+		{
+			name:   "no candidate",
+			search: `{"page":1,"total_pages":0,"total_results":0,"results":[]}`,
+			input:  AutomaticMatchInput{Kind: Movie, Title: "回声", Year: 2020, AllowTitleMatch: true},
+			want:   AutoNoMatch, reason: "title_not_found", calls: 1,
+		},
+		{
+			name:  "title matching disabled",
+			input: AutomaticMatchInput{Kind: Movie, Title: "回声", Year: 2020},
+			want:  AutoNeedsReview, reason: "typed_identifier_required", calls: 0,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls, checks := 0, 0
+			client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+				calls++
+				if request.URL.Query().Get("language") != "zh-CN" {
+					t.Error("title lookup lost metadata language", request.URL)
+				}
+				switch request.URL.Path {
+				case "/3/search/movie":
+					wantYear := "2020"
+					if tc.input.Year == 0 {
+						wantYear = ""
+					}
+					if request.URL.Query().Get("query") != "回声" || request.URL.Query().Get("primary_release_year") != wantYear {
+						t.Error("wrong title lookup", request.URL)
+					}
+					return response(200, tc.search), nil
+				case "/3/movie/42":
+					return response(200, tc.details), nil
+				default:
+					t.Fatalf("unexpected outbound request %s", request.URL.Path)
+					return nil, nil
+				}
+			})
+			result, err := client.ResolveAutomaticMatch(t.Context(), tc.input, "zh-CN", func(context.Context) error { checks++; return nil })
+			if err != nil || result.State != tc.want || result.Reason != tc.reason || calls != tc.calls || checks != calls {
+				t.Fatalf("state=%s reason=%s checks=%d calls=%d err=%v", result.State, result.Reason, checks, calls, err)
+			}
+			if tc.want == AutoMatched && (result.Document.Entity.ID != 42 || len(result.Evidence) == 0) {
+				t.Fatalf("title match lacks typed evidence: %+v", result)
+			}
+		})
+	}
+}
+
 func TestResolveAutomaticMatchPreservesRetryAndStopsAfterRevocation(t *testing.T) {
 	input := AutomaticMatchInput{Kind: Movie, Identifiers: []WorkIdentifier{{Movie, ExternalRef{"imdb", "tt1234567"}}}}
 	client := fixtureClient(func(*http.Request) (*http.Response, error) {
