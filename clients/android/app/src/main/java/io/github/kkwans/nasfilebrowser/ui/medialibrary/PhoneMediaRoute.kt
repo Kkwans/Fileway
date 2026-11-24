@@ -399,6 +399,9 @@ private fun PhoneMediaRouteState.detailState(scope: String, id: String): PhoneMe
             val score = value.value ?: return@mapNotNull null
             rating(observation.id, value.provider ?: value.rawSource, value.metric, score, value.scale, value.count)
         },
+        collections = item?.collections?.items.orEmpty().map { collection ->
+            listOfNotNull(collection.name, collection.number?.let { "编号 $it" }).joinToString(" · ")
+        },
         credits = MediaSection(item?.credits?.items.orEmpty().map { credit ->
             MediaCredit(credit.id, credit.name, credit.role.ifBlank { credit.roles.joinToString(" · ") })
         }),

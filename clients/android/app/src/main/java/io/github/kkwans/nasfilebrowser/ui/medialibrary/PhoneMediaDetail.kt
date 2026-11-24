@@ -145,6 +145,14 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
                         DetailPaging("episodes", state.episodes.loading, state.episodes.hasMore, onAction, Modifier.padding(horizontal = inset))
                     }
                 }
+                if (state.collections.isNotEmpty()) item(key = "collections") {
+                    Column(Modifier.padding(horizontal = inset), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PhoneDetailHeading("合集")
+                        state.collections.forEach { label ->
+                            Text(label, style = PhoneDetailType.body, color = MaterialTheme.colorScheme.onBackground)
+                        }
+                    }
+                }
                 item(key = "overview") {
                     Column(Modifier.padding(horizontal = inset), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         PhoneDetailHeading("剧情简介")
