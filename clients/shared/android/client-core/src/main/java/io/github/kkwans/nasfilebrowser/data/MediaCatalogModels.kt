@@ -29,6 +29,12 @@ data class MediaRating(val id: String, val scope: String, val origin: String, va
 data class MediaArtwork(val id: String, val role: String, val status: MediaArtworkStatus)
 data class MediaExternalId(val provider: String, val entityKind: String, val value: String)
 data class MediaMetadataCandidate(val code: String, val sourceKinds: List<String>)
+data class MediaCollection(val name: String, val number: String?) {
+    init {
+        require(name.isNotBlank() && name.none(Char::isISOControl) && name.toByteArray(Charsets.UTF_8).size <= 4096)
+        require(number == null || number.none(Char::isISOControl) && number.toByteArray(Charsets.UTF_8).size <= 128)
+    }
+}
 data class MediaRevisionPage<T>(val items: List<T>, val nextCursor: String?, val revision: Long)
 
 data class MediaItemDetail(
@@ -36,6 +42,7 @@ data class MediaItemDetail(
     val credits: MediaRevisionPage<MediaCredit>, val ratings: MediaRevisionPage<MediaRating>,
     val artwork: MediaRevisionPage<MediaArtwork>, val externalIds: MediaRevisionPage<MediaExternalId>,
     val issues: List<String>, val candidates: MediaRevisionPage<MediaMetadataCandidate>, val onlineMatch: MediaOnlineMatch? = null,
+    val collections: MediaRevisionPage<MediaCollection>? = null,
 )
 data class MediaMetadataReceipt(val itemId: String, val revision: Long, val metadataRevision: Long)
 
@@ -120,6 +127,11 @@ internal fun parseMediaExternalId(row: JSONObject): MediaExternalId = MediaExter
 internal fun parseMediaCandidate(row: JSONObject): MediaMetadataCandidate = MediaMetadataCandidate(row.text("code"), row.getJSONArray("sourceKinds").strings(128))
 internal fun parseMediaMetadataReceipt(row: JSONObject): MediaMetadataReceipt = MediaMetadataReceipt(row.id("itemId"), row.integer("revision", 1), row.integer("metadataRevision"))
 
+internal fun parseMediaCollection(row: JSONObject): MediaCollection {
+    require(row.keys().asSequence().toSet() in setOf(setOf("name"), setOf("name", "number")))
+    return MediaCollection(row.text("name"), row.optionalText("number")?.takeIf(String::isNotBlank))
+}
+
 internal fun parseMediaItemDetail(row: JSONObject): MediaItemDetail {
     val item = parseMediaItem(row.getJSONObject("item"))
     val fields = row.getJSONObject("fields")
@@ -134,6 +146,8 @@ internal fun parseMediaItemDetail(row: JSONObject): MediaItemDetail {
         MediaMetadataField(field.getJSONArray("values").strings(128), source, field.boolean("locked"),
             field.boolean("explicitClear"), field.integer("revision", 1))
     }
+    val collections = if (!row.has("collections") || row.isNull("collections")) null else
+        MediaRevisionPage(row.getJSONArray("collections").rows(20, ::parseMediaCollection), row.cursor("collectionsNextCursor"), item.revision)
     return MediaItemDetail(item, row.integer("metadataRevision"), parsedFields,
         MediaRevisionPage(row.getJSONArray("credits").rows(20, ::parseMediaCredit), row.cursor("creditsNextCursor"), item.revision),
         MediaRevisionPage(row.getJSONArray("ratings").rows(20, ::parseMediaRating), row.cursor("ratingsNextCursor"), item.revision),
@@ -141,7 +155,8 @@ internal fun parseMediaItemDetail(row: JSONObject): MediaItemDetail {
         MediaRevisionPage(row.getJSONArray("externalIds").rows(20, ::parseMediaExternalId), row.cursor("externalIdsNextCursor"), item.revision),
         row.getJSONArray("issues").strings(20),
         MediaRevisionPage(row.getJSONArray("candidates").rows(20, ::parseMediaCandidate), row.cursor("issuesNextCursor"), item.revision),
-        if (!row.has("onlineMatch") || row.isNull("onlineMatch")) null else parseMediaOnlineMatch(row.getJSONObject("onlineMatch")))
+        if (!row.has("onlineMatch") || row.isNull("onlineMatch")) null else parseMediaOnlineMatch(row.getJSONObject("onlineMatch")),
+        collections)
 }
 
 internal fun <T> parseMediaRevisionPage(row: JSONObject, limit: Int, cursor: String?, revision: Long, parse: (JSONObject) -> T): MediaRevisionPage<T> {
