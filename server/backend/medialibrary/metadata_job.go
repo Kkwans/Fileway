@@ -151,7 +151,7 @@ func (c *ScanCoordinator) RecoverMetadataJobs(ctx context.Context) error {
 	_, err := coordinatedCall(ctx, c, func(ctx context.Context, store *Store) (struct{}, error) {
 		return struct{}{}, store.WithTx(ctx, func(tx *sql.Tx) error {
 			_, err := tx.ExecContext(ctx, `UPDATE job SET status='interrupted',generation=generation+1,updated_at=max(updated_at,?)
-WHERE kind=? AND status='running'`, time.Now().UnixMilli(), metadataJobKind)
+WHERE kind IN (?,?) AND status='running'`, time.Now().UnixMilli(), metadataJobKind, metadataRefreshJobKind)
 			return err
 		})
 	})

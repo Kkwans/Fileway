@@ -1,5 +1,36 @@
 package medialibrary
 
+// Batch language refresh freezes matched targets and provider authority independently of scans.
+const schemaV21 = `
+CREATE TABLE IF NOT EXISTS metadata_refresh_job (
+    job_id TEXT PRIMARY KEY NOT NULL REFERENCES job(id),
+    connection_id TEXT NOT NULL REFERENCES provider_connection(id),
+    connection_revision INTEGER NOT NULL CHECK(connection_revision>0),
+    policy_revision INTEGER NOT NULL CHECK(policy_revision>0),
+    language TEXT NOT NULL,
+    region TEXT NOT NULL DEFAULT '',
+    mode TEXT NOT NULL CHECK(mode IN ('local_first_online','online_first')),
+    failure_code TEXT NOT NULL DEFAULT ''
+) STRICT;
+CREATE TABLE IF NOT EXISTS metadata_refresh_target (
+    job_id TEXT NOT NULL REFERENCES metadata_refresh_job(job_id),
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    item_revision INTEGER NOT NULL CHECK(item_revision>0),
+    structure_revision INTEGER NOT NULL CHECK(structure_revision>0),
+    operation_id TEXT NOT NULL,
+    outcome TEXT NOT NULL DEFAULT 'pending' CHECK(outcome IN ('pending','refreshed','already_current','preserved','source_changed','failed','undone')),
+    reason TEXT NOT NULL DEFAULT '',
+    applied_match_revision INTEGER NOT NULL DEFAULT 0 CHECK(applied_match_revision>=0),
+    applied_item_revision INTEGER NOT NULL DEFAULT 0 CHECK(applied_item_revision>=0),
+    PRIMARY KEY(job_id,item_id),
+    UNIQUE(job_id,operation_id),
+    FOREIGN KEY(library_id,item_id) REFERENCES library_item(library_id,id)
+) STRICT;
+CREATE INDEX IF NOT EXISTS metadata_refresh_target_pending ON metadata_refresh_target(job_id,item_id) WHERE outcome='pending';
+CREATE INDEX IF NOT EXISTS metadata_refresh_target_undo ON metadata_refresh_target(job_id,item_id) WHERE outcome='refreshed';
+`
+
 // Candidate tickets bind manual confirmation to a bounded provider search.
 const schemaV20 = `
 CREATE TABLE IF NOT EXISTS provider_match_candidate_set (
