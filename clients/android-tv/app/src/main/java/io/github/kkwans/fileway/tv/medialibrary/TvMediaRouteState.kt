@@ -74,6 +74,7 @@ internal class TvMediaRouteState(
     var sourceRef by mutableStateOf<MediaCatalogRef?>(null); private set
     var variants by mutableStateOf<List<MediaCatalogVariant>>(emptyList()); private set
     var sourcesLoading by mutableStateOf(false); private set
+    var sourcesRecovering by mutableStateOf(false); private set
     var sourcesCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
     var sourcesError by mutableStateOf<String?>(null); private set
 
@@ -94,6 +95,8 @@ internal class TvMediaRouteState(
     private var seasonsJob: Job? = null
     private var episodesJob: Job? = null
     private var sourcesJob: Job? = null
+    private var sourceRecoveryJob: Job? = null
+    private var pendingSourceRecovery: MediaOperation? = null
 
     fun close() { listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, collectionsJob, collectionWorksJob, personWorksJob, detailJob, seasonsJob, episodesJob, sourcesJob).forEach { it?.cancel() } }
 
@@ -487,6 +490,100 @@ internal class TvMediaRouteState(
                 }
             }
             coroutineContext.ensureActive(); episodesLoading = false
+        }
+    }
+
+    fun recoverSource(id: String) {
+        if (sourcesRecovering) return
+        pendingSourceRecovery?.let { operation ->
+            submitSourceRecovery(operation)
+            return
+        }
+        val variant = variants.firstOrNull { tvVariantKey(it) == id } ?: return
+        when (variant.recoveryAction) {
+            "retry" -> loadSources(true)
+            "permission" -> sourcesError = "请联系媒体库所有者检查共享权限后重试。"
+            "rescan" -> {
+                val ref = sourceRef ?: return
+                sourcesRecovering = true; sourcesError = null
+                sourceRecoveryJob = scope.launch {
+                    try {
+                        val support = repository.scanSupport()
+                        if (support !is MediaReadResult.Success || !support.value.available) {
+                            sourcesError = "服务器未提供可用的本地扫描能力。"
+                            return@launch
+                        }
+                        var cursor: String? = null
+                        var binding: MediaLibrarySource? = null
+                        do {
+                            when (val result = repository.listSources(ref.libraryId, cursor = cursor)) {
+                                is MediaReadResult.Success -> {
+                                    binding = result.value.items.firstOrNull { it.id == variant.bindingId } ?: binding
+                                    cursor = result.value.nextCursor
+                                }
+                                is MediaReadResult.Failure -> {
+                                    sourcesError = tvMediaFailure(result.error)
+                                    return@launch
+                                }
+                            }
+                        } while (cursor != null && binding == null)
+                        val source = binding
+                        if (source == null) {
+                            sourcesError = "来源已变化，请关闭片源面板并刷新影视详情。"
+                            return@launch
+                        }
+                        val operation = repository.newOperation()
+                        when (val result = repository.startScan(operation, ref.libraryId, source.id, source.revision, support.value.localRulesRevision)) {
+                            is MediaWriteResult.Success -> {
+                                pendingSourceRecovery = null
+                                repository.forgetResolvedOperation(operation)
+                                sourcesError = "已开始重新扫描，完成后请重新打开片源面板。"
+                                refreshHome()
+                            }
+                            is MediaWriteResult.Failure -> {
+                                val unknown = result.error.mutationMayHaveCommitted
+                                pendingSourceRecovery = operation.takeIf { unknown }
+                                sourcesError = if (unknown) "扫描结果尚待确认，再次选择重新扫描以确认原操作。"
+                                else {
+                                    repository.forgetResolvedOperation(operation)
+                                    tvMediaFailure(result.error)
+                                }
+                            }
+                        }
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (_: Exception) { sourcesError = "无法开始重新扫描，请检查连接后重试。" }
+                    finally { sourcesRecovering = false }
+                }
+            }
+        }
+    }
+
+    private fun submitSourceRecovery(operation: MediaOperation) {
+        sourcesRecovering = true; sourcesError = null
+        sourceRecoveryJob = scope.launch {
+            try {
+                when (val result = repository.retryOperation(operation)) {
+                    is MediaWriteResult.Success -> {
+                        pendingSourceRecovery = null
+                        repository.forgetResolvedOperation(operation)
+                        sourcesError = "已开始重新扫描，完成后请重新打开片源面板。"
+                        refreshHome()
+                    }
+                    is MediaWriteResult.Failure -> {
+                        val unknown = result.error.mutationMayHaveCommitted
+                        pendingSourceRecovery = operation.takeIf { unknown }
+                        sourcesError = if (unknown) "扫描结果尚待确认，再次选择重新扫描以确认原操作。"
+                        else {
+                            repository.forgetResolvedOperation(operation)
+                            tvMediaFailure(result.error)
+                        }
+                    }
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                pendingSourceRecovery = operation
+                sourcesError = "扫描结果尚待确认，再次选择重新扫描以确认原操作。"
+            } finally { sourcesRecovering = false }
         }
     }
 

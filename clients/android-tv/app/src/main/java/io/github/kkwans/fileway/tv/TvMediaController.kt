@@ -92,6 +92,9 @@ class TvMediaController(
         val fromStart: Boolean, val checkpoint: MediaCatalogContinue?,
     )
     private var catalogSelection: CatalogSelection? = null
+    internal fun currentCatalogSourceId(): String? = catalogSelection?.variant?.let {
+        "${it.editionId}/${it.variantId}/${it.bindingId}"
+    }
     private var catalogLease: CatalogPlaybackLease? = null
     private var catalogProgress: CatalogWatchReporter? = null
 

@@ -107,6 +107,7 @@ class TvActivity : ComponentActivity() {
                                     contentAlignment = androidx.compose.ui.Alignment.Center) {
                                     if (repository != null) TvMediaRoute(session, repository, model.imageLoader,
                                         onExit = { catalogOpen = false },
+                                        currentSourceId = model.media::currentCatalogSourceId,
                                         onPlayback = { variant, fromStart, checkpoint ->
                                             model.media.openCatalog(repository, variant, fromStart, checkpoint)
                                         })

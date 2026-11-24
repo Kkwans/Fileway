@@ -46,6 +46,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
     repository: MediaLibraryRepository,
     imageLoader: ImageLoader,
     onExit: () -> Unit,
+    currentSourceId: () -> String?,
     onPlayback: (MediaCatalogVariant, Boolean, MediaCatalogContinue?) -> Unit,
 ) {
     val interactive = LocalTvInteractive.current
@@ -390,17 +391,23 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                 if (source != null && interactive) {
                     val editions = route.variants.groupBy { it.editionId }.map { (id, values) ->
                         TvMediaEdition(id, values.first().editionName.ifBlank { "原始版本" }, sources = values.map { value ->
-                            TvMediaSource(tvVariantKey(value), value.sourceLabel, value.resolution,
-                                tvSize(value.size), value.displayName, available = true)
+                            TvMediaSource(id = tvVariantKey(value), locationLabel = value.sourceLabel,
+                                qualityLabel = listOfNotNull(value.resolution, value.size.takeIf { it > 0 }?.let(::tvSize)).joinToString(" · "),
+                                detailLabel = null, fileName = value.displayName, kind = tvSourceKind(value.sourceKind), available = value.available,
+                                unavailableReason = tvSourceState(value.availability),
+                                recoveryLabel = tvSourceRecovery(value.recoveryAction))
                         })
                     }
                     TvMediaSourcePicker(TvMediaSourcePickerState(session.owner, tvMediaKey(source), "选择片源", editions,
-                        loading = route.sourcesLoading, error = route.sourcesError), onDismiss = ::closeSources,
+                        currentSourceId = currentSourceId(), loading = route.sourcesLoading,
+                        error = route.sourcesError, applying = route.sourcesRecovering), onDismiss = ::closeSources,
                         onConfirm = { edition, sourceId ->
-                            route.variants.firstOrNull { it.editionId == edition && tvVariantKey(it) == sourceId }?.let {
-                                route.closeSources(); awaitingPlayer = true; playerWasShown = false; onPlayback(it, startFromBeginning, null)
-                            }
-                        }, onRetry = if (route.sourcesError != null) ({ route.loadSources(true) }) else null,
+                            route.variants.firstOrNull { it.editionId == edition && tvVariantKey(it) == sourceId }
+                                ?.takeIf { it.available }?.let {
+                                    route.closeSources(); awaitingPlayer = true; playerWasShown = false; onPlayback(it, startFromBeginning, null)
+                                }
+                        }, onRecover = route::recoverSource,
+                        onRetry = if (route.sourcesError != null) ({ route.loadSources(true) }) else null,
                         onMore = if (route.sourcesCursor != null) ({ route.loadSources(false) }) else null)
                 }
             }
@@ -436,6 +443,30 @@ private fun tvCard(card: MediaCatalogCard, art: TvCatalogArtworkRequests): TvMed
     ratings = listOfNotNull(tvRating(card.primaryRating)), availabilityLabel = tvAvailability(card.availability),
     canPlay = card.actions.can(MediaCatalogAction.PLAY),
 )
+
+private fun tvSourceKind(value: MediaCatalogSourceKind): TvMediaSourceKind = when (value) {
+    MediaCatalogSourceKind.CLOUD -> TvMediaSourceKind.CLOUD
+    MediaCatalogSourceKind.NETWORK -> TvMediaSourceKind.NETWORK
+    else -> TvMediaSourceKind.SERVER
+}
+
+private fun tvSourceState(value: MediaCatalogSourceAvailability): String? = when (value) {
+    MediaCatalogSourceAvailability.AVAILABLE -> null
+    MediaCatalogSourceAvailability.MISSING -> "文件缺失"
+    MediaCatalogSourceAvailability.OFFLINE -> "来源离线"
+    MediaCatalogSourceAvailability.CHANGED -> "文件已变化，需要重新核对"
+    MediaCatalogSourceAvailability.UNVERIFIED -> "文件身份尚未验证"
+    MediaCatalogSourceAvailability.DENIED -> "当前账号无权访问此片源"
+    MediaCatalogSourceAvailability.UNAVAILABLE -> "片源暂时不可用"
+    MediaCatalogSourceAvailability.UNKNOWN -> "片源状态未知"
+}
+
+private fun tvSourceRecovery(value: String?): String? = when (value) {
+    "retry" -> "重试"
+    "rescan" -> "重新扫描"
+    "permission" -> "检查权限"
+    else -> null
+}
 
 private fun tvAvailability(value: MediaCatalogAvailability): String? = when (value) {
     MediaCatalogAvailability.AVAILABLE -> null
