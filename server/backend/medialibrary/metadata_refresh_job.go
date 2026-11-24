@@ -183,6 +183,29 @@ WHERE t.job_id=? AND t.outcome='pending' ORDER BY t.item_id LIMIT 1`, job.Genera
 	})
 }
 
+func acknowledgeMetadataRefreshTargetTx(ctx context.Context, tx *sql.Tx, job *MetadataRefreshJob, request ProviderMatchRequest, revision int64) error {
+	result, err := tx.ExecContext(ctx, `UPDATE metadata_refresh_target SET outcome='refreshed',reason='',
+applied_match_revision=?,applied_item_revision=?
+WHERE job_id=? AND library_id=? AND item_id=? AND operation_id=? AND item_revision=? AND structure_revision=? AND outcome='pending'
+AND EXISTS(SELECT 1 FROM job WHERE id=? AND generation=? AND status='running' AND kind=?)`,
+		revision, revision, job.ID, request.LibraryID, request.ItemID, request.refreshOperationID,
+		request.ItemRevision, request.StructureRevision, job.ID, job.Generation, metadataRefreshJobKind)
+	return metadataJobUpdated(result, err)
+}
+
+func (c *ScanCoordinator) CommitMetadataRefreshTarget(ctx context.Context, job MetadataRefreshJob, target MetadataRefreshTarget,
+	request ProviderMatchRequest, language string, fetchedAt int64, document ProviderMatchDocument, audit ProviderMatchAudit) (*ProviderMatchResult, error) {
+	if target.LibraryID != job.LibraryID || target.OperationID == "" || request.LibraryID != target.LibraryID || request.ItemID != target.ItemID ||
+		request.ItemRevision != target.ItemRevision || request.StructureRevision != target.StructureRevision {
+		return nil, ErrInvalid
+	}
+	request.refreshJob = &job
+	request.refreshOperationID = target.OperationID
+	return coordinatedCall(ctx, c, func(ctx context.Context, store *Store) (*ProviderMatchResult, error) {
+		return store.ConfirmProviderMatch(ctx, job.OwnerUserID, target.OperationID, request, job.Authority, language, fetchedAt, document, audit)
+	})
+}
+
 func (c *ScanCoordinator) ResolveMetadataRefreshJobTarget(ctx context.Context, job MetadataRefreshJob, itemID, outcome, reason string) error {
 	if outcome != "refreshed" && outcome != "already_current" && outcome != "preserved" && outcome != "source_changed" && outcome != "failed" {
 		return ErrInvalid

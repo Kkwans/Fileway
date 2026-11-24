@@ -17,6 +17,8 @@ type ProviderMatchRequest struct {
 	CandidateSetID                              string `json:",omitempty"`
 	Automatic                                   bool   `json:",omitempty"`
 	job                                         *MetadataJob
+	refreshJob                                  *MetadataRefreshJob
+	refreshOperationID                          string
 }
 
 type ProviderMatchDocument struct {
@@ -79,6 +81,9 @@ func (store *Store) ReplayProviderMatch(ctx context.Context, actor uint, operati
 // Provider data is retained independently so changing priority is reversible.
 func (store *Store) ConfirmProviderMatch(ctx context.Context, actor uint, operationID string, request ProviderMatchRequest,
 	authority ProviderUseAuthority, language string, fetchedAt int64, document ProviderMatchDocument, audit ProviderMatchAudit) (*ProviderMatchResult, error) {
+	if request.Kind != "movie" && request.Kind != "series" || request.job != nil && request.refreshJob != nil {
+		return nil, ErrInvalid
+	}
 	kind, ok := map[string]mediametadata.Kind{"movie": mediametadata.Movie, "series": mediametadata.TVShow}[request.Kind]
 	if !ok || kind != document.Item.Kind || request.ExternalID <= 0 || request.ItemRevision < 1 ||
 		request.StructureRevision < 1 || fetchedAt <= 0 || (request.ConnectionID != "" && request.ConnectionID != authority.ConnectionID) {
@@ -156,6 +161,14 @@ UNION ALL SELECT 1 FROM provider_match_manual_review WHERE library_id=?1 AND ite
 				return nil, err
 			}
 			if err := acknowledgeMetadataJobTarget(ctx, tx, job.ID, job.Generation, job.LibraryID, request.ItemID, "matched", ""); err != nil {
+				return nil, err
+			}
+		}
+		if refresh := request.refreshJob; refresh != nil {
+			if request.LibraryID != refresh.LibraryID {
+				return nil, ErrInvalid
+			}
+			if err := acknowledgeMetadataRefreshTargetTx(ctx, tx, refresh, request, revision+1); err != nil {
 				return nil, err
 			}
 		}
