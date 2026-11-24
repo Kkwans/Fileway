@@ -13,9 +13,12 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/gorilla/mux"
+	"golang.org/x/text/unicode/norm"
 )
 
 type catalogSnapshot struct {
@@ -80,13 +83,13 @@ type catalogCardPage struct {
 }
 
 type browseRequest struct {
-	LibraryID, Kind, MatchState, Sort string
-	Limit                             int
-	Hero                              bool
+	LibraryID, Kind, MatchState, Sort, Query string
+	Limit                                    int
+	Hero                                     bool
 }
 
 func browseQuery(req browseRequest) string {
-	return fmt.Sprintf("browse:%q:%q:%q:%q:%d:%t", req.LibraryID, req.Kind, req.MatchState, req.Sort, req.Limit, req.Hero)
+	return fmt.Sprintf("browse:%q:%q:%q:%q:%q:%d:%t", req.LibraryID, req.Kind, req.MatchState, req.Sort, req.Query, req.Limit, req.Hero)
 }
 
 func (v *catalogView) browse(ctx context.Context, snapshot catalogSnapshot, req browseRequest, token string) (catalogCardPage, error) {
@@ -113,7 +116,7 @@ func (v *catalogView) browse(ctx context.Context, snapshot catalogSnapshot, req 
 		if req.Kind == "series" {
 			candidateKind = "series"
 		}
-		options := medialibrary.BrowseCandidateOptions{LibraryID: req.LibraryID, OnlyOwned: mediaSharingDisabled(v.d), Sort: req.Sort, Kind: candidateKind, AfterID: cursor.AfterID, AfterValue: cursor.AfterValue, Limit: 1}
+		options := medialibrary.BrowseCandidateOptions{LibraryID: req.LibraryID, OnlyOwned: mediaSharingDisabled(v.d), Sort: req.Sort, Kind: candidateKind, Query: req.Query, AfterID: cursor.AfterID, AfterValue: cursor.AfterValue, Limit: 1}
 		candidatePage, err := v.d.store.MediaLibrary.ListBrowseCandidates(ctx, v.d.user.ID, options)
 		if err != nil {
 			return page, err
@@ -206,7 +209,7 @@ func (v *catalogView) browse(ctx context.Context, snapshot catalogSnapshot, req 
 			if req.Sort == "updated" && card.SeriesUpdatedAt == nil {
 				visible = false
 			}
-			if visible && (!req.Hero || (card.MatchState == "local_confirmed" || card.MatchState == "provider_confirmed") && (card.StructureKind == "movie" || card.StructureKind == "series") && card.Title != "") && (req.Kind == "" || req.Kind == card.StructureKind) && (req.MatchState == "" || req.MatchState == card.MatchState) {
+			if visible && (!req.Hero || (card.MatchState == "local_confirmed" || card.MatchState == "provider_confirmed") && (card.StructureKind == "movie" || card.StructureKind == "series") && card.Title != "") && (req.Kind == "" || req.Kind == card.StructureKind) && (req.MatchState == "" || req.MatchState == card.MatchState) && catalogSearchMatches(req.Query, card.Title, card.OriginalTitle) {
 				if len(page.Items) == req.Limit {
 					cursor = before
 					page.HasMore = true
@@ -363,8 +366,25 @@ func (v *catalogView) browseUpdated(ctx context.Context, snapshot catalogSnapsho
 	return page, err
 }
 
+func catalogSearchMatches(query, title string, original *string) bool {
+	needle := norm.NFKC.String(strings.ToLower(strings.TrimSpace(query)))
+	if needle == "" {
+		return true
+	}
+	values := []string{title}
+	if original != nil {
+		values = append(values, *original)
+	}
+	for _, value := range values {
+		if strings.Contains(norm.NFKC.String(strings.ToLower(value)), needle) {
+			return true
+		}
+	}
+	return false
+}
+
 func parseBrowseRequest(r *http.Request) (browseRequest, error) {
-	req := browseRequest{LibraryID: r.URL.Query().Get("libraryId"), Kind: r.URL.Query().Get("structureKind"), MatchState: r.URL.Query().Get("matchState"), Sort: r.URL.Query().Get("sort"), Limit: 20}
+	req := browseRequest{LibraryID: r.URL.Query().Get("libraryId"), Kind: r.URL.Query().Get("structureKind"), MatchState: r.URL.Query().Get("matchState"), Sort: r.URL.Query().Get("sort"), Query: strings.TrimSpace(r.URL.Query().Get("q")), Limit: 20}
 	if req.Sort == "" {
 		req.Sort = "id"
 	}
@@ -375,11 +395,12 @@ func parseBrowseRequest(r *http.Request) (browseRequest, error) {
 		}
 		req.Limit = value
 	}
-	if len(req.LibraryID) > 128 || req.Sort != "id" && req.Sort != "newest" && req.Sort != "updated" || req.Kind != "" && req.Kind != "movie" && req.Kind != "series" && req.Kind != "video" || req.MatchState != "" && req.MatchState != "unmatched" && req.MatchState != "local_confirmed" && req.MatchState != "provider_confirmed" && req.MatchState != "needs_review" {
+	if len(req.LibraryID) > 128 || req.Sort != "id" && req.Sort != "newest" && req.Sort != "updated" || req.Kind != "" && req.Kind != "movie" && req.Kind != "series" && req.Kind != "video" || req.MatchState != "" && req.MatchState != "unmatched" && req.MatchState != "local_confirmed" && req.MatchState != "provider_confirmed" && req.MatchState != "needs_review" ||
+		utf8.RuneCountInString(req.Query) > 200 || len(req.Query) > 800 || strings.IndexFunc(req.Query, unicode.IsControl) >= 0 {
 		return req, medialibrary.ErrInvalid
 	}
 	for key := range r.URL.Query() {
-		if key != "libraryId" && key != "structureKind" && key != "matchState" && key != "sort" && key != "limit" && key != "cursor" {
+		if key != "libraryId" && key != "structureKind" && key != "matchState" && key != "sort" && key != "limit" && key != "cursor" && key != "q" {
 			return req, medialibrary.ErrInvalid
 		}
 	}
@@ -452,7 +473,7 @@ var mediaCatalogHomeHandler = catalogLibraryRead(func(w http.ResponseWriter, r *
 	if err != nil {
 		return catalogError(w, err)
 	}
-	result := catalogHome{SchemaVersion: 1, State: "no_libraries", Libraries: []mediaLibrarySummary{}, Rows: []catalogHomeRow{}, Capabilities: map[string]bool{"watchState": true, "favorites": false, "manualUserState": true, "search": false, "collections": false, "categories": false, "localCatalog": true}, CanActions: map[string]bool{"createLibrary": d.deviceSession == ""}, ActionReasons: map[string]string{}}
+	result := catalogHome{SchemaVersion: 1, State: "no_libraries", Libraries: []mediaLibrarySummary{}, Rows: []catalogHomeRow{}, Capabilities: map[string]bool{"watchState": true, "favorites": false, "manualUserState": true, "search": true, "collections": false, "categories": false, "localCatalog": true}, CanActions: map[string]bool{"createLibrary": d.deviceSession == ""}, ActionReasons: map[string]string{}}
 	if d.deviceSession != "" {
 		result.ActionReasons["createLibrary"] = "not_granted"
 	}

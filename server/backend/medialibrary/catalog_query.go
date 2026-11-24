@@ -4,6 +4,9 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // BrowseCandidate is an authorization-neutral candidate. In particular, its
@@ -20,6 +23,7 @@ type BrowseCandidateOptions struct {
 	OnlyOwned  bool
 	Sort       string // id, newest, updated
 	Kind       string // optional movie, series or video
+	Query      string
 	AfterID    string
 	AfterValue *int64
 	Limit      int
@@ -73,7 +77,8 @@ func (store *Store) ListBrowseCandidates(ctx context.Context, viewer uint, optio
 	if viewer == 0 {
 		return nil, ErrForbidden
 	}
-	if options.Limit < 1 || options.Limit > 100 || options.Sort != "id" && options.Sort != "newest" && options.Sort != "updated" || options.Kind != "" && options.Kind != "movie" && options.Kind != "series" && options.Kind != "video" || options.Sort == "id" && options.AfterValue != nil || options.Sort != "id" && (options.AfterID == "") != (options.AfterValue == nil) {
+	if options.Limit < 1 || options.Limit > 100 || options.Sort != "id" && options.Sort != "newest" && options.Sort != "updated" || options.Kind != "" && options.Kind != "movie" && options.Kind != "series" && options.Kind != "video" || options.Sort == "id" && options.AfterValue != nil || options.Sort != "id" && (options.AfterID == "") != (options.AfterValue == nil) ||
+		utf8.RuneCountInString(options.Query) > 200 || len(options.Query) > 800 || strings.IndexFunc(options.Query, unicode.IsControl) >= 0 {
 		return nil, fmt.Errorf("%w: browse candidate options", ErrInvalid)
 	}
 	order := "i.id ASC"
@@ -96,10 +101,13 @@ func (store *Store) ListBrowseCandidates(ctx context.Context, viewer uint, optio
 		}
 		args = append(args, hasAfter, after, after, options.AfterID)
 	}
-	args = append(args, options.Limit+1)
+	pattern := "%" + escapeCatalogLike(options.Query) + "%"
+	args = append(args, options.Query, pattern, pattern, options.Limit+1)
 	rows, err := store.db.QueryContext(ctx, `SELECT i.id,i.library_id,i.kind,i.revision,st.match_state,st.structure_revision,st.first_added_at,st.series_updated_at
 FROM library_item i JOIN item_structure st ON st.library_id=i.library_id AND st.item_id=i.id JOIN library l ON l.id=i.library_id LEFT JOIN library_member m ON m.library_id=l.id AND m.user_id=? AND m.revoked_at IS NULL
-WHERE `+libraryVisibility+` AND l.archived_at IS NULL AND (?=0 OR l.owner_user_id=?) AND (?='' OR i.library_id=?) AND (?='' OR i.kind=?) AND i.kind IN ('movie','series','video') AND st.superseded_by IS NULL AND `+filter+` ORDER BY `+order+` LIMIT ?`, args...)
+WHERE `+libraryVisibility+` AND l.archived_at IS NULL AND (?=0 OR l.owner_user_id=?) AND (?='' OR i.library_id=?) AND (?='' OR i.kind=?) AND i.kind IN ('movie','series','video') AND st.superseded_by IS NULL AND `+filter+`
+AND (?='' OR i.title LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM item_field f WHERE f.library_id=i.library_id AND f.item_id=i.id AND f.field IN ('title','originaltitle','sorttitle')
+AND EXISTS(SELECT 1 FROM json_each(f.value_json) v WHERE v.type='text' AND v.value LIKE ? ESCAPE '\'))) ORDER BY `+order+` LIMIT ?`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -121,6 +129,10 @@ WHERE `+libraryVisibility+` AND l.archived_at IS NULL AND (?=0 OR l.owner_user_i
 		page.Items = append(page.Items, c)
 	}
 	return page, rows.Err()
+}
+
+func escapeCatalogLike(value string) string {
+	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(value)
 }
 
 type SeriesEpisodeCandidate struct {
