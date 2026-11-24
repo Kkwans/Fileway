@@ -26,6 +26,7 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
+import io.github.kkwans.nasfilebrowser.data.MediaCatalogCollection
 import io.github.kkwans.nasfilebrowser.data.MediaCatalogFileMatch
 import io.github.kkwans.nasfilebrowser.data.MediaCatalogPerson
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayEmptyState
@@ -38,27 +39,32 @@ internal fun PhoneMediaSearch(query: String, searched: Boolean, mode: MediaSearc
     entries: List<MediaPoster>, loading: Boolean, problem: MediaProblem?, hasMore: Boolean,
     people: List<MediaCatalogPerson>, peopleLoading: Boolean, peopleProblem: MediaProblem?, peopleHasMore: Boolean,
     files: List<MediaCatalogFileMatch>, filesLoading: Boolean, filesProblem: MediaProblem?, filesHasMore: Boolean,
+    collections: List<MediaCatalogCollection>, collectionsLoading: Boolean, collectionsProblem: MediaProblem?, collectionsHasMore: Boolean,
     canSearchFiles: Boolean, imageLoader: ImageLoader, onAction: (PhoneMediaAction) -> Unit) {
     val focus = LocalFocusManager.current
     val busy = when (mode) {
         MediaSearchMode.WORKS -> loading
         MediaSearchMode.PEOPLE -> peopleLoading
         MediaSearchMode.FILES -> filesLoading
+        MediaSearchMode.COLLECTIONS -> collectionsLoading
     }
     val issue = when (mode) {
         MediaSearchMode.WORKS -> problem
         MediaSearchMode.PEOPLE -> peopleProblem
         MediaSearchMode.FILES -> filesProblem
+        MediaSearchMode.COLLECTIONS -> collectionsProblem
     }
     val more = when (mode) {
         MediaSearchMode.WORKS -> hasMore
         MediaSearchMode.PEOPLE -> peopleHasMore
         MediaSearchMode.FILES -> filesHasMore
+        MediaSearchMode.COLLECTIONS -> collectionsHasMore
     }
     val empty = when (mode) {
         MediaSearchMode.WORKS -> entries.isEmpty()
         MediaSearchMode.PEOPLE -> people.isEmpty()
         MediaSearchMode.FILES -> files.isEmpty()
+        MediaSearchMode.COLLECTIONS -> collections.isEmpty()
     }
     fun submit() {
         if (query.isNotBlank() && !busy) {
@@ -73,6 +79,7 @@ internal fun PhoneMediaSearch(query: String, searched: Boolean, mode: MediaSearc
                 MediaSearchMode.WORKS -> "作品标题或原名"
                 MediaSearchMode.PEOPLE -> "演员、导演或编剧姓名"
                 MediaSearchMode.FILES -> "媒体文件名"
+                MediaSearchMode.COLLECTIONS -> "合集名称"
             }) }, singleLine = true, shape = MaterialTheme.shapes.medium,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { submit() }))
         Row(Modifier.fillMaxWidth().padding(horizontal = FilewaySpace.page), horizontalArrangement = Arrangement.spacedBy(FilewaySpace.content)) {
@@ -96,6 +103,7 @@ internal fun PhoneMediaSearch(query: String, searched: Boolean, mode: MediaSearc
                         MediaSearchMode.WORKS -> "正在搜索影视"
                         MediaSearchMode.PEOPLE -> "正在搜索人物"
                         MediaSearchMode.FILES -> "正在搜索文件"
+                        MediaSearchMode.COLLECTIONS -> "正在搜索合集"
                     })
                 }
                 issue?.let { item(key = "problem", span = { GridItemSpan(maxLineSpan) }) {
@@ -106,10 +114,12 @@ internal fun PhoneMediaSearch(query: String, searched: Boolean, mode: MediaSearc
                         MediaSearchMode.WORKS -> "没有找到相关影视"
                         MediaSearchMode.PEOPLE -> "没有找到相关人物"
                         MediaSearchMode.FILES -> "没有找到相关文件"
+                        MediaSearchMode.COLLECTIONS -> "没有找到相关合集"
                     }, when (mode) {
                         MediaSearchMode.WORKS -> "试试缩短片名或使用原名。"
                         MediaSearchMode.PEOPLE -> "试试使用姓名中的一部分。"
                         MediaSearchMode.FILES -> "试试使用文件名中的一部分。"
+                        MediaSearchMode.COLLECTIONS -> "试试使用合集名称中的一部分。"
                     })
                 }
                 when (mode) {
@@ -126,6 +136,12 @@ internal fun PhoneMediaSearch(query: String, searched: Boolean, mode: MediaSearc
                         span = { GridItemSpan(maxLineSpan) }) { file ->
                         PhoneMediaFileResult(file.fileName, poster(file.card), imageLoader) {
                             onAction(PhoneMediaAction.OpenItem(key(file.card.ref)))
+                        }
+                    }
+                    MediaSearchMode.COLLECTIONS -> items(collections, key = { "collections/${it.ref.libraryId}/${it.ref.collectionId}" },
+                        span = { GridItemSpan(maxLineSpan) }) { collection ->
+                        PhoneMediaCollectionResult(collection, imageLoader) {
+                            onAction(PhoneMediaAction.OpenCollection(collection.ref.libraryId, collection.ref.collectionId))
                         }
                     }
                 }

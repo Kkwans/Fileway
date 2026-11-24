@@ -27,7 +27,8 @@ internal data class PhoneMediaHomeState(val scopeKey: String, val featured: Medi
     val updatedSeries: MediaSection<MediaPoster> = MediaSection(),
     val categories: List<MediaCategory> = emptyList(), val selectedCategory: String? = null,
     val catalogTitle: String = "全部影视", val filterSummary: String? = null, val libraryExists: Boolean = true,
-    val canManage: Boolean = false, val canSearch: Boolean = false, val carouselAutoAdvance: Boolean = true, val interactionBlocked: Boolean = false,
+    val canManage: Boolean = false, val canSearch: Boolean = false, val canSearchCollections: Boolean = false,
+    val carouselAutoAdvance: Boolean = true, val interactionBlocked: Boolean = false,
     val problem: MediaProblem? = null)
 
 internal data class MediaCredit(val id: String, val name: String, val role: String,
@@ -88,11 +89,12 @@ internal data class PhoneMediaSetupState(val draft: MediaLibraryDraft, val roots
  * Routes retain drafts, queries, selected seasons and stable-ID list anchors across destinations.
  * Conflicts retain the user's choice and require a fresh preview before another mutation. */
 internal enum class MediaTargetKind { ITEM, EPISODE, CONTINUE }
-internal enum class MediaSearchMode { WORKS, PEOPLE, FILES }
+internal enum class MediaSearchMode { WORKS, PEOPLE, FILES, COLLECTIONS }
 
 internal sealed interface PhoneMediaAction {
     data object Back : PhoneMediaAction
     data object Search : PhoneMediaAction
+    data object Collections : PhoneMediaAction
     data object CloseSearch : PhoneMediaAction
     data class UpdateSearchQuery(val query: String) : PhoneMediaAction
     data class SearchMode(val mode: MediaSearchMode) : PhoneMediaAction
@@ -100,6 +102,8 @@ internal sealed interface PhoneMediaAction {
     data object LoadMoreSearch : PhoneMediaAction
     data class OpenCatalogPerson(val libraryId: String, val personId: String) : PhoneMediaAction
     data object LoadMorePersonWorks : PhoneMediaAction
+    data class OpenCollection(val libraryId: String, val collectionId: String) : PhoneMediaAction
+    data object LoadMoreCollectionWorks : PhoneMediaAction
     data object Settings : PhoneMediaAction
     data object ManageLibraries : PhoneMediaAction
     data object CreateLibrary : PhoneMediaAction

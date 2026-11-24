@@ -57,6 +57,7 @@ internal enum class PhoneMediaPage { HOME, LIBRARIES, CATEGORIES }
                             Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.headlineSmall)
                         if (page == PhoneMediaPage.LIBRARIES && state.canManage)
                             MediaIconAction(R.drawable.ic_settings, "管理媒体库", { onAction(PhoneMediaAction.ManageLibraries) })
+                        if (state.canSearchCollections) MediaIconAction(Art.drawable.fileway_ic_library, "合集", { onAction(PhoneMediaAction.Collections) })
                         if (state.canSearch) MediaIconAction(R.drawable.ic_search, "搜索影视", { onAction(PhoneMediaAction.Search) })
                     }
                 }

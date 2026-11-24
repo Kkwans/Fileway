@@ -43,6 +43,16 @@ internal class PhoneMediaRouteState(
     var filesLoading by mutableStateOf(false); private set
     var filesProblem by mutableStateOf<MediaProblem?>(null); private set
     var filesCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
+    var collections by mutableStateOf<List<MediaCatalogCollection>>(emptyList()); private set
+    var collectionsLoading by mutableStateOf(false); private set
+    var collectionsProblem by mutableStateOf<MediaProblem?>(null); private set
+    var collectionsCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
+    var collection by mutableStateOf<MediaCatalogCollectionRef?>(null); private set
+    var collectionName by mutableStateOf(""); private set
+    var collectionWorks by mutableStateOf<List<MediaCatalogCard>>(emptyList()); private set
+    var collectionWorksLoading by mutableStateOf(false); private set
+    var collectionWorksProblem by mutableStateOf<MediaProblem?>(null); private set
+    var collectionWorksCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
     var person by mutableStateOf<MediaCatalogPersonRef?>(null); private set
     var personName by mutableStateOf(""); private set
     var personWorks by mutableStateOf<List<MediaCatalogCard>>(emptyList()); private set
@@ -82,6 +92,8 @@ internal class PhoneMediaRouteState(
     private var searchJob: Job? = null
     private var peopleJob: Job? = null
     private var filesJob: Job? = null
+    private var collectionsJob: Job? = null
+    private var collectionWorksJob: Job? = null
     private var personWorksJob: Job? = null
     private var detailJob: Job? = null
     private var seasonsJob: Job? = null
@@ -90,7 +102,7 @@ internal class PhoneMediaRouteState(
     private var userStateJob: Job? = null
 
     fun close() {
-        listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, personWorksJob, detailJob, seasonsJob, episodesJob, sourcesJob, userStateJob).forEach { it?.cancel() }
+        listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, collectionsJob, collectionWorksJob, personWorksJob, detailJob, seasonsJob, episodesJob, sourcesJob, userStateJob).forEach { it?.cancel() }
     }
 
     fun start(initialFilter: String) {
@@ -123,6 +135,7 @@ internal class PhoneMediaRouteState(
                             home = null; catalog = emptyList(); catalogCursor = null; catalogPageState = null
                             searchResults = emptyList(); searchCursor = null
                             people = emptyList(); peopleCursor = null; files = emptyList(); filesCursor = null
+                            collections = emptyList(); collectionsCursor = null; collection = null; collectionWorks = emptyList(); collectionWorksCursor = null
                             person = null; personWorks = emptyList(); personWorksCursor = null
                         }
                         checking = false; homeProblem = problem(result.error, "无法加载影视中心")
@@ -155,6 +168,7 @@ internal class PhoneMediaRouteState(
             MediaSearchMode.WORKS -> loadSearch(reset = true, discardCurrent = true)
             MediaSearchMode.PEOPLE -> loadPeople(reset = true, discardCurrent = true)
             MediaSearchMode.FILES -> loadFiles(reset = true, discardCurrent = true)
+            MediaSearchMode.COLLECTIONS -> loadCollections(reset = true, discardCurrent = true)
         }
     }
 
@@ -165,6 +179,7 @@ internal class PhoneMediaRouteState(
             MediaSearchMode.WORKS -> loadSearch(reset = true, discardCurrent = true)
             MediaSearchMode.PEOPLE -> loadPeople(reset = true, discardCurrent = true)
             MediaSearchMode.FILES -> loadFiles(reset = true, discardCurrent = true)
+            MediaSearchMode.COLLECTIONS -> loadCollections(reset = true, discardCurrent = true)
         }
     }
 
@@ -173,11 +188,12 @@ internal class PhoneMediaRouteState(
             searchProblem = MediaProblem("请输入有效片名", "最多 200 个字符，不要包含控制字符。")
             return
         }
-        searchJob?.cancel(); peopleJob?.cancel(); filesJob?.cancel()
-        searchQuery = value; searchedQuery = ""; searchLoading = false; peopleLoading = false; filesLoading = false
+        searchJob?.cancel(); peopleJob?.cancel(); filesJob?.cancel(); collectionsJob?.cancel()
+        searchQuery = value; searchedQuery = ""; searchLoading = false; peopleLoading = false; filesLoading = false; collectionsLoading = false
         searchResults = emptyList(); searchCursor = null; searchProblem = null
         people = emptyList(); peopleCursor = null; peopleProblem = null
         files = emptyList(); filesCursor = null; filesProblem = null
+        collections = emptyList(); collectionsCursor = null; collectionsProblem = null
     }
 
     fun submitSearch(value: String) {
@@ -186,11 +202,13 @@ internal class PhoneMediaRouteState(
             val issue = MediaProblem("请输入搜索内容", when (searchMode) {
                 MediaSearchMode.PEOPLE -> "可搜索演员、导演或编剧姓名。"
                 MediaSearchMode.FILES -> "可搜索媒体文件名。"
+                MediaSearchMode.COLLECTIONS -> "可搜索合集名称。"
                 MediaSearchMode.WORKS -> "可搜索作品标题或原名。"
             })
             when (searchMode) {
                 MediaSearchMode.PEOPLE -> peopleProblem = issue
                 MediaSearchMode.FILES -> filesProblem = issue
+                MediaSearchMode.COLLECTIONS -> collectionsProblem = issue
                 MediaSearchMode.WORKS -> searchProblem = issue
             }
             return
@@ -201,6 +219,7 @@ internal class PhoneMediaRouteState(
             MediaSearchMode.WORKS -> loadSearch(reset = true, discardCurrent = true)
             MediaSearchMode.PEOPLE -> loadPeople(reset = true, discardCurrent = true)
             MediaSearchMode.FILES -> loadFiles(reset = true, discardCurrent = true)
+            MediaSearchMode.COLLECTIONS -> loadCollections(reset = true, discardCurrent = true)
         }
     }
 
@@ -210,6 +229,7 @@ internal class PhoneMediaRouteState(
             MediaSearchMode.WORKS -> loadSearch(reset = !searchLoading && searchCursor == null)
             MediaSearchMode.PEOPLE -> loadPeople(reset = !peopleLoading && peopleCursor == null)
             MediaSearchMode.FILES -> loadFiles(reset = !filesLoading && filesCursor == null)
+            MediaSearchMode.COLLECTIONS -> loadCollections(reset = !collectionsLoading && collectionsCursor == null)
         }
     }
 
@@ -233,6 +253,65 @@ internal class PhoneMediaRouteState(
                 }
             }
             coroutineContext.ensureActive(); peopleLoading = false
+        }
+    }
+
+    fun loadCollections(reset: Boolean, discardCurrent: Boolean = false) {
+        if (!supported || searchedQuery.isBlank() || (!reset && (collectionsLoading || collectionsCursor == null))) return
+        collectionsJob?.cancel()
+        val continuation = if (reset) null else collectionsCursor
+        if (discardCurrent) { collections = emptyList(); collectionsCursor = null }
+        collectionsLoading = true; collectionsProblem = null
+        collectionsJob = scope.launch {
+            when (val result = repository.searchCollections(searchedQuery, libraryFilter, cursor = continuation)) {
+                is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                    val page = result.value
+                    collections = (if (reset) page.items else collections + page.items).distinctBy { "${it.ref.libraryId}/${it.ref.collectionId}" }
+                    collectionsCursor = page.nextCursor
+                    collectionsProblem = pageProblem(page.state, page.nextCursor != null)
+                }
+                is MediaReadResult.Failure -> if (result.scope == repository.scope) {
+                    if (result.error.invalidatesVisibleData()) { collections = emptyList(); collectionsCursor = null }
+                    collectionsProblem = problem(result.error, "无法搜索合集")
+                }
+            }
+            coroutineContext.ensureActive(); collectionsLoading = false
+        }
+    }
+
+    fun openCollection(ref: MediaCatalogCollectionRef, name: String) {
+        collectionWorksJob?.cancel()
+        collection = ref; collectionName = name
+        collectionWorks = emptyList(); collectionWorksCursor = null; collectionWorksProblem = null
+        loadCollectionWorks(reset = true)
+    }
+
+    fun closeCollection() {
+        collectionWorksJob?.cancel()
+        collection = null; collectionName = ""; collectionWorks = emptyList(); collectionWorksCursor = null; collectionWorksProblem = null
+    }
+
+    fun loadCollectionWorks(reset: Boolean) {
+        val ref = collection ?: return
+        if (!reset && (collectionWorksLoading || collectionWorksCursor == null)) return
+        collectionWorksJob?.cancel()
+        val cursor = if (reset) null else collectionWorksCursor
+        if (reset) { collectionWorks = emptyList(); collectionWorksCursor = null }
+        collectionWorksLoading = true; collectionWorksProblem = null
+        collectionWorksJob = scope.launch {
+            when (val result = repository.collectionWorks(ref, cursor = cursor)) {
+                is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                    val page = result.value
+                    collectionWorks = (if (reset) page.items else collectionWorks + page.items).distinctBy { key(it.ref) }
+                    collectionWorksCursor = page.nextCursor
+                    collectionWorksProblem = pageProblem(page.state, page.nextCursor != null)
+                }
+                is MediaReadResult.Failure -> if (result.scope == repository.scope) {
+                    if (result.error.invalidatesVisibleData()) { collectionWorks = emptyList(); collectionWorksCursor = null }
+                    collectionWorksProblem = problem(result.error, "无法加载合集作品")
+                }
+            }
+            coroutineContext.ensureActive(); collectionWorksLoading = false
         }
     }
 

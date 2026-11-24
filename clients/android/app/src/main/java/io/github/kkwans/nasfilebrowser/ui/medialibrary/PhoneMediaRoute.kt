@@ -79,6 +79,7 @@ internal fun PhoneMediaRoute(
     var mediaTab by rememberSaveable(session.owner) { mutableStateOf("home") }
     var searching by rememberSaveable(session.owner) { mutableStateOf(false) }
     var personPage by remember(route) { mutableStateOf<MediaCatalogPersonRef?>(null) }
+    var collectionPage by remember(route) { mutableStateOf<MediaCatalogCollectionRef?>(null) }
     var startFromBeginning by remember(route) { mutableStateOf(false) }
     var sourceSelection by remember(route) { mutableStateOf<PhoneMediaSourceSelection?>(null) }
     val homeGrid = rememberLazyGridState()
@@ -110,11 +111,13 @@ internal fun PhoneMediaRoute(
         if (!route.supported && !route.checking && route.homeProblem != null) {
             item = null; library = null; season = null; parentItem = null; parentLibrary = null; parentSeason = null; reviewing = false
             reviewItemId = null; reviewLibraryId = null; personPage = null; route.closePerson()
+            collectionPage = null; route.closeCollection()
         }
     }
 
     fun back() {
-        if (personPage != null && detailId == null) { personPage = null; route.closePerson() }
+        if (collectionPage != null && detailId == null) { collectionPage = null; route.closeCollection() }
+        else if (personPage != null && detailId == null) { personPage = null; route.closePerson() }
         else if (searching && detailId == null) searching = false
         else if (reviewItemId != null) { reviewItemId = null; reviewLibraryId = null }
         else if (reviewing) reviewing = false
@@ -130,7 +133,8 @@ internal fun PhoneMediaRoute(
     }
 
     BackHandler {
-        if (personPage != null && detailId == null) { personPage = null; route.closePerson() }
+        if (collectionPage != null && detailId == null) { collectionPage = null; route.closeCollection() }
+        else if (personPage != null && detailId == null) { personPage = null; route.closePerson() }
         else if (searching && detailId == null) searching = false
         else if (settings != null) closeSettings()
         else if (reviewItemId != null) back()
@@ -152,7 +156,10 @@ internal fun PhoneMediaRoute(
         when (intent) {
             PhoneMediaAction.Back -> back()
             PhoneMediaAction.Search -> searching = true
-            PhoneMediaAction.CloseSearch -> { searching = false; personPage = null; route.closePerson() }
+            PhoneMediaAction.Collections -> { route.editSearch(""); route.chooseSearchMode(MediaSearchMode.COLLECTIONS); searching = true }
+            PhoneMediaAction.CloseSearch -> {
+                searching = false; personPage = null; route.closePerson(); collectionPage = null; route.closeCollection()
+            }
             is PhoneMediaAction.UpdateSearchQuery -> route.editSearch(intent.query)
             is PhoneMediaAction.SearchMode -> route.chooseSearchMode(intent.mode)
             is PhoneMediaAction.SubmitSearch -> route.submitSearch(intent.query)
@@ -160,6 +167,7 @@ internal fun PhoneMediaRoute(
                 MediaSearchMode.WORKS -> route.loadSearch(reset = false)
                 MediaSearchMode.PEOPLE -> route.loadPeople(reset = false)
                 MediaSearchMode.FILES -> route.loadFiles(reset = false)
+                MediaSearchMode.COLLECTIONS -> route.loadCollections(reset = false)
             }
             is PhoneMediaAction.OpenCatalogPerson -> {
                 val person = route.people.firstOrNull { it.ref.libraryId == intent.libraryId && it.ref.personId == intent.personId }
@@ -169,6 +177,14 @@ internal fun PhoneMediaRoute(
                 }
             }
             PhoneMediaAction.LoadMorePersonWorks -> route.loadPersonWorks(reset = false)
+            is PhoneMediaAction.OpenCollection -> {
+                val collection = route.collections.firstOrNull { it.ref.libraryId == intent.libraryId && it.ref.collectionId == intent.collectionId }
+                if (collection != null) {
+                    collectionPage = collection.ref
+                    route.openCollection(collection.ref, collection.name)
+                }
+            }
+            PhoneMediaAction.LoadMoreCollectionWorks -> route.loadCollectionWorks(reset = false)
             PhoneMediaAction.Settings -> mediaTab = "settings"
             PhoneMediaAction.CreateLibrary -> { createLibrary = true; managing = true }
             PhoneMediaAction.ManageLibraries -> { createLibrary = false; managing = true }
@@ -177,7 +193,7 @@ internal fun PhoneMediaRoute(
                 val first = route.home?.hero?.items.orEmpty()
                 val homeItems = route.home?.rows.orEmpty().flatMap { it.items }
                 val episode = route.episodes.firstOrNull { key(it.ref) == intent.id }
-                (route.catalog + route.searchResults + route.files.map { it.card } + route.personWorks + first + homeItems + watching.items.map { it.card } + listOfNotNull(episode?.card)).firstOrNull { key(it.ref) == intent.id }?.let {
+                (route.catalog + route.searchResults + route.files.map { it.card } + route.collectionWorks + route.personWorks + first + homeItems + watching.items.map { it.card } + listOfNotNull(episode?.card)).firstOrNull { key(it.ref) == intent.id }?.let {
                     if (episode != null && item != null && library != null) {
                         parentItem = item; parentLibrary = library; parentSeason = season
                     } else { parentItem = null; parentLibrary = null; parentSeason = null }
@@ -224,6 +240,7 @@ internal fun PhoneMediaRoute(
                 "sources" -> route.loadSources(reset = true)
                 "search" -> route.retrySearch()
                 "person-works" -> route.loadPersonWorks(reset = true)
+                "collection-works" -> route.loadCollectionWorks(reset = true)
                 "user-state" -> route.retryUserState()
                 else -> Unit
             }
@@ -237,8 +254,10 @@ internal fun PhoneMediaRoute(
                     MediaSearchMode.WORKS -> route.loadSearch(reset = false)
                     MediaSearchMode.PEOPLE -> route.loadPeople(reset = false)
                     MediaSearchMode.FILES -> route.loadFiles(reset = false)
+                    MediaSearchMode.COLLECTIONS -> route.loadCollections(reset = false)
                 }
                 "person-works" -> route.loadPersonWorks(reset = false)
+                "collection-works" -> route.loadCollectionWorks(reset = false)
                 else -> Unit
             }
             else -> Unit
@@ -275,6 +294,9 @@ internal fun PhoneMediaRoute(
             pages.SaveableStateProvider("media-detail/$libraryId/$detailId") {
                 PhoneMediaDetail(route.detailState(session.owner, "$libraryId/$detailId"), imageLoader, action, subpage, rememberLazyListState())
             }
+        } else if (searching && collectionPage != null) {
+            PhoneMediaCollectionWorks(route.collectionName, route.collectionWorks.map(::poster), route.collectionWorksLoading,
+                route.collectionWorksProblem, route.collectionWorksCursor != null, imageLoader, onBack = ::back, onAction = action)
         } else if (searching && personPage != null) {
             val person = personPage
             val result = route.people.firstOrNull { it.ref == person }
@@ -287,6 +309,7 @@ internal fun PhoneMediaRoute(
                     route.searchResults.map(::poster), route.searchLoading, route.searchProblem, route.searchCursor != null,
                     route.people, route.peopleLoading, route.peopleProblem, route.peopleCursor != null,
                     route.files, route.filesLoading, route.filesProblem, route.filesCursor != null,
+                    route.collections, route.collectionsLoading, route.collectionsProblem, route.collectionsCursor != null,
                     route.home?.capabilities?.get("fileSearch") == true, imageLoader, action)
             }
         } else {
@@ -325,6 +348,7 @@ internal fun PhoneMediaRoute(
                 selectedCategory = route.filter,
                 canManage = home?.actions?.can(MediaCatalogAction.CREATE_LIBRARY) == true,
                 canSearch = home?.capabilities?.get("search") == true,
+                canSearchCollections = home?.capabilities?.get("collections") == true,
                 carouselAutoAdvance = autoAdvance,
                 filterSummary = if (route.filter != "all") "已筛选" else null,
                 problem = route.homeProblem ?: when (home?.state) {
