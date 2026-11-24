@@ -85,7 +85,8 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 			}
 		}
 		calls++
-		if r.URL.Path != "/3/movie/55" || r.URL.Query().Get("append_to_response") != "credits,external_ids" || r.Header.Get("Authorization") != "Bearer fixture-confirm-token" {
+		if r.URL.Path != "/3/movie/55" || r.URL.Query().Get("language") != "zh-CN" ||
+			r.URL.Query().Get("append_to_response") != "credits,external_ids" || r.Header.Get("Authorization") != "Bearer fixture-confirm-token" {
 			t.Errorf("unexpected provider route: %s", r.URL.Path)
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(

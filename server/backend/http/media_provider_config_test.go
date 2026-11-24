@@ -141,7 +141,8 @@ func TestMediaProviderConfigHTTPNoSecretOrImplicitNetwork(t *testing.T) {
 	policyPath := fmt.Sprintf("/api/media-library/v1/libraries/%s/metadata-policy", library.ID)
 	initial := f.call(t, f.owner.ID, http.MethodGet, policyPath, nil)
 	var policy medialibrary.LibraryMetadataPolicy
-	if initial.Code != http.StatusOK || json.Unmarshal(initial.Body.Bytes(), &policy) != nil || policy.Mode != "local_only" || policy.Revision != 0 {
+	if initial.Code != http.StatusOK || json.Unmarshal(initial.Body.Bytes(), &policy) != nil || policy.Mode != "local_only" ||
+		policy.Language != "zh-CN" || policy.Region != "CN" || policy.Revision != 0 {
 		t.Fatalf("default policy: %d %s", initial.Code, initial.Body)
 	}
 	policyBody := map[string]any{"operationId": "policy", "expectedRevision": 0, "mode": "local_first_online", "connectionId": instance.ID, "language": "zh-CN", "region": "CN", "allowEditorJobs": false}

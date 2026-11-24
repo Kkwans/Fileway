@@ -41,13 +41,25 @@ type LibraryMetadataPolicy struct {
 }
 
 const (
-	MetadataLocalOnly   = "local_only"
-	MetadataLocalFirst  = "local_first_online"
-	MetadataOnlineFirst = "online_first"
+	MetadataLocalOnly       = "local_only"
+	MetadataLocalFirst      = "local_first_online"
+	MetadataOnlineFirst     = "online_first"
+	DefaultMetadataLanguage = "zh-CN"
+	DefaultMetadataRegion   = "CN"
 )
 
 func (policy LibraryMetadataPolicy) OnlineEnabled() bool {
 	return policy.Mode == MetadataLocalFirst || policy.Mode == MetadataOnlineFirst
+}
+
+func (policy LibraryMetadataPolicy) withDefaults() LibraryMetadataPolicy {
+	if policy.Language == "" {
+		policy.Language = DefaultMetadataLanguage
+	}
+	if policy.Region == "" {
+		policy.Region = DefaultMetadataRegion
+	}
+	return policy
 }
 
 // SealedProviderCredential is never a response or operation receipt. The
@@ -536,6 +548,7 @@ WHERE l.id=? AND l.archived_at IS NULL AND (l.owner_user_id=? OR m.role='editor'
 	}
 	value.ConnectionID, value.Language, value.Region = connection.String, language.String, region.String
 	value.AllowEditorJobs, value.Revision = editor.Int64 != 0, revision.Int64
+	*value = value.withDefaults()
 	return value, nil
 }
 
@@ -553,6 +566,8 @@ func (store *Store) MetadataPolicyRevision(ctx context.Context, libraryID string
 
 func (store *Store) SetLibraryMetadataPolicy(ctx context.Context, actor uint, libraryID, operationID string, expectedRevision int64,
 	policy LibraryMetadataPolicy) (*LibraryMetadataPolicy, error) {
+	requestPolicy := policy
+	policy = policy.withDefaults()
 	if actor == 0 || expectedRevision < 0 || (policy.Mode != MetadataLocalOnly && !policy.OnlineEnabled()) ||
 		(policy.OnlineEnabled() && policy.ConnectionID == "") ||
 		(policy.ConnectionID != "" && !providerIDPattern.MatchString(policy.ConnectionID)) ||
@@ -565,7 +580,7 @@ func (store *Store) SetLibraryMetadataPolicy(ctx context.Context, actor uint, li
 		LibraryID string
 		Expected  int64
 		Policy    LibraryMetadataPolicy
-	}{libraryID, expectedRevision, policy}
+	}{libraryID, expectedRevision, requestPolicy}
 	return providerOperation(ctx, store, actor, "provider.policy.set", operationID, input, func(tx *sql.Tx) error {
 		library, err := activeCatalogLibrary(ctx, tx, actor, libraryID)
 		if err != nil {

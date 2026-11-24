@@ -45,7 +45,8 @@ func TestMediaCandidatesChecksPolicyAndRejectsRevocationDuringLookup(t *testing.
 	f.h.storage.TMDBHTTPClient = &http.Client{Transport: matchTestTransport(func(r *http.Request) (*http.Response, error) {
 		outbound++
 		if r.URL.Host != "api.themoviedb.org" || r.URL.Path != "/3/search/movie" ||
-			r.URL.Query().Get("query") != "Fixture work" || r.Header.Get("Authorization") != "Bearer fixture-tmdb-token" {
+			r.URL.Query().Get("query") != "Fixture work" || r.URL.Query().Get("language") != "zh-CN" ||
+			r.URL.Query().Get("region") != "CN" || r.Header.Get("Authorization") != "Bearer fixture-tmdb-token" {
 			t.Error("wrong provider request")
 		}
 		if switchOffline {

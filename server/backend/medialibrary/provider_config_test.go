@@ -80,6 +80,27 @@ func TestProviderConfigurationReceiptsDoNotExposeCredential(t *testing.T) {
 	}
 }
 
+func TestMetadataPolicyDefaultsChineseWithoutEnablingNetwork(t *testing.T) {
+	store := openTestStore(t)
+	ctx := t.Context()
+	library := createLibrary(t, store, 7, "中文默认")
+	initial, err := store.GetLibraryMetadataPolicy(ctx, 7, library.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initial.Mode != MetadataLocalOnly || initial.Language != "zh-CN" || initial.Region != "CN" {
+		t.Fatalf("default policy: %+v", initial)
+	}
+	saved, err := store.SetLibraryMetadataPolicy(ctx, 7, library.ID, "local-chinese-default", 0,
+		LibraryMetadataPolicy{Mode: MetadataLocalOnly})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if saved.Language != "zh-CN" || saved.Region != "CN" || saved.OnlineEnabled() {
+		t.Fatalf("saved policy: %+v", saved)
+	}
+}
+
 func TestProviderPolicyGrantAndEditorAuthorization(t *testing.T) {
 	store := openTestStore(t)
 	ctx := t.Context()
