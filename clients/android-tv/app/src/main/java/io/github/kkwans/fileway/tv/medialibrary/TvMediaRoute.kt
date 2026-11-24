@@ -39,6 +39,8 @@ import kotlinx.coroutines.withContext
 import java.util.LinkedHashMap
 import java.util.Locale
 
+private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue")
+
 @Composable internal fun TvMediaRoute(
     session: SessionContext,
     repository: MediaLibraryRepository,
@@ -76,6 +78,7 @@ import java.util.Locale
         var season by rememberSaveable { mutableStateOf<String?>(null) }
         var homeAnchor by rememberSaveable { mutableStateOf<String?>(null) }
         var homeOrigin by rememberSaveable { mutableStateOf<String?>(null) }
+        var homeAnchorIndex by remember { mutableIntStateOf(-1) }
         var lastAnchor by remember { mutableStateOf<String?>(null) }
         var lastOrigin by remember { mutableStateOf<String?>(null) }
         var restoreId by remember { mutableStateOf<String?>(null) }
@@ -88,6 +91,13 @@ import java.util.Locale
         var watchMenu by remember { mutableStateOf<MediaCatalogContinue?>(null) }
         val libraryId = library
         val itemId = item
+        val homeFocusIds = (route.home?.hero?.items.orEmpty().map { tvMediaKey(it.ref) } +
+            watching.items.map { it.id } + route.catalog.map { tvMediaKey(it.ref) }).distinct()
+        fun restore(id: String?, origin: String?) { restoreId = id; restoreOrigin = origin }
+        fun restoreHome(id: String?, origin: String?) {
+            val target = resolveTvMediaFocusTarget(id, origin, homeFocusIds, homeAnchorIndex)
+            restore(target?.id, target?.origin)
+        }
         DisposableEffect(route, watch) { onDispose { route.close(); watch.close() } }
         LaunchedEffect(route) { route.start(filter) }
         LaunchedEffect(route.home) { route.home?.let(watch::seed) ?: watch.clear() }
@@ -123,18 +133,10 @@ import java.util.Locale
             if (awaitingPlayer && !interactive) playerWasShown = true
             if (awaitingPlayer && interactive && playerWasShown) {
                 watch.load()
-                restoreId = lastAnchor; restoreOrigin = lastOrigin
+                if (lastOrigin != null && lastOrigin in TvHomeFocusOrigins) restoreHome(lastAnchor, lastOrigin) else restore(lastAnchor, lastOrigin)
                 awaitingPlayer = false; playerWasShown = false
             }
         }
-        // If the original card was revoked or is no longer composed, focus a safe navigation entry.
-        LaunchedEffect(restoreId, restoreOrigin, interactive) {
-            if (interactive && restoreId != null && restoreOrigin != "navigation") {
-                delay(800)
-                if (restoreId != null) { restoreId = "files"; restoreOrigin = "navigation" }
-            }
-        }
-        fun restore(id: String?, origin: String?) { restoreId = id; restoreOrigin = origin }
         fun closeSources() { route.closeSources(); restore(lastAnchor, lastOrigin) }
         fun openSources(ref: MediaCatalogRef, fromStart: Boolean = false) {
             startFromBeginning = fromStart
@@ -150,14 +152,16 @@ import java.util.Locale
         fun back() {
             when {
                 route.sourceRef != null -> closeSources()
-                item != null -> { item = null; library = null; season = null; restore(homeAnchor, homeOrigin) }
+                item != null -> { item = null; library = null; season = null; restoreHome(homeAnchor, homeOrigin) }
                 else -> onExit()
             }
         }
         BackHandler(enabled = interactive) { back() }
         val focus = TvMediaFocusBinding(restoreId, restoreOrigin, { id, origin ->
             lastAnchor = id; lastOrigin = origin
-            if (origin == "poster" || origin == "hero" || origin == "continue") { homeAnchor = id; homeOrigin = origin }
+            if (origin in TvHomeFocusOrigins) {
+                homeAnchor = id; homeOrigin = origin; homeAnchorIndex = homeFocusIds.indexOf(id)
+            }
         }, { restoreId = null; restoreOrigin = null })
 
         TvMediaTheme {
