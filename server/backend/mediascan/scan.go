@@ -279,6 +279,15 @@ func (w *walker) videoInContext(ctx context.Context, locator, name string, direc
 	if files.IsPrivateMediaFile(initial) {
 		return fs.ErrPermission
 	}
+	if strings.EqualFold(path.Ext(name), ".ts") {
+		transport, err := isMPEGTransportStream(file.File, initial.Size())
+		if err != nil {
+			return err
+		}
+		if !transport {
+			return nil
+		}
+	}
 	abs := absoluteLocator(w.binding.RootLocator, locator)
 	key, identity := objectKey(file.File, w.binding.BindingID, w.binding.ProofEpoch, abs)
 	expected, err := w.sink.LookupRevision(ctx, key)
@@ -498,6 +507,24 @@ func absoluteLocator(root []byte, relative string) []byte {
 		result = append(result, '/')
 	}
 	return append(result, relative...)
+}
+
+// .ts also names TypeScript sources; MPEG-TS requires packet sync bytes.
+func isMPEGTransportStream(file *os.File, size int64) (bool, error) {
+	const packetSize = 188
+	header := make([]byte, 3*packetSize+1)
+	if size < int64(len(header)) {
+		return false, nil
+	}
+	if _, err := file.ReadAt(header, 0); err != nil {
+		return false, err
+	}
+	for packet := range 4 {
+		if header[packet*packetSize] != 0x47 {
+			return false, nil
+		}
+	}
+	return true, nil
 }
 
 func videoName(name string) bool {

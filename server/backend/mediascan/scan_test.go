@@ -120,6 +120,24 @@ func TestScanLocalEnumeratesBoundedPagesAndRecordsNFOErrorsPerItem(t *testing.T)
 	}
 }
 
+func TestScanLocalDistinguishesTypeScriptFromMPEGTransportStreams(t *testing.T) {
+	f := newScanFixture(t)
+	f.write(t, "PinHarness/index.ts", "export const value = 1;\n")
+	transport := make([]byte, 4*188)
+	for packet := range 4 {
+		transport[packet*188] = 0x47
+	}
+	f.write(t, "movies/film.TS", string(transport))
+	sink := &observationSink{}
+	result, err := ScanLocal(t.Context(), 7, f.binding, f.resolve, sink, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Observed != 1 || len(sink.observations) != 1 || string(sink.observations[0].Locator) != "/media/movies/film.TS" {
+		t.Fatalf("source code entered media catalog: result=%+v observations=%+v", result, sink.observations)
+	}
+}
+
 func TestScanLocalDirectoryNFOUsesConservativeAssociation(t *testing.T) {
 	f := newScanFixture(t)
 	f.write(t, "single/film.mkv", "video")
