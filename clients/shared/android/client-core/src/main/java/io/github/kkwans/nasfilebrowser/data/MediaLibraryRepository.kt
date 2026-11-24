@@ -112,6 +112,20 @@ class MediaLibraryRepository(
         }
     }
 
+    suspend fun searchFiles(query: String, libraryId: String? = null, limit: Int = 20, cursor: MediaCatalogCursor? = null): MediaReadResult<MediaCatalogPage<MediaCatalogFileMatch>> {
+        val term = query.trim()
+        require(term.isNotEmpty() && term.codePointCount(0, term.length) <= 200 && term.toByteArray(Charsets.UTF_8).size <= 800 && term.none(Char::isISOControl))
+        libraryId?.let(::requireMediaRouteId); require(limit in 1..50)
+        val base = "/api/media-library/v1/catalog/files?q=${URLEncoder.encode(term, "UTF-8")}&limit=$limit" +
+            (libraryId?.let { "&libraryId=$it" } ?: "")
+        val endpoint = catalogContinuation(base, cursor)
+        return catalogRead(cursor) {
+            parseCatalogPage(context.api.request("GET", endpoint), scope, catalogDeviceSession, base, limit, cursor) {
+                parseCatalogFileMatch(it, scope, catalogDeviceSession)
+            }
+        }
+    }
+
     suspend fun personWorks(person: MediaCatalogPersonRef, limit: Int = 20, cursor: MediaCatalogCursor? = null): MediaReadResult<MediaCatalogPage<MediaCatalogCard>> {
         requireMediaRouteId(person.libraryId); requireMediaRouteId(person.personId); require(limit in 1..100)
         val base = "/api/media-library/v1/catalog/people/${person.personId}/works?libraryId=${person.libraryId}&limit=$limit"

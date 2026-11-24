@@ -131,6 +131,13 @@ data class MediaCatalogPerson(
     val ref: MediaCatalogPersonRef, val name: String, val roles: List<String>, val preview: List<MediaCatalogCard>,
 )
 
+data class MediaCatalogFileMatch(val fileId: String, val fileName: String, val card: MediaCatalogCard) {
+    init {
+        requireMediaRouteId(fileId)
+        require(fileName.isNotBlank() && fileName.none(Char::isISOControl) && fileName.toByteArray(Charsets.UTF_8).size <= 1024)
+    }
+}
+
 data class MediaCatalogPage<T>(
     val items: List<T>, val nextCursor: MediaCatalogCursor?, val hasMore: Boolean,
     val state: MediaCatalogPageState, val revision: String, val orderId: String? = null,
@@ -334,6 +341,12 @@ internal fun parseCatalogPerson(row: JSONObject, scope: MediaSessionScope, devic
             require(it.toByteArray(Charsets.UTF_8).size <= 128)
         }
     }, preview)
+}
+
+internal fun parseCatalogFileMatch(row: JSONObject, scope: MediaSessionScope, deviceSession: String): MediaCatalogFileMatch {
+    require(row.keys().asSequence().toSet() == setOf("fileId", "fileName", "card"))
+    return MediaCatalogFileMatch(row.textValue("fileId"), row.textValue("fileName"),
+        parseCatalogCard(row.getJSONObject("card"), scope, deviceSession))
 }
 
 internal fun parseCatalogCard(row: JSONObject, scope: MediaSessionScope, deviceSession: String, parentSeriesId: String? = null): MediaCatalogCard {
