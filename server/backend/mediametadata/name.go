@@ -14,24 +14,33 @@ const (
 	MaxEpisodeHints = 128
 )
 
-// ParsedName contains filename evidence only. No field proves a work identity,
-// file content, timeline, HDR output, or a provider's actual record. Ambiguities
-// require resolution before automatic matching. OriginalName is never changed.
+// ParsedName contains filename and optional parent-directory evidence. No field
+// proves a work identity, file content, timeline, HDR output, or a provider's
+// actual record. Ambiguities require resolution before automatic matching.
+// OriginalName is never changed.
 type ParsedName struct {
-	OriginalName     string              `json:"originalName"`
-	Title            string              `json:"title"`
-	Year             *int                `json:"year,omitempty"`
-	TypeHint         string              `json:"typeHint"`
-	ProviderIDs      []NameProviderID    `json:"providerIds,omitempty"`
-	SeasonEpisodes   []SeasonEpisode     `json:"seasonEpisodes,omitempty"`
-	AbsoluteEpisodes []int               `json:"absoluteEpisodes,omitempty"`
-	DateHint         string              `json:"dateHint,omitempty"`
-	Parts            []int               `json:"parts,omitempty"`
-	PartLabels       []string            `json:"partLabels,omitempty"`
-	Editions         []string            `json:"editions,omitempty"`
-	TechnicalHints   map[string][]string `json:"technicalHints,omitempty"`
-	Evidence         []NameEvidence      `json:"evidence,omitempty"`
-	Ambiguities      []string            `json:"ambiguities,omitempty"`
+	OriginalName     string                 `json:"originalName"`
+	Title            string                 `json:"title"`
+	Year             *int                   `json:"year,omitempty"`
+	Directory        *DirectoryNameEvidence `json:"directory,omitempty"`
+	TypeHint         string                 `json:"typeHint"`
+	ProviderIDs      []NameProviderID       `json:"providerIds,omitempty"`
+	SeasonEpisodes   []SeasonEpisode        `json:"seasonEpisodes,omitempty"`
+	AbsoluteEpisodes []int                  `json:"absoluteEpisodes,omitempty"`
+	DateHint         string                 `json:"dateHint,omitempty"`
+	Parts            []int                  `json:"parts,omitempty"`
+	PartLabels       []string               `json:"partLabels,omitempty"`
+	Editions         []string               `json:"editions,omitempty"`
+	TechnicalHints   map[string][]string    `json:"technicalHints,omitempty"`
+	Evidence         []NameEvidence         `json:"evidence,omitempty"`
+	Ambiguities      []string               `json:"ambiguities,omitempty"`
+}
+
+type DirectoryNameEvidence struct {
+	OriginalName string   `json:"originalName"`
+	Title        string   `json:"title"`
+	Year         *int     `json:"year,omitempty"`
+	Ambiguities  []string `json:"ambiguities,omitempty"`
 }
 
 type NameProviderID struct {
@@ -161,6 +170,44 @@ func ParseName(filename string) ParsedName {
 	sort.SliceStable(p.result.Evidence, func(i, j int) bool { return p.result.Evidence[i].Start < p.result.Evidence[j].Start })
 	sort.Strings(p.result.Ambiguities)
 	return p.result
+}
+
+// ParseNameInDirectory keeps the immediate parent name as separate evidence.
+// Directory values never overwrite filename values or resolve a conflict.
+func ParseNameInDirectory(filename, directory string) ParsedName {
+	result := ParseName(filename)
+	if directory == "" || directory == "." || directory == ".." || strings.ContainsAny(directory, `/\\`) {
+		return result
+	}
+	parsed := ParseName(directory)
+	year := parsed.Year
+	var years []int
+	for _, match := range yearPattern.FindAllStringIndex(directory, -1) {
+		if !tokenBounds(directory, match[0], match[1]) {
+			continue
+		}
+		value, _ := strconv.Atoi(directory[match[0]:match[1]])
+		years = appendUniqueInt(years, value)
+	}
+	if len(years) > 1 {
+		year = nil
+		parsed.Ambiguities = append(parsed.Ambiguities, "directory_multiple_years")
+	} else if year == nil && len(years) == 1 {
+		match := yearPattern.FindStringIndex(directory)
+		if match != nil && cleanNameTitle(directory[:match[0]]) != "" {
+			year = &years[0]
+		}
+	}
+	result.Directory = &DirectoryNameEvidence{OriginalName: directory, Title: parsed.Title, Year: year,
+		Ambiguities: append([]string(nil), parsed.Ambiguities...)}
+	if result.Year != nil && year != nil && *result.Year != *year {
+		result.Ambiguities = append(result.Ambiguities, "directory_year_conflict")
+	}
+	if len(parsed.Ambiguities) != 0 {
+		result.Ambiguities = append(result.Ambiguities, "directory_ambiguous_evidence")
+	}
+	sort.Strings(result.Ambiguities)
+	return result
 }
 
 func (p *nameParser) parseProviderIDs() {

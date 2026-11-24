@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -78,6 +79,32 @@ func validateNameEvidence(t *testing.T, input string, parsed ParsedName) {
 	}
 	if len(parsed.SeasonEpisodes) > MaxEpisodeHints || len(parsed.AbsoluteEpisodes) > MaxEpisodeHints {
 		t.Fatal("episode expansion escaped its bound")
+	}
+}
+
+func TestParseNameInDirectoryRetainsIndependentYearEvidence(t *testing.T) {
+	parsed := ParseNameInDirectory("film.mkv", "Echo (2020) 1080p")
+	if parsed.Directory == nil || parsed.Directory.Title != "Echo" || parsed.Directory.Year == nil || *parsed.Directory.Year != 2020 {
+		t.Fatalf("directory evidence missing: %+v", parsed)
+	}
+	if parsed.Year != nil || parsed.Title != "film" {
+		t.Fatalf("directory evidence overwrote filename: %+v", parsed)
+	}
+	conflict := ParseNameInDirectory("film (1998).mkv", "Echo (2020) 1080p")
+	if !slices.Contains(conflict.Ambiguities, "directory_year_conflict") {
+		t.Fatalf("conflicting years were not retained: %+v", conflict)
+	}
+	middle := ParseNameInDirectory("film.mkv", "Captain.Marvel.2019.IMAX.2160p.HDR")
+	if middle.Directory == nil || middle.Directory.Year == nil || *middle.Directory.Year != 2019 {
+		t.Fatalf("single directory year token was lost: %+v", middle)
+	}
+	leading := ParseNameInDirectory("film.mkv", "2001 A Space Odyssey")
+	if leading.Directory != nil && leading.Directory.Year != nil {
+		t.Fatalf("title number became a year: %+v", leading)
+	}
+	multiple := ParseNameInDirectory("film.mkv", "Pirates.2003-2017.Bluray")
+	if multiple.Directory != nil && multiple.Directory.Year != nil {
+		t.Fatalf("year range became one year: %+v", multiple)
 	}
 }
 

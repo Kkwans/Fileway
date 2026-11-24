@@ -21,6 +21,27 @@ func TestAutomaticMatchInputCarriesTitleWithoutEnablingUnbenchmarkedMatches(t *t
 	}
 }
 
+func TestMediaIdentificationUsesDirectoryYearWithoutOverwritingFilename(t *testing.T) {
+	f := newMediaScanHTTPFixture(t)
+	catalogFixtureWrite(t, f, "Echo (2020) 1080p/film.mkv", "owned video")
+	library, source := f.libraryAndSource(t)
+	scanFixtureLibrary(t, f, library, source, "directory-year-scan")
+	items, _ := fixtureItems(t, f, f.owner.ID, library.ID, "")
+	if len(items) != 1 {
+		t.Fatalf("fixture item count: %d", len(items))
+	}
+	base := "/api/media-library/v1/libraries/" + library.ID + "/items/" + items[0].ID
+	response := f.call(t, f.owner.ID, http.MethodGet, base+"/identification", nil)
+	var identified mediaIdentificationResponse
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &identified) != nil || identified.File == nil {
+		t.Fatalf("identification: %d %s", response.Code, response.Body)
+	}
+	input := automaticMatchInput(identified)
+	if identified.File.Year != nil || identified.File.DirectoryYear == nil || *identified.File.DirectoryYear != 2020 || input.Year != 2020 {
+		t.Fatalf("directory year was not retained independently: file=%+v input=%+v", identified.File, input)
+	}
+}
+
 func TestMediaMatchFillRespectsExplicitIdentityAndReplays(t *testing.T) {
 	f := newMediaScanHTTPFixture(t)
 	catalogFixtureWrite(t, f, "Echo (2020) [tmdb-movie-42].mkv", "owned video")

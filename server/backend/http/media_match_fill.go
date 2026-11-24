@@ -219,6 +219,17 @@ func automaticMatchInput(item mediaIdentificationResponse) mediaprovider.Automat
 		if file.Year != nil {
 			input.Year = *file.Year
 		}
+		if file.DirectoryYear != nil {
+			if input.Year == 0 {
+				input.Year = *file.DirectoryYear
+			} else if *file.DirectoryYear != input.Year {
+				input.Ambiguities = append(input.Ambiguities, "directory_year_conflict")
+			}
+		}
+		input.Ambiguities = append(input.Ambiguities, file.DirectoryIssues...)
+		if input.Title == "" {
+			input.Title = strings.TrimSpace(file.DirectoryTitle)
+		}
 		for _, id := range file.ProviderIDs {
 			kind := mediaprovider.Kind(id.MediaType)
 			if id.MediaType == "tv" {

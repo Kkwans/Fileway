@@ -329,7 +329,7 @@ func (w *walker) videoInContext(ctx context.Context, locator, name string, direc
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	parsedName := mediametadata.ParseName(name)
+	parsedName := mediametadata.ParseNameInDirectory(name, path.Base(path.Dir(locator)))
 	observation := Observation{
 		OwnerUserID: w.actor, Binding: w.binding, ObjectKey: key, Identity: identity,
 		Locator: abs, ExpectedRevision: expected.FileRevision, ExpectedLocatorRevision: expected.LocatorRevision, SourceVersion: fmt.Sprintf("v1:%d:%d", initial.Size(), initial.ModTime().UnixNano()),

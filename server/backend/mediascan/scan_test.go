@@ -138,6 +138,20 @@ func TestScanLocalDistinguishesTypeScriptFromMPEGTransportStreams(t *testing.T) 
 	}
 }
 
+func TestScanLocalRetainsParentDirectoryYearEvidence(t *testing.T) {
+	f := newScanFixture(t)
+	f.write(t, "Echo (2020) 1080p/film.mkv", "video")
+	sink := &observationSink{}
+	if _, err := ScanLocal(t.Context(), 7, f.binding, f.resolve, sink, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if len(sink.observations) != 1 || sink.observations[0].ParsedName == nil ||
+		sink.observations[0].ParsedName.Directory == nil || sink.observations[0].ParsedName.Directory.Year == nil ||
+		*sink.observations[0].ParsedName.Directory.Year != 2020 {
+		t.Fatalf("directory evidence was not observed: %+v", sink.observations)
+	}
+}
+
 func TestScanLocalDirectoryNFOUsesConservativeAssociation(t *testing.T) {
 	f := newScanFixture(t)
 	f.write(t, "single/film.mkv", "video")

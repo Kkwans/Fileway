@@ -12,18 +12,21 @@ import (
 )
 
 type mediaIdentificationFile struct {
-	Filename       string                         `json:"filename"`
-	ParsedTitle    string                         `json:"parsedTitle"`
-	Year           *int                           `json:"year,omitempty"`
-	TypeHint       string                         `json:"typeHint"`
-	ProviderIDs    []mediametadata.NameProviderID `json:"providerIds,omitempty"`
-	SeasonEpisodes []mediametadata.SeasonEpisode  `json:"seasonEpisodes,omitempty"`
-	Absolute       []int                          `json:"absoluteEpisodes,omitempty"`
-	DateHint       string                         `json:"dateHint,omitempty"`
-	State          string                         `json:"state"`
-	Issues         []string                       `json:"issues,omitempty"`
-	Ambiguities    []string                       `json:"ambiguities,omitempty"`
-	Revision       int64                          `json:"revision"`
+	Filename        string                         `json:"filename"`
+	ParsedTitle     string                         `json:"parsedTitle"`
+	Year            *int                           `json:"year,omitempty"`
+	DirectoryTitle  string                         `json:"directoryTitle,omitempty"`
+	DirectoryYear   *int                           `json:"directoryYear,omitempty"`
+	DirectoryIssues []string                       `json:"directoryIssues,omitempty"`
+	TypeHint        string                         `json:"typeHint"`
+	ProviderIDs     []mediametadata.NameProviderID `json:"providerIds,omitempty"`
+	SeasonEpisodes  []mediametadata.SeasonEpisode  `json:"seasonEpisodes,omitempty"`
+	Absolute        []int                          `json:"absoluteEpisodes,omitempty"`
+	DateHint        string                         `json:"dateHint,omitempty"`
+	State           string                         `json:"state"`
+	Issues          []string                       `json:"issues,omitempty"`
+	Ambiguities     []string                       `json:"ambiguities,omitempty"`
+	Revision        int64                          `json:"revision"`
 }
 
 type mediaIdentificationResponse struct {
@@ -122,12 +125,18 @@ func identifyCatalogItem(ctx context.Context, d *data, library *medialibrary.Lib
 		}
 		if evidence != nil {
 			name := evidence.Name
-			result.File = &mediaIdentificationFile{
+			file := &mediaIdentificationFile{
 				Filename: name.OriginalName, ParsedTitle: name.Title, Year: name.Year, TypeHint: name.TypeHint,
 				ProviderIDs: name.ProviderIDs, SeasonEpisodes: name.SeasonEpisodes, Absolute: name.AbsoluteEpisodes,
 				DateHint: name.DateHint, State: evidence.MatchState, Issues: evidence.Issues,
 				Ambiguities: name.Ambiguities, Revision: evidence.Revision,
 			}
+			if name.Directory != nil {
+				file.DirectoryTitle = name.Directory.Title
+				file.DirectoryYear = name.Directory.Year
+				file.DirectoryIssues = append([]string(nil), name.Directory.Ambiguities...)
+			}
+			result.File = file
 		}
 	}
 	if err = view.revalidateSources(ctx); err != nil {
