@@ -112,6 +112,31 @@ class MediaLibraryRepository(
         }
     }
 
+    suspend fun searchCollections(query: String, libraryId: String? = null, limit: Int = 20, cursor: MediaCatalogCursor? = null): MediaReadResult<MediaCatalogPage<MediaCatalogCollection>> {
+        val term = query.trim()
+        require(term.isNotEmpty() && term.codePointCount(0, term.length) <= 200 && term.toByteArray(Charsets.UTF_8).size <= 800 && term.none(Char::isISOControl))
+        libraryId?.let(::requireMediaRouteId); require(limit in 1..50)
+        val base = "/api/media-library/v1/catalog/collections?q=${URLEncoder.encode(term, "UTF-8")}&limit=$limit" +
+            (libraryId?.let { "&libraryId=$it" } ?: "")
+        val endpoint = catalogContinuation(base, cursor)
+        return catalogRead(cursor) {
+            parseCatalogPage(context.api.request("GET", endpoint), scope, catalogDeviceSession, base, limit, cursor) {
+                parseCatalogCollection(it, scope, catalogDeviceSession)
+            }
+        }
+    }
+
+    suspend fun collectionWorks(collection: MediaCatalogCollectionRef, limit: Int = 20, cursor: MediaCatalogCursor? = null): MediaReadResult<MediaCatalogPage<MediaCatalogCard>> {
+        requireMediaRouteId(collection.libraryId); requireMediaRouteId(collection.collectionId); require(limit in 1..100)
+        val base = "/api/media-library/v1/catalog/collections/${collection.collectionId}/works?libraryId=${collection.libraryId}&limit=$limit"
+        val endpoint = catalogContinuation(base, cursor)
+        return catalogRead(cursor) {
+            parseCatalogPage(context.api.request("GET", endpoint), scope, catalogDeviceSession, base, limit, cursor) {
+                parseCatalogCard(it, scope, catalogDeviceSession).also { card -> require(card.ref.libraryId == collection.libraryId) }
+            }
+        }
+    }
+
     suspend fun searchFiles(query: String, libraryId: String? = null, limit: Int = 20, cursor: MediaCatalogCursor? = null): MediaReadResult<MediaCatalogPage<MediaCatalogFileMatch>> {
         val term = query.trim()
         require(term.isNotEmpty() && term.codePointCount(0, term.length) <= 200 && term.toByteArray(Charsets.UTF_8).size <= 800 && term.none(Char::isISOControl))
