@@ -101,6 +101,16 @@ data class MediaMetadataRefreshLibraryPreview(
     val currentLanguages: Map<String, Int>, val fieldChangesRequireItemPreview: Boolean, val canRefresh: Boolean,
 )
 
+data class MediaMetadataRefreshJob(
+    val jobId: String, val libraryId: String, val status: String, val failureCode: String,
+    val generation: Long, val language: String, val region: String, val total: Long,
+    val refreshed: Long, val alreadyCurrent: Long, val preserved: Long, val sourceChanged: Long,
+    val failed: Long, val pending: Long, val undone: Long,
+)
+
+data class MediaMetadataRefreshJobResult(val jobId: String)
+data class MediaMetadataRefreshUndoResult(val jobId: String, val undone: Long)
+
 internal fun requireProviderConnectionId(value: String) {
     require(value.matches(Regex("pc_[0-9a-f]{32}"))) { "资料连接标识无效" }
 }
@@ -291,4 +301,19 @@ internal fun parseMetadataRefreshLibraryPreview(row: JSONObject): MediaMetadataR
     row.providerCount("lockedItems"), row.providerCount("explicitClearItems"), row.providerCount("nfoPreservedItems"),
     row.providerCountMap("protectedFields"), row.providerCountMap("preservedFields"), row.providerCountMap("currentLanguages"),
     row.providerBoolean("fieldChangesRequireItemPreview"), row.providerBoolean("canRefresh"),
+)
+
+internal fun parseMetadataRefreshJob(row: JSONObject): MediaMetadataRefreshJob = MediaMetadataRefreshJob(
+    row.providerText("jobId", 200).also(::requireMediaRouteId), row.providerText("libraryId", 200).also(::requireMediaRouteId),
+    row.providerText("status", 32), row.providerOptionalText("failureCode", 128).orEmpty(), row.providerLong("generation"),
+    row.providerText("language", 64), row.providerText("region", 2), row.providerLong("total"), row.providerLong("refreshed"),
+    row.providerLong("alreadyCurrent"), row.providerLong("preserved"), row.providerLong("sourceChanged"), row.providerLong("failed"),
+    row.providerLong("pending"), row.providerLong("undone"),
+)
+
+internal fun parseMetadataRefreshJobResult(row: JSONObject): MediaMetadataRefreshJobResult =
+    MediaMetadataRefreshJobResult(row.providerText("jobId", 200).also(::requireMediaRouteId))
+
+internal fun parseMetadataRefreshUndoResult(row: JSONObject): MediaMetadataRefreshUndoResult = MediaMetadataRefreshUndoResult(
+    row.providerText("jobId", 200).also(::requireMediaRouteId), row.providerLong("undone", 0),
 )

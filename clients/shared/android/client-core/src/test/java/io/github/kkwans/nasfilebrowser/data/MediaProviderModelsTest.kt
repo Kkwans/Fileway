@@ -3,6 +3,7 @@ package io.github.kkwans.nasfilebrowser.data
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MediaProviderModelsTest {
@@ -59,6 +60,39 @@ class MediaProviderModelsTest {
         assertEquals(mapOf("title" to 3), preview.protectedFields)
         assertEquals(mapOf("en-US" to 7, "zh-CN" to 5), preview.currentLanguages)
         assertEquals(true, preview.fieldChangesRequireItemPreview)
+    }
+
+    @Test
+    fun metadataRefreshJobAndActionsUseStableContracts() {
+        val job = parseMetadataRefreshJob(JSONObject()
+            .put("jobId", "job_fixture")
+            .put("libraryId", "lib_fixture")
+            .put("status", "completed")
+            .put("generation", 3)
+            .put("language", "zh-CN")
+            .put("region", "CN")
+            .put("total", 4)
+            .put("refreshed", 2)
+            .put("alreadyCurrent", 1)
+            .put("preserved", 1)
+            .put("sourceChanged", 0)
+            .put("failed", 0)
+            .put("pending", 0)
+            .put("undone", 0))
+        assertEquals("job_fixture", job.jobId)
+        assertEquals(4L, job.total)
+        assertEquals(2L, job.refreshed)
+        val operation = MediaOperation(MediaAccountScope("profile", 1, "account", 7), "op_fixture")
+        val enqueue = MediaMutationRequest(operation, MediaMutationKind.ENQUEUE_METADATA_REFRESH_JOB, "lib_fixture",
+            body = JSONObject().put("operationId", operation.id).put("mode", "refresh_unlocked").put("expectedPolicyRevision", 2))
+        assertEquals("/api/media-library/v1/libraries/lib_fixture/metadata-refresh-jobs", enqueue.endpoint)
+        val cancel = MediaMutationRequest(operation, MediaMutationKind.CANCEL_METADATA_REFRESH_JOB, "lib_fixture",
+            body = JSONObject().put("operationId", operation.id).put("generation", 3), jobId = "job_fixture")
+        assertEquals("DELETE", cancel.method)
+        assertEquals("/api/media-library/v1/libraries/lib_fixture/metadata-refresh-jobs/job_fixture", cancel.endpoint)
+        val restored = MediaMutationRequest.fromJson(operation, cancel.toJson())
+        assertEquals(cancel.jobId, restored.jobId)
+        assertTrue(restored.sameRequest(cancel))
     }
 
     @Test

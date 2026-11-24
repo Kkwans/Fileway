@@ -472,6 +472,14 @@ class MediaLibraryRepository(
             MediaMutationKind.REFRESH_METADATA), ref.libraryId, ref.itemId)
     }
 
+    suspend fun pendingMetadataRefreshJobOperation(libraryId: String, jobId: String? = null): MediaOperation? {
+        requireMediaRouteId(libraryId); jobId?.let(::requireMediaRouteId)
+        checkCurrent(); checkCatalogCredential()
+        return journal.firstUnresolved(scope.account, setOf(MediaMutationKind.ENQUEUE_METADATA_REFRESH_JOB,
+            MediaMutationKind.CANCEL_METADATA_REFRESH_JOB, MediaMutationKind.RETRY_METADATA_REFRESH_JOB,
+            MediaMutationKind.UNDO_METADATA_REFRESH_JOB), libraryId, jobId = jobId)
+    }
+
     suspend fun previewMetadataRefresh(ref: MediaCatalogRef): MediaReadResult<MediaMetadataRefreshPreview> {
         ref.requireBound(scope, catalogDeviceSession)
         return catalogRead(null) {
@@ -485,6 +493,38 @@ class MediaLibraryRepository(
             parseMetadataRefreshLibraryPreview(context.api.request("POST", "${libraryEndpoint(libraryId)}/metadata-refresh-preview", JSONObject()))
                 .also { require(it.libraryId == libraryId) }
         }
+    }
+
+    suspend fun metadataRefreshJob(libraryId: String, jobId: String): MediaReadResult<MediaMetadataRefreshJob> {
+        requireMediaRouteId(libraryId); requireMediaRouteId(jobId)
+        return catalogRead(null) {
+            parseMetadataRefreshJob(context.api.request("GET", "${libraryEndpoint(libraryId)}/metadata-refresh-jobs/$jobId"))
+                .also { require(it.libraryId == libraryId && it.jobId == jobId) }
+        }
+    }
+
+    suspend fun enqueueMetadataRefreshJob(operation: MediaOperation, libraryId: String, expectedPolicyRevision: Long): MediaWriteResult<MediaMetadataRefreshJob> {
+        requireMediaRouteId(libraryId)
+        return providerWrite(mutation(operation, MediaMutationKind.ENQUEUE_METADATA_REFRESH_JOB, libraryId,
+            body = operationBody(operation).put("mode", "refresh_unlocked").put("expectedPolicyRevision", expectedPolicyRevision)))
+    }
+
+    suspend fun cancelMetadataRefreshJob(operation: MediaOperation, libraryId: String, jobId: String, generation: Long): MediaWriteResult<MediaMetadataRefreshJobResult> {
+        requireMediaRouteId(libraryId); requireMediaRouteId(jobId)
+        return providerWrite(mutation(operation, MediaMutationKind.CANCEL_METADATA_REFRESH_JOB, libraryId,
+            body = operationBody(operation).put("generation", generation), jobId = jobId))
+    }
+
+    suspend fun retryMetadataRefreshJob(operation: MediaOperation, libraryId: String, jobId: String, generation: Long): MediaWriteResult<MediaMetadataRefreshJob> {
+        requireMediaRouteId(libraryId); requireMediaRouteId(jobId)
+        return providerWrite(mutation(operation, MediaMutationKind.RETRY_METADATA_REFRESH_JOB, libraryId,
+            body = operationBody(operation).put("generation", generation), jobId = jobId))
+    }
+
+    suspend fun undoMetadataRefreshJob(operation: MediaOperation, libraryId: String, jobId: String, generation: Long): MediaWriteResult<MediaMetadataRefreshUndoResult> {
+        requireMediaRouteId(libraryId); requireMediaRouteId(jobId)
+        return providerWrite(mutation(operation, MediaMutationKind.UNDO_METADATA_REFRESH_JOB, libraryId,
+            body = operationBody(operation).put("generation", generation), jobId = jobId))
     }
 
     suspend fun refreshMetadata(operation: MediaOperation, item: MediaProviderIdentification): MediaWriteResult<MediaProviderMatchReceipt> {
@@ -786,8 +826,8 @@ private fun providerFailure(error: Exception, write: Boolean): MediaFailure {
 }
 
 private fun mutation(operation: MediaOperation, kind: MediaMutationKind, libraryId: String? = null, scanId: String? = null,
-    userId: Long? = null, bindingId: String? = null, itemId: String? = null, body: JSONObject) =
-    MediaMutationRequest(operation, kind, libraryId, scanId, userId, bindingId, itemId, body)
+    userId: Long? = null, bindingId: String? = null, itemId: String? = null, body: JSONObject, jobId: String? = null) =
+    MediaMutationRequest(operation, kind, libraryId, scanId, userId, bindingId, itemId, body, jobId)
 private fun operationBody(operation: MediaOperation) = JSONObject().put("operationId", operation.id)
 private fun revisionBody(operation: MediaOperation, revision: Long) = operationBody(operation).put("expectedRevision", revision)
 private fun generationBody(operation: MediaOperation, generation: Long) = operationBody(operation).put("expectedGeneration", generation)

@@ -7,6 +7,7 @@ internal enum class MediaMutationKind {
     CREATE_SOURCE, START_SCAN, CANCEL_SCAN, RETRY_SCAN, ATTEST_SOURCE, PATCH_METADATA, UNDO_METADATA, PATCH_USER_STATE,
     UPDATE_METADATA_POLICY, CONFIRM_PROVIDER_MATCH, UNDO_PROVIDER_MATCH, START_SCAN_BATCH,
     CONFIRM_SERIES_MAPPING, UNDO_SERIES_MAPPING, REFRESH_METADATA,
+    ENQUEUE_METADATA_REFRESH_JOB, CANCEL_METADATA_REFRESH_JOB, RETRY_METADATA_REFRESH_JOB, UNDO_METADATA_REFRESH_JOB,
 }
 
 internal fun requireMediaRouteId(value: String) {
@@ -30,6 +31,7 @@ private fun JSONObject.strictLong(key: String, min: Long = 1): Long {
 internal class MediaMutationRequest(
     val operation: MediaOperation, val kind: MediaMutationKind, val libraryId: String? = null,
     val scanId: String? = null, val userId: Long? = null, val bindingId: String? = null, val itemId: String? = null, body: JSONObject,
+    val jobId: String? = null,
 ) {
     private val json = body.toString()
     init {
@@ -63,6 +65,9 @@ internal class MediaMutationRequest(
             MediaMutationKind.UNDO_PROVIDER_MATCH -> setOf("operationId", "itemRevision", "structureRevision", "matchRevision")
             MediaMutationKind.CONFIRM_SERIES_MAPPING -> setOf("operationId", "action", "previewId")
             MediaMutationKind.UNDO_SERIES_MAPPING -> setOf("operationId", "mappingRevision")
+            MediaMutationKind.ENQUEUE_METADATA_REFRESH_JOB -> setOf("operationId", "mode", "expectedPolicyRevision")
+            MediaMutationKind.CANCEL_METADATA_REFRESH_JOB, MediaMutationKind.RETRY_METADATA_REFRESH_JOB,
+            MediaMutationKind.UNDO_METADATA_REFRESH_JOB -> setOf("operationId", "generation")
         }
         input.exactKeys(keys)
         // Normal JNI commands are capped at 1 MiB; leave headroom for the envelope.
@@ -70,6 +75,8 @@ internal class MediaMutationRequest(
         require(input.strictString("operationId") == operation.id && json.toByteArray(Charsets.UTF_8).size <= maxBody)
         if ("expectedRevision" in keys) input.strictLong("expectedRevision", if (kind in setOf(MediaMutationKind.PATCH_USER_STATE, MediaMutationKind.UPDATE_METADATA_POLICY)) 0 else 1)
         if ("expectedGeneration" in keys) input.strictLong("expectedGeneration")
+        if ("generation" in keys) input.strictLong("generation")
+        if ("expectedPolicyRevision" in keys) input.strictLong("expectedPolicyRevision")
         if ("targetRevision" in keys) input.strictLong("targetRevision")
         if ("rulesRevision" in keys) input.strictLong("rulesRevision")
         if ("matchRevision" in keys) {
@@ -104,6 +111,9 @@ internal class MediaMutationRequest(
             val name = input.strictString("name").trim()
             require(name.isNotEmpty() && name.codePointCount(0, name.length) <= 200 && name.none(Char::isISOControl))
         }
+        if (kind == MediaMutationKind.ENQUEUE_METADATA_REFRESH_JOB) require(input.strictString("mode") == "refresh_unlocked")
+        if (kind in setOf(MediaMutationKind.CANCEL_METADATA_REFRESH_JOB, MediaMutationKind.RETRY_METADATA_REFRESH_JOB,
+                MediaMutationKind.UNDO_METADATA_REFRESH_JOB)) requireMediaRouteId(requireNotNull(jobId)) else require(jobId == null)
         if (kind == MediaMutationKind.CREATE_LIBRARY) require(libraryId == null) else requireMediaRouteId(requireNotNull(libraryId))
         if (kind in setOf(MediaMutationKind.CANCEL_SCAN, MediaMutationKind.RETRY_SCAN)) requireMediaRouteId(requireNotNull(scanId)) else require(scanId == null)
         if (kind in setOf(MediaMutationKind.GRANT_MEMBER, MediaMutationKind.REVOKE_MEMBER)) require(userId != null && userId in 1..0xffff_ffffL) else require(userId == null)
@@ -116,12 +126,12 @@ internal class MediaMutationRequest(
 
     fun body(): JSONObject = JSONObject(json)
     fun sameRequest(other: MediaMutationRequest): Boolean = operation == other.operation && kind == other.kind &&
-        libraryId == other.libraryId && scanId == other.scanId && userId == other.userId && bindingId == other.bindingId && itemId == other.itemId && json == other.json
+        libraryId == other.libraryId && scanId == other.scanId && userId == other.userId && bindingId == other.bindingId && itemId == other.itemId && jobId == other.jobId && json == other.json
 
     val method: String get() = when (kind) {
         MediaMutationKind.UPDATE_LIBRARY, MediaMutationKind.PATCH_METADATA, MediaMutationKind.PATCH_USER_STATE -> "PATCH"
         MediaMutationKind.GRANT_MEMBER, MediaMutationKind.UPDATE_METADATA_POLICY -> "PUT"
-        MediaMutationKind.REVOKE_MEMBER -> "DELETE"
+        MediaMutationKind.REVOKE_MEMBER, MediaMutationKind.CANCEL_METADATA_REFRESH_JOB -> "DELETE"
         else -> "POST"
     }
     val endpoint: String get() {
@@ -148,6 +158,10 @@ internal class MediaMutationRequest(
             MediaMutationKind.START_SCAN_BATCH -> "$library/scan-batches"
             MediaMutationKind.CANCEL_SCAN -> "$library/scans/$scanId/cancel"
             MediaMutationKind.RETRY_SCAN -> "$library/scans/$scanId/retry"
+            MediaMutationKind.ENQUEUE_METADATA_REFRESH_JOB -> "$library/metadata-refresh-jobs"
+            MediaMutationKind.CANCEL_METADATA_REFRESH_JOB -> "$library/metadata-refresh-jobs/$jobId"
+            MediaMutationKind.RETRY_METADATA_REFRESH_JOB -> "$library/metadata-refresh-jobs/$jobId/retry"
+            MediaMutationKind.UNDO_METADATA_REFRESH_JOB -> "$library/metadata-refresh-jobs/$jobId/undo"
             MediaMutationKind.CREATE_LIBRARY -> error("invalid operation")
         }
     }
@@ -183,6 +197,11 @@ internal class MediaMutationRequest(
             require(it.libraryId == libraryId)
             if (kind == MediaMutationKind.CANCEL_SCAN) require(it.id == scanId)
         }
+        MediaMutationKind.ENQUEUE_METADATA_REFRESH_JOB, MediaMutationKind.RETRY_METADATA_REFRESH_JOB -> parseMetadataRefreshJob(row).also {
+            require(it.libraryId == libraryId && (jobId == null || it.jobId == jobId))
+        }
+        MediaMutationKind.CANCEL_METADATA_REFRESH_JOB -> parseMetadataRefreshJobResult(row).also { require(it.jobId == jobId) }
+        MediaMutationKind.UNDO_METADATA_REFRESH_JOB -> parseMetadataRefreshUndoResult(row).also { require(it.jobId == jobId) }
     }
 
     fun toJson(): JSONObject = JSONObject().put("kind", kind.name).put("body", body()).apply {
@@ -191,6 +210,7 @@ internal class MediaMutationRequest(
         userId?.let { put("userId", it) }
         bindingId?.let { put("bindingId", it) }
         itemId?.let { put("itemId", it) }
+        jobId?.let { put("jobId", it) }
     }
 
     companion object {
@@ -201,15 +221,17 @@ internal class MediaMutationRequest(
             val user = if (value.has("userId")) value.strictLong("userId") else null
             val binding = if (value.has("bindingId")) value.strictString("bindingId") else null
             val item = if (value.has("itemId")) value.strictString("itemId") else null
+            val job = if (value.has("jobId")) value.strictString("jobId") else null
             val expected = mutableSetOf("kind", "body").apply {
                 if (library != null) add("libraryId")
                 if (scan != null) add("scanId")
                 if (user != null) add("userId")
                 if (binding != null) add("bindingId")
                 if (item != null) add("itemId")
+                if (job != null) add("jobId")
             }
             value.exactKeys(expected)
-            return MediaMutationRequest(operation, kind, library, scan, user, binding, item, value.getJSONObject("body"))
+            return MediaMutationRequest(operation, kind, library, scan, user, binding, item, value.getJSONObject("body"), job)
         }
     }
 }

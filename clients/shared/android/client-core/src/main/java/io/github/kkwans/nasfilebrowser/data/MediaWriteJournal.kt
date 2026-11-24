@@ -132,10 +132,12 @@ class MediaWriteJournal private constructor(private val file: AtomicFile, privat
 
     @Synchronized internal fun firstUnresolved(
         account: MediaAccountScope, kinds: Set<MediaMutationKind>, libraryId: String? = null, itemId: String? = null,
+        jobId: String? = null,
     ): MediaOperation? =
         entries.values.firstOrNull {
             !it.inFlight && it.request.operation.account == account && it.request.kind in kinds &&
                 (libraryId == null || it.request.libraryId == libraryId) && (itemId == null || it.request.itemId == itemId) &&
+                (jobId == null || it.request.jobId == jobId) &&
                 (it.state == MediaWriteState.UNKNOWN || it.state == MediaWriteState.ACKNOWLEDGED_INVALID_RESPONSE)
         }?.request?.operation
 
