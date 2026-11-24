@@ -106,6 +106,7 @@ internal sealed interface PhoneMediaAction {
     data class Handoff(val id: String) : PhoneMediaAction
     data class Sources(val id: String, val kind: MediaTargetKind = MediaTargetKind.ITEM) : PhoneMediaAction
     data class SelectSource(val id: String, val expectedRevision: String) : PhoneMediaAction
+    data class ConfirmSource(val id: String, val expectedRevision: String) : PhoneMediaAction
     data class RecoverSource(val id: String) : PhoneMediaAction
     data class Favorite(val id: String, val value: Boolean, val expectedRevision: Long?) : PhoneMediaAction
     data class Watched(val id: String, val value: Boolean, val expectedRevision: Long?) : PhoneMediaAction

@@ -12,6 +12,15 @@ import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayEmptyState
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySpace
+
+internal data class PhoneMediaSourceSelection(val itemId: String, val selectedId: String? = null) {
+    fun select(sourceId: String, available: Boolean): PhoneMediaSourceSelection =
+        copy(selectedId = sourceId.takeIf { available })
+
+    fun confirm(sourceId: String, expectedItemId: String, expectedRevision: String, revision: String): String? =
+        selectedId?.takeIf { it == sourceId && itemId == expectedItemId && expectedRevision == revision }
+}
 
 /** Modal owns its insets and focus domain. Selection changes the source only; the host decides
  * whether to resolve/play after acknowledging the selection. Transcoding is a separate action. */
@@ -20,10 +29,14 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
     onAction: (PhoneMediaAction) -> Unit, onDismiss: () -> Unit) {
     ModalBottomSheet(onDismissRequest = onDismiss, shape = RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp),
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        MediaHeading("片源与版本", modifier = Modifier.padding(horizontal = 16.dp),
+        MediaHeading("片源与版本", modifier = Modifier.padding(horizontal = FilewaySpace.page),
             actionLabel = "关闭", onAction = onDismiss)
+        Text("选择片源后不会自动播放", style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = FilewaySpace.page, vertical = FilewaySpace.small))
         LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).selectableGroup(),
-            contentPadding = PaddingValues(start = 16.dp, top = 8.dp, end = 16.dp, bottom = 24.dp),
+            contentPadding = PaddingValues(start = FilewaySpace.page, top = FilewaySpace.small,
+                end = FilewaySpace.page, bottom = FilewaySpace.section),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             state.problem?.let { problem -> item(key = "problem") {
                 MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("sources")) })
@@ -52,6 +65,12 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
                 TextButton(onClick = { onAction(PhoneMediaAction.LoadMore("sources")) },
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("加载更多") }
             }
+        }
+        Button(onClick = { state.selectedId?.let { onAction(PhoneMediaAction.ConfirmSource(it, state.revision)) } },
+            enabled = state.selectedId != null && !state.busy && !state.loading,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = FilewaySpace.page, vertical = FilewaySpace.small)
+                .heightIn(min = 56.dp), shape = MaterialTheme.shapes.medium) {
+            Text("使用所选片源")
         }
     }
 }

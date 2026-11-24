@@ -78,6 +78,7 @@ internal fun PhoneMediaRoute(
     var autoAdvance by rememberSaveable(session.owner) { mutableStateOf(true) }
     var mediaTab by rememberSaveable(session.owner) { mutableStateOf("home") }
     var startFromBeginning by remember(route) { mutableStateOf(false) }
+    var sourceSelection by remember(route) { mutableStateOf<PhoneMediaSourceSelection?>(null) }
     val homeGrid = rememberLazyGridState()
     val libraryGrid = rememberLazyGridState()
     val categoryGrid = rememberLazyGridState()
@@ -138,6 +139,7 @@ internal fun PhoneMediaRoute(
             else route.episodes.firstOrNull { key(it.ref) == id }?.ref
             if (ref != null) {
                 startFromBeginning = fromStart
+                sourceSelection = PhoneMediaSourceSelection(key(ref))
                 route.openSources(ref)
             }
         }
@@ -172,9 +174,21 @@ internal fun PhoneMediaRoute(
             is PhoneMediaAction.Favorite -> route.changeUserState(intent.id, intent.expectedRevision, favorite = intent.value)
             is PhoneMediaAction.Watched -> route.changeUserState(intent.id, intent.expectedRevision, watched = intent.value)
             is PhoneMediaAction.Sources -> source(intent.id)
-            is PhoneMediaAction.SelectSource -> route.variant(intent.id)?.let {
-                route.closeSources()
-                onPlayback(it, startFromBeginning, null)
+            is PhoneMediaAction.SelectSource -> {
+                val ref = route.sourceRef
+                if (ref != null && route.variant(intent.id) != null) {
+                    sourceSelection = (sourceSelection ?: PhoneMediaSourceSelection(key(ref)))
+                        .select(intent.id, available = true)
+                }
+            }
+            is PhoneMediaAction.ConfirmSource -> {
+                val ref = route.sourceRef
+                val confirmed = sourceSelection?.confirm(intent.id, ref?.let(::key).orEmpty(), intent.expectedRevision, "")
+                if (confirmed != null) route.variant(confirmed)?.let {
+                    sourceSelection = null
+                    route.closeSources()
+                    onPlayback(it, startFromBeginning, null)
+                }
             }
             is PhoneMediaAction.Retry -> when (intent.section) {
                 "home", "featured" -> route.refreshHome()
@@ -286,7 +300,7 @@ internal fun PhoneMediaRoute(
         }
         route.sourceRef?.let { ref ->
             PhoneMediaSourcePicker(PhoneMediaSourcesState(
-                itemId = key(ref), revision = "",
+                itemId = key(ref), revision = "", selectedId = sourceSelection?.takeIf { it.itemId == key(ref) }?.selectedId,
                 entries = route.variants.map { variant ->
                     MediaSourceOption(variantKey(variant), variant.editionId, variant.editionName.ifBlank { "原始版本" },
                         variant.displayName, variant.sourceLabel, listOfNotNull(variant.resolution, readableSize(variant.size)).joinToString(" · "),
