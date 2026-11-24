@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -85,7 +86,7 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 	if err != nil {
 		return fillMatchResult{}, err
 	}
-	input := automaticMatchInput(item)
+	input := automaticMatchInput(item, mediaAutoTitleMatchEnabled())
 	input.Region = policy.Region
 	request := medialibrary.ProviderMatchRequest{LibraryID: library.ID, ItemID: itemID, Kind: string(input.Kind),
 		ItemRevision: itemRevision, StructureRevision: structureRevision, Automatic: true}
@@ -197,8 +198,13 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 	return fillMatchResult{State: "matched", Match: receipt}, nil
 }
 
-func automaticMatchInput(item mediaIdentificationResponse) mediaprovider.AutomaticMatchInput {
-	input := mediaprovider.AutomaticMatchInput{Kind: mediaprovider.Kind(item.StructureKind), Incomplete: item.ExternalIDsCursor != "" || item.incompleteEvidence}
+// Keep production title confirmation off until the real-provider benchmark passes.
+func mediaAutoTitleMatchEnabled() bool {
+	return strings.TrimSpace(os.Getenv("FILEWAY_MEDIA_AUTO_TITLE_MATCH")) == "1"
+}
+
+func automaticMatchInput(item mediaIdentificationResponse, allowTitleMatch bool) mediaprovider.AutomaticMatchInput {
+	input := mediaprovider.AutomaticMatchInput{Kind: mediaprovider.Kind(item.StructureKind), Incomplete: item.ExternalIDsCursor != "" || item.incompleteEvidence, AllowTitleMatch: allowTitleMatch}
 	if item.StructureKind == "video" {
 		input.Kind = mediaprovider.Movie
 	}

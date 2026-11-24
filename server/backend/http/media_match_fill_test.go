@@ -15,15 +15,29 @@ import (
 func TestAutomaticMatchInputCarriesTitleWithoutEnablingUnbenchmarkedMatches(t *testing.T) {
 	year := 2020
 	item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{ParsedTitle: "Echo 2020 CC", Year: &year, DirectoryTitle: "Echo"}}
-	input := automaticMatchInput(item)
+	input := automaticMatchInput(item, false)
 	if input.Title != "Echo 2020 CC" || input.Year != 2020 || input.AllowTitleMatch || len(input.Aliases) != 1 || input.Aliases[0] != "Echo" {
 		t.Fatalf("unexpected automatic input: %+v", input)
 	}
 }
 
+func TestAutomaticTitleMatchRequiresExplicitServerGate(t *testing.T) {
+	t.Setenv("FILEWAY_MEDIA_AUTO_TITLE_MATCH", "")
+	if mediaAutoTitleMatchEnabled() {
+		t.Fatal("title matching must default off")
+	}
+	t.Setenv("FILEWAY_MEDIA_AUTO_TITLE_MATCH", "1")
+	year := 2020
+	item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{ParsedTitle: "Echo", Year: &year}}
+	input := automaticMatchInput(item, mediaAutoTitleMatchEnabled())
+	if !input.AllowTitleMatch {
+		t.Fatal("explicit gate did not enable conservative title input")
+	}
+}
+
 func TestAutomaticMatchInputAddsMixedLanguageAliases(t *testing.T) {
 	item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{ParsedTitle: "The Notebook 恋恋笔记本", DirectoryTitle: "Noisy folder"}}
-	input := automaticMatchInput(item)
+	input := automaticMatchInput(item, false)
 	if len(input.Aliases) != 3 || input.Aliases[0] != "The Notebook" || input.Aliases[1] != "恋恋笔记本" || input.Aliases[2] != "Noisy folder" {
 		t.Fatalf("mixed-language aliases missing: %+v", input)
 	}
@@ -44,7 +58,7 @@ func TestMediaIdentificationUsesDirectoryYearWithoutOverwritingFilename(t *testi
 	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &identified) != nil || identified.File == nil {
 		t.Fatalf("identification: %d %s", response.Code, response.Body)
 	}
-	input := automaticMatchInput(identified)
+	input := automaticMatchInput(identified, false)
 	if identified.File.Year != nil || identified.File.DirectoryYear == nil || *identified.File.DirectoryYear != 2020 || input.Year != 2020 {
 		t.Fatalf("directory year was not retained independently: file=%+v input=%+v", identified.File, input)
 	}
