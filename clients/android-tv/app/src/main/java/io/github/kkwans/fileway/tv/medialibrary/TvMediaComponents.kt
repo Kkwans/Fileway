@@ -32,6 +32,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.tv.material3.*
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaPalette
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaShape
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSpace
 import io.github.kkwans.fileway.tv.LocalTvInteractive
 import io.github.kkwans.fileway.tv.tvTouch
 import kotlinx.coroutines.delay
@@ -57,31 +60,12 @@ internal val LocalTvMediaFocusBinding = staticCompositionLocalOf<TvMediaFocusBin
     return if (requested) focusRequester(requester) else this
 }
 
-internal data class MediaColors(
-    val canvas: Color, val surface: Color, val raised: Color, val text: Color,
-    val secondary: Color, val focus: Color, val accent: Color, val score: Color,
-    val selected: Color = Color(0xFF23354C),
-    val onAccent: Color = Color(0xFF101B2A),
-    val play: Color = Color(0xFFF1EEE7),
-    val onPlay: Color = Color(0xFF17191D),
-)
-
-internal val LocalMediaColors = staticCompositionLocalOf {
-    MediaColors(Color(0xFF111214), Color(0xFF1A1C1F), Color(0xFF25282C), Color(0xFFF3F4F6),
-        Color(0xFFBBC1CA), Color(0xFFF3F4F6), Color(0xFF8FB8FF), Color(0xFFF1C875))
-}
+internal val LocalMediaColors = staticCompositionLocalOf { FilewayMediaPalette.dark }
 
 /** The library owns its neutral surfaces while reusing the app's licensed typography. */
 @Composable
 fun TvMediaTheme(dark: Boolean = true, content: @Composable () -> Unit) {
-    val colors = if (dark) MediaColors(
-        Color(0xFF111214), Color(0xFF1A1C1F), Color(0xFF25282C), Color(0xFFF3F4F6),
-        Color(0xFFBBC1CA), Color(0xFFF3F4F6), Color(0xFF8FB8FF), Color(0xFFF1C875),
-    ) else MediaColors(
-        Color(0xFFF5F7FA), Color.White, Color(0xFFEAEEF4), Color(0xFF172235),
-        Color(0xFF59677B), Color(0xFF1767E8), Color(0xFF1767E8), Color(0xFF855B00),
-        selected = Color(0xFFE1ECFF), onAccent = Color.White,
-    )
+    val colors = if (dark) FilewayMediaPalette.dark else FilewayMediaPalette.light
     val scheme = MaterialTheme.colorScheme.copy(
         background = colors.canvas, surface = colors.surface, onBackground = colors.text,
         onSurface = colors.text, primary = colors.accent,
@@ -103,7 +87,7 @@ internal fun MediaAction(
 ) {
     val colors = LocalMediaColors.current
     val emphasize = primary && enabled
-    MediaSurface(onClick, modifier.heightIn(min = 48.dp), enabled = enabled,
+    MediaSurface(onClick, modifier.heightIn(min = FilewayMediaSpace.Tv.remoteTarget), enabled = enabled,
         selected = selected, container = if (emphasize) colors.play else colors.raised,
         contentColor = if (emphasize) colors.onPlay else colors.text) {
         Row(Modifier.padding(horizontal = 20.dp, vertical = 12.dp),
@@ -136,7 +120,7 @@ internal fun MediaSurface(
         shape = ClickableSurfaceDefaults.shape(shape),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         border = ClickableSurfaceDefaults.border(
-            focusedBorder = Border(BorderStroke(2.dp, colors.focus), shape = shape)),
+            focusedBorder = Border(BorderStroke(FilewayMediaShape.focusRing, colors.focus), shape = shape)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = surface, contentColor = contentColor,
             focusedContainerColor = surface, focusedContentColor = contentColor,
@@ -165,7 +149,8 @@ internal fun MediaArtwork(
         var failed by remember(request) { mutableStateOf(false) }
         if (!ready && !decorative && !fallbackTitle.isNullOrBlank()) {
             Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(colors.raised, colors.surface, colors.canvas))))
-            Column(Modifier.fillMaxSize().padding(start = 12.dp, top = 12.dp, end = 12.dp, bottom = 36.dp)
+            Column(Modifier.fillMaxSize().padding(start = FilewayMediaSpace.Tv.content, top = FilewayMediaSpace.Tv.content,
+                end = FilewayMediaSpace.Tv.content, bottom = 36.dp)
                 .clearAndSetSemantics {}, verticalArrangement = Arrangement.SpaceBetween) {
                 Text(if (artwork == null || failed) "暂无海报" else "正在加载", Modifier.align(Alignment.End),
                     style = MediaType.secondary, color = colors.secondary)
@@ -310,7 +295,7 @@ fun TvMediaTopBar(
 @Composable
 internal fun MediaQuietAction(label: String, onClick: () -> Unit, modifier: Modifier = Modifier,
     icon: Int? = null, selected: Boolean = false, enabled: Boolean = true) {
-    MediaSurface(onClick, modifier.heightIn(min = 48.dp), enabled = enabled, selected = selected,
+    MediaSurface(onClick, modifier.heightIn(min = FilewayMediaSpace.Tv.remoteTarget), enabled = enabled, selected = selected,
         container = Color.Transparent, selectionContainer = false) {
         Row(Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {

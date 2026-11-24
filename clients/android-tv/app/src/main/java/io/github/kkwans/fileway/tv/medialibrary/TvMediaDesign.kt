@@ -11,16 +11,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaShape
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSpace
 import io.github.kkwans.fileway.tv.tvTextStyle
 import kotlin.math.floor
 
 /** TV roles are measured in window dp and user-scaled sp, never physical output pixels. */
 internal object MediaLayout {
-    val pageInset = 48.dp
-    val sectionGap = 32.dp
-    val itemGap = 16.dp
-    val focusGutter = 8.dp
-    val shape = RoundedCornerShape(12.dp)
+    val pageInset get() = FilewayMediaSpace.Tv.pageInset
+    val sectionGap get() = FilewayMediaSpace.Tv.sectionGap
+    val itemGap get() = FilewayMediaSpace.Tv.itemGap
+    val focusGutter get() = FilewayMediaSpace.Tv.focusGutter
+    val shape = RoundedCornerShape(FilewayMediaShape.card)
     val rowPadding get() = PaddingValues(horizontal = pageInset, vertical = focusGutter)
 }
 

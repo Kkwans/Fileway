@@ -66,11 +66,11 @@ private val BlueDarkColors = darkColorScheme(
 )
 
 private val FilewayShapes = Shapes(
-    small = RoundedCornerShape(12.dp),
-    medium = RoundedCornerShape(12.dp),
-    large = RoundedCornerShape(12.dp),
-    extraLarge = RoundedCornerShape(12.dp),
-    extraSmall = RoundedCornerShape(12.dp),
+    small = RoundedCornerShape(FilewayMediaShape.card),
+    medium = RoundedCornerShape(FilewayMediaShape.card),
+    large = RoundedCornerShape(FilewayMediaShape.card),
+    extraLarge = RoundedCornerShape(FilewayMediaShape.card),
+    extraSmall = RoundedCornerShape(FilewayMediaShape.card),
 )
 
 /** Stable neutral player roles; artwork is allowed to occupy tertiary accents only. */
@@ -121,10 +121,10 @@ private val FilewayTypography = Typography(
 @Immutable data class FilewayStatusColors(
     val success: Color, val successContainer: Color, val onSuccessContainer: Color,
     val warning: Color, val warningContainer: Color, val onWarningContainer: Color,
-    val mediaCanvas: Color = Color(0xFF10141B),
-    val mediaSurface: Color = FilewayPalette.darkSurface,
-    val mediaContent: Color = FilewayPalette.darkText,
-    val mediaSecondary: Color = FilewayPalette.darkSecondary,
+    val mediaCanvas: Color = FilewayMediaPalette.player.canvas,
+    val mediaSurface: Color = FilewayMediaPalette.player.surface,
+    val mediaContent: Color = FilewayMediaPalette.player.text,
+    val mediaSecondary: Color = FilewayMediaPalette.player.secondary,
 )
 
 private val LightStatus = FilewayStatusColors(
@@ -147,12 +147,12 @@ object FilewayTheme {
 }
 
 object FilewaySpace {
-    val tiny = 4.dp
-    val small = 8.dp
-    val content = 12.dp
-    val page = 16.dp
-    val section = 24.dp
-    val target = 48.dp
+    val tiny get() = FilewayMediaSpace.Phone.tiny
+    val small get() = FilewayMediaSpace.Phone.small
+    val content get() = FilewayMediaSpace.Phone.content
+    val page get() = FilewayMediaSpace.Phone.pageInset
+    val section get() = FilewayMediaSpace.Phone.sectionGap
+    val target get() = FilewayMediaSpace.Phone.touchTarget
     val appBar = 56.dp
     val navigation = 56.dp
 }
