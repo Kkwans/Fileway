@@ -93,6 +93,14 @@ data class MediaMetadataRefreshPreview(
     val protectedFields: List<String>, val preservedFields: List<String>, val canRefresh: Boolean,
 )
 
+data class MediaMetadataRefreshLibraryPreview(
+    val libraryId: String, val targetLanguage: String, val region: String, val mode: String,
+    val policyRevision: Long, val matchedItems: Int, val languageMismatchItems: Int,
+    val alreadyCurrentItems: Int, val lockedItems: Int, val explicitClearItems: Int,
+    val nfoPreservedItems: Int, val protectedFields: Map<String, Int>, val preservedFields: Map<String, Int>,
+    val currentLanguages: Map<String, Int>, val fieldChangesRequireItemPreview: Boolean, val canRefresh: Boolean,
+)
+
 internal fun requireProviderConnectionId(value: String) {
     require(value.matches(Regex("pc_[0-9a-f]{32}"))) { "资料连接标识无效" }
 }
@@ -261,4 +269,26 @@ internal fun parseMetadataRefreshPreview(row: JSONObject): MediaMetadataRefreshP
     row.providerText("currentLanguage", 64), row.providerText("targetLanguage", 64),
     row.providerStrings("changedFields", 64, 128), row.providerStrings("protectedFields", 64, 128),
     row.providerStrings("preservedFields", 64, 128), row.providerBoolean("canRefresh"),
+)
+
+private fun JSONObject.providerCount(key: String): Int = providerLong(key).also {
+    require(it <= Int.MAX_VALUE.toLong()) { "在线资料响应无效" }
+}.toInt()
+
+private fun JSONObject.providerCountMap(key: String): Map<String, Int> {
+    val values = getJSONObject(key)
+    val result = linkedMapOf<String, Int>()
+    for (name in values.keys()) {
+        result[name] = values.providerCount(name).also { require(it >= 0) { "在线资料响应无效" } }
+    }
+    return result
+}
+
+internal fun parseMetadataRefreshLibraryPreview(row: JSONObject): MediaMetadataRefreshLibraryPreview = MediaMetadataRefreshLibraryPreview(
+    row.providerText("libraryId", 200).also(::requireMediaRouteId), row.providerText("targetLanguage", 64),
+    row.providerText("region", 2), row.providerText("mode", 32), row.providerLong("policyRevision"),
+    row.providerCount("matchedItems"), row.providerCount("languageMismatchItems"), row.providerCount("alreadyCurrentItems"),
+    row.providerCount("lockedItems"), row.providerCount("explicitClearItems"), row.providerCount("nfoPreservedItems"),
+    row.providerCountMap("protectedFields"), row.providerCountMap("preservedFields"), row.providerCountMap("currentLanguages"),
+    row.providerBoolean("fieldChangesRequireItemPreview"), row.providerBoolean("canRefresh"),
 )

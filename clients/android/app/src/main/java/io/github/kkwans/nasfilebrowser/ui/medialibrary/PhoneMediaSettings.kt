@@ -338,6 +338,9 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
     var error by remember(repository, libraryId) { mutableStateOf<String?>(null) }
     var pending by remember(repository, libraryId) { mutableStateOf<MediaOperation?>(null) }
     var refresh by remember(repository, libraryId) { mutableIntStateOf(0) }
+    var libraryRefreshPreview by remember(repository, libraryId) { mutableStateOf<MediaMetadataRefreshLibraryPreview?>(null) }
+    var libraryRefreshBusy by remember(repository, libraryId) { mutableStateOf(false) }
+    var libraryRefreshError by remember(repository, libraryId) { mutableStateOf<String?>(null) }
     LaunchedEffect(repository, libraryId, refresh) {
         busy = true
         try {
@@ -346,6 +349,7 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
                 is MediaReadResult.Success -> if (result.scope == repository.scope) {
                     policy = result.value; mode = result.value.mode; chosen = result.value.connectionId
                     language = result.value.language; region = result.value.region
+                    libraryRefreshPreview = null; libraryRefreshError = null
                 }
                 is MediaReadResult.Failure -> if (result.scope == repository.scope) error = providerProblem(result.error)
             }
@@ -366,8 +370,23 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
     }
     val valid = policy != null && mode != MediaProviderPolicyMode.UNKNOWN && (mode == MediaProviderPolicyMode.LOCAL_ONLY ||
         !connectionsLoading && connections?.any { it.id == chosen } == true)
-    BackHandler(enabled = busy && policy != null) { }
-    MediaSettingsPage("资料优先级", { if (!busy) onBack() }, footer = {
+    val currentPolicy = policy
+    val dirty = currentPolicy != null && (mode != currentPolicy.mode || language != currentPolicy.language || region != currentPolicy.region ||
+        chosen.takeUnless { mode == MediaProviderPolicyMode.LOCAL_ONLY } != currentPolicy.connectionId)
+    fun previewLibraryRefresh() {
+        if (busy || libraryRefreshBusy || dirty || currentPolicy == null || mode == MediaProviderPolicyMode.LOCAL_ONLY) return
+        libraryRefreshBusy = true; libraryRefreshError = null
+        scope.launch {
+            try {
+                when (val result = repository.previewLibraryMetadataRefresh(libraryId)) {
+                    is MediaReadResult.Success -> if (result.scope == repository.scope) libraryRefreshPreview = result.value
+                    is MediaReadResult.Failure -> if (result.scope == repository.scope) libraryRefreshError = providerProblem(result.error)
+                }
+            } finally { libraryRefreshBusy = false }
+        }
+    }
+    BackHandler(enabled = (busy || libraryRefreshBusy) && policy != null) { }
+    MediaSettingsPage("资料优先级", { if (!busy && !libraryRefreshBusy) onBack() }, footer = {
         Button(onClick = {
             val original = policy ?: return@Button
             val existing = pending
@@ -387,7 +406,7 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
                     }
                 } finally { busy = false }
             }
-        }, enabled = !busy && (valid || pending != null), modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(16.dp).heightIn(min = 48.dp),
+        }, enabled = !busy && !libraryRefreshBusy && (valid || pending != null), modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(16.dp).heightIn(min = 48.dp),
             shape = MaterialTheme.shapes.medium) { Text(if (pending != null) "确认上次保存" else "保存设置") }
     }) {
         SettingsGroup("资料来源") {
@@ -402,6 +421,45 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
             }
             listOf("CN" to "中国大陆", "TW" to "台湾", "HK" to "香港", "US" to "美国", "JP" to "日本").forEach { (value, label) ->
                 FilewaySelectionRow(label, subtitle = "发行地区", selected = region == value, enabled = !busy && pending == null, onClick = { region = value })
+            }
+        }
+        if (mode != MediaProviderPolicyMode.LOCAL_ONLY && policy != null) SettingsGroup("资料语言刷新") {
+            Text("预览只统计影响，不会修改资料。", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Button(onClick = ::previewLibraryRefresh, enabled = !busy && !libraryRefreshBusy && !dirty,
+                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = MaterialTheme.shapes.medium) {
+                Text(if (libraryRefreshBusy) "正在预览…" else "预览资料刷新影响")
+            }
+            if (dirty) Text("请先保存当前语言、地区或连接设置，再预览影响。",
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            libraryRefreshError?.let { message -> MediaProblemCard(MediaProblem("无法预览资料刷新", message, "重试"), ::previewLibraryRefresh) }
+            libraryRefreshPreview?.let { preview ->
+                if (preview.policyRevision != currentPolicy?.revision) Text("资料设置已变化，请重新预览。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            libraryRefreshPreview?.takeIf { !dirty && it.policyRevision == currentPolicy?.revision }?.let { preview ->
+                Text("目标资料：${preview.targetLanguage} · ${preview.region}", style = MaterialTheme.typography.bodyMedium)
+                Text("已匹配 ${preview.matchedItems} 条；${preview.languageMismatchItems} 条语言不同，${preview.alreadyCurrentItems} 条已是目标语言。",
+                    style = MaterialTheme.typography.bodyMedium)
+                if (preview.lockedItems > 0 || preview.explicitClearItems > 0) {
+                    Text("${preview.lockedItems} 条含人工锁定，${preview.explicitClearItems} 条含显式清空；这些字段会保留。",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("保留字段：${formatMetadataFieldCounts(preview.protectedFields)}",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (preview.nfoPreservedItems > 0) {
+                    Text("${preview.nfoPreservedItems} 条含 NFO 优先字段；本地优先模式下会保留。",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("NFO 保留字段：${formatMetadataFieldCounts(preview.preservedFields)}",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                if (preview.fieldChangesRequireItemPreview) Text("具体变化字段请在条目详情中逐条预览。",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                when {
+                    preview.languageMismatchItems == 0 -> Text("没有需要刷新语言的条目。", style = MaterialTheme.typography.bodyMedium)
+                    !preview.canRefresh -> Text("当前 TMDB 连接不可用，请先检查连接。", style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.error)
+                }
             }
         }
         if (mode != MediaProviderPolicyMode.LOCAL_ONLY) SettingsGroup("TMDB 连接") {
@@ -423,6 +481,9 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
         error?.let { MediaProblemCard(MediaProblem("无法保存设置", it, "刷新"), { error = null; refresh++ }) }
     }
 }
+
+internal fun formatMetadataFieldCounts(counts: Map<String, Int>): String =
+    counts.entries.sortedBy { it.key }.joinToString("、") { "${it.key} ×${it.value}" }.ifBlank { "无" }
 
 internal fun providerProblem(error: MediaFailure): String = when (error.kind) {
     MediaFailureKind.AUTHENTICATION -> "请重新登录当前服务器。"

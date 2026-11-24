@@ -36,6 +36,32 @@ class MediaProviderModelsTest {
     }
 
     @Test
+    fun libraryRefreshPreviewPreservesCountsAndFieldHistograms() {
+        val preview = parseMetadataRefreshLibraryPreview(JSONObject()
+            .put("libraryId", "lib_fixture")
+            .put("targetLanguage", "zh-CN")
+            .put("region", "CN")
+            .put("mode", "local_first_online")
+            .put("policyRevision", 4)
+            .put("matchedItems", 12)
+            .put("languageMismatchItems", 7)
+            .put("alreadyCurrentItems", 5)
+            .put("lockedItems", 3)
+            .put("explicitClearItems", 1)
+            .put("nfoPreservedItems", 2)
+            .put("protectedFields", JSONObject().put("title", 3))
+            .put("preservedFields", JSONObject().put("plot", 2))
+            .put("currentLanguages", JSONObject().put("en-US", 7).put("zh-CN", 5))
+            .put("fieldChangesRequireItemPreview", true)
+            .put("canRefresh", true))
+        assertEquals(12, preview.matchedItems)
+        assertEquals(7, preview.languageMismatchItems)
+        assertEquals(mapOf("title" to 3), preview.protectedFields)
+        assertEquals(mapOf("en-US" to 7, "zh-CN" to 5), preview.currentLanguages)
+        assertEquals(true, preview.fieldChangesRequireItemPreview)
+    }
+
+    @Test
     fun legacyMatchJournalWithoutCandidateTicketStillRestores() {
         val operation = MediaOperation(MediaAccountScope("profile", 1, "account", 7), "op_fixture")
         val request = MediaMutationRequest.fromJson(operation, JSONObject()

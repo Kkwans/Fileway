@@ -479,6 +479,14 @@ class MediaLibraryRepository(
         }
     }
 
+    suspend fun previewLibraryMetadataRefresh(libraryId: String): MediaReadResult<MediaMetadataRefreshLibraryPreview> {
+        requireMediaRouteId(libraryId)
+        return catalogRead(null) {
+            parseMetadataRefreshLibraryPreview(context.api.request("POST", "${libraryEndpoint(libraryId)}/metadata-refresh-preview", JSONObject()))
+                .also { require(it.libraryId == libraryId) }
+        }
+    }
+
     suspend fun refreshMetadata(operation: MediaOperation, item: MediaProviderIdentification): MediaWriteResult<MediaProviderMatchReceipt> {
         item.ref.requireBound(scope, catalogDeviceSession)
         return providerWrite(mutation(operation, MediaMutationKind.REFRESH_METADATA, item.ref.libraryId, itemId = item.ref.itemId,
