@@ -4414,7 +4414,10 @@
         "year": 2006,
         "technicalHints": {
           "audio_codec": [
-            "ddp5.1"
+            "ddp"
+          ],
+          "audio_layout": [
+            "5.1"
           ]
         }
       }

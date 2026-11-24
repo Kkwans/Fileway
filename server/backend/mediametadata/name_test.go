@@ -82,6 +82,54 @@ func validateNameEvidence(t *testing.T, input string, parsed ParsedName) {
 	}
 }
 
+func TestRealReleaseNoiseDoesNotPolluteExactTitle(t *testing.T) {
+	cases := []struct {
+		filename string
+		title    string
+		year     int
+	}{
+		{"The.Notebook.恋恋笔记本.2004.中英字幕.BDrip.1080P-人人影视.mp4", "The Notebook 恋恋笔记本", 2004},
+		{"[天才枪手][泰国.剧情][港版].Bad.Genius.2017.BD.1080P.x265.10bit.AAC5.1.泰国粤三语.内嵌特效中简-FFans@抠脚.mkv", "[天才枪手] Bad Genius", 2017},
+		{"Return.to.Dust.2022.WEB-DL.4K.H.265.DDP.5.1.&.AAC-CTRLTV.mkv", "Return to Dust", 2022},
+		{"My.Memories.of.Old.Beijing.1983.V2.1080p.BluRay.x264.FLAC.1.0-SONYHD.mkv", "My Memories of Old Beijing", 1983},
+		{"Youth.2015.USA.BluRay.Remux.AVC.1080p.DTS-HDMA7.1-DreamHD.mkv", "Youth", 2015},
+		{"Dune.Part.Two.2024.USA.BluRay.2160p.TrueHD7.1.DoVi.HDR.x265.10bit-DreamHD.mkv", "Dune Part Two", 2024},
+		{"蜘蛛侠2.加长版.2004.BD1080P.AAC.H264.CHS-ENG.BT世界网.[www.btsj6.com].mp4", "蜘蛛侠2", 2004},
+		{"终结者2：审判日.156分钟终极剪辑版.1991.BD1080P.AAC.H264.CHS-ENG.BT世界网.[www.btsj5.com].mp4", "终结者2：审判日", 1991},
+	}
+	for _, fixture := range cases {
+		t.Run(fixture.filename, func(t *testing.T) {
+			parsed := ParseName(fixture.filename)
+			validateNameEvidence(t, fixture.filename, parsed)
+			if parsed.Title != fixture.title || parsed.Year == nil || *parsed.Year != fixture.year {
+				t.Fatalf("got title=%q year=%v ambiguities=%v; want title=%q year=%d", parsed.Title, parsed.Year, parsed.Ambiguities, fixture.title, fixture.year)
+			}
+		})
+	}
+}
+
+func TestPromotionalOnlyFilenameRequiresDirectoryEvidence(t *testing.T) {
+	filename := "【更多无水印蓝光原盘请访问 www.BBSDDS.com】【更多无水印蓝光原盘请访问 www.BBSDDS.com】.MP4.mkv"
+	parsed := ParseNameInDirectory(filename, "芳芳.fanfan 1993 1080P H264 AC3-TAG")
+	if parsed.Title != "" || !slices.Contains(parsed.Ambiguities, "promotional_filename") {
+		t.Fatalf("promotional filename was treated as a work title: %+v", parsed)
+	}
+	if parsed.Directory == nil || parsed.Directory.Title != "芳芳 fanfan" || parsed.Directory.Year == nil || *parsed.Directory.Year != 1993 {
+		t.Fatalf("independent directory evidence missing: %+v", parsed.Directory)
+	}
+}
+
+func TestAudioLayoutCleanupKeepsNumericTitle(t *testing.T) {
+	film := ParseName("Film.2018.7.1.1080p.mkv")
+	if film.Title != "Film" || strings.Contains(film.Title, "7") {
+		t.Fatalf("audio layout polluted title: %+v", film)
+	}
+	numeric := ParseName("21.2018.1080p.mkv")
+	if numeric.Title != "21" {
+		t.Fatalf("numeric title was removed: %+v", numeric)
+	}
+}
+
 func TestParseNameInDirectoryRetainsIndependentYearEvidence(t *testing.T) {
 	parsed := ParseNameInDirectory("film.mkv", "Echo (2020) 1080p")
 	if parsed.Directory == nil || parsed.Directory.Title != "Echo" || parsed.Directory.Year == nil || *parsed.Directory.Year != 2020 {
