@@ -135,7 +135,8 @@ class TvMediaController(
 
     fun open(file: ResourceRef, candidates: List<ResourceRef>) = openMedia(file,candidates,null)
     internal fun openCatalog(repo: MediaLibraryRepository, item: MediaCatalogVariant, fromStart: Boolean = false,
-        checkpoint: MediaCatalogContinue? = null, restore: DecoderRestore? = null) {
+        checkpoint: MediaCatalogContinue? = null, restore: DecoderRestore? = null,
+        externalSubtitle: ResourceRef? = null) {
         val owner = current() ?: return
         if (repo.scope != item.ref.scope || repo.scope.account.userId != owner.account.userId) return
         val expected = ++epoch
@@ -151,6 +152,11 @@ class TvMediaController(
         requestedPresentation = null
         subtitleIntent = SubtitleIntent.Auto
         subtitleFallbackIntent = SubtitleIntent.Auto
+        if (externalSubtitle != null) {
+            val choice = requireNotNull(restore?.externalSubtitle)
+            subtitleIntent = SubtitleIntent.External(externalSubtitle, "external:${externalSubtitle.mediaKey}",
+                choice.trackKey, choice.sourceVersion)
+        }
         subtitleFallbackSource = -1
         val file = ResourceRef("", "/@catalog/${item.ref.libraryId}/${item.variantId}",
             item.displayName, false, "video", item.size)
@@ -177,8 +183,8 @@ class TvMediaController(
                     catalogLease = lease
                     if (restore == null) player.open(lease.url, lease.startPositionMs,
                         videoDecodePolicy = playbackPreferences.videoDecodePolicy.value)
-                    else player.openRestoring(lease.url, restore, autoplay = restore.wantsPlay,
-                        videoDecodePolicy = playbackPreferences.videoDecodePolicy.value)
+                    else player.openRestoring(lease.url, subtitleRestore(restore, subtitleIntent),
+                        autoplay = restore.wantsPlay, videoDecodePolicy = playbackPreferences.videoDecodePolicy.value)
                     catalogSelection = CatalogSelection(repo, item, fromStart = false, checkpoint = null)
                     val progress = CatalogWatchReporter(lease, player.state.value.mediaGeneration)
                     catalogProgress = progress
@@ -199,6 +205,7 @@ class TvMediaController(
                                 mutable.update { it.copy(sourceDurationMs = snapshot.durationMs) }
                         }
                     }
+                    if (subtitleIntent != SubtitleIntent.Auto) selectSubtitleIntent(subtitleIntent)
                 }
                 catalogLease?.let { if (accepts(owner, expected)) it.maintain() }
             } catch (failure: Exception) {
@@ -693,7 +700,7 @@ class TvMediaController(
     fun subtitlesOff() = selectSubtitleIntent(SubtitleIntent.Off)
     fun selectPlayerSubtitle(id: Int) {
         if (id == -1) { subtitlesOff(); return }
-        if (binding?.epoch != epoch || binding?.owner !== current()) {
+        if (catalogSelection == null && (binding?.epoch != epoch || binding?.owner !== current())) {
             mutable.update { it.copy(subtitleError = "字幕尚未准备好，请稍后重试") }; return
         }
         val native = player.nativeSubtitleIdentity(id)
@@ -1322,25 +1329,25 @@ class TvMediaController(
     }
 
     private suspend fun importExternal(intent: SubtitleIntent.External) {
-        val source = binding ?: return
-        val expected = epoch
+        val owner = binding?.owner ?: current()?.takeIf { catalogSelection != null } ?: return
+        val expected = binding?.epoch ?: epoch
         val selection = subtitleRevision
         val generation = player.state.value.mediaGeneration
         fun checkCurrent() {
-            if (!accepts(source.owner, expected) || selection != subtitleRevision || generation != player.state.value.mediaGeneration)
+            if (!accepts(owner, expected) || selection != subtitleRevision || generation != player.state.value.mediaGeneration)
                 throw CancellationException("Subtitle selection changed")
         }
         val file = intent.file
         val key = intent.key
         checkCurrent()
         intent.resourceVersion?.let { version ->
-            ScopedSubtitleResources(source.owner.api).verify(ScopedSubtitleEntry(file, version))
+            ScopedSubtitleResources(owner.api).verify(ScopedSubtitleEntry(file, version))
             checkCurrent()
         }
         if (intent.trackKey != null && player.selectImportedSubtitle(key, intent.trackKey, intent.version)) {
             mutable.update { it.copy(selectedSourceSubtitle = -1, subtitleError = null) }; return
         }
-        val lease = subtitleLease(source.owner, intent)
+        val lease = subtitleLease(owner, intent)
         try {
             readAsset(lease, retain = true) {
                 checkCurrent()

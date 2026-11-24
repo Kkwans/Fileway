@@ -92,9 +92,8 @@ internal class TvMediaHandoff(private val model:TvModel) {
             file
         }
         require((restore.subtitleMode==DecoderSubtitleMode.EXTERNAL)==(external!=null)) { "外挂字幕不能由 TV 直接访问，请选择可访问的字幕或关闭字幕后重试" }
-        check(catalog==null||external==null) { "目录接力暂不支持外挂字幕，请关闭字幕后重试" }
         pending?.receiver?.cancel()
-        if(catalog!=null) model.media.openCatalog(catalog.repository,catalog.variant,restore=restore)
+        if(catalog!=null) model.media.openCatalog(catalog.repository,catalog.variant,restore=restore,externalSubtitle=external)
         else model.openHandoff(selected,TvMediaStart(identity,restore,external))
         val bound=fence(command.getString("connectionId"))
         pending=Pending(id,owner,bound,item,manifest,HandoffQueueReceiver(id,bound,manifest,item),restore.positionMs,restore.wantsPlay,SystemClock.elapsedRealtime(),item.kind)
