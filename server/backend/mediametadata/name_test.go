@@ -119,6 +119,12 @@ func TestParseNameCleansReleaseAndSubtitleNoise(t *testing.T) {
 		{"[www dbmp4 com]后天 2004 BD1080p 国英双语 中英双字.mkv", "后天", 2004},
 		{"[www.domp4.com]华尔街之狼 2013 BD1080p 中英双字.mkv", "华尔街之狼", 2013},
 		{"阿黛尔的生活 2013 法语中字.mkv", "阿黛尔的生活", 2013},
+		{"Captain Marvel 2019 DSNP.mkv", "Captain Marvel", 2019},
+		{"Barbie 2023 iTunes.mkv", "Barbie", 2023},
+		{"Blade Runner 2049 2017 4Audio -SSDSSE.mkv", "Blade Runner 2049", 2017},
+		{"The Martian 2015 TC TrueHD7 1.mkv", "The Martian", 2015},
+		{"Love Actually 2003 DTS-HD MA5 1.mkv", "Love Actually", 2003},
+		{"Venom 2018 English.mkv", "Venom", 2018},
 	} {
 		parsed := ParseName(tc.filename)
 		if parsed.Title != tc.title || parsed.Year == nil || *parsed.Year != tc.year || len(parsed.Ambiguities) != 0 {
@@ -135,6 +141,10 @@ func TestTitleAliasesSeparateChineseAndOriginalTitles(t *testing.T) {
 	cleaned := TitleAliases("美国队长2：冬日战士 Captain America 2 2014 AAC6 2Audios -DiaosMan")
 	if !reflect.DeepEqual(cleaned, []string{"美国队长2：冬日战士", "Captain America 2"}) {
 		t.Fatalf("unclean aliases: %v", cleaned)
+	}
+	mixed := TitleAliases("地心引力(蓝光国英双音轨特效 幕) Gravity 2013 BD")
+	if !slices.Contains(mixed, "Gravity") {
+		t.Fatalf("mixed alias retained source tags: %v", mixed)
 	}
 }
 

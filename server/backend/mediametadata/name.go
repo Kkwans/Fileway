@@ -103,15 +103,16 @@ type technicalRule struct {
 var technicalNameRules = []technicalRule{
 	{"resolution", regexp.MustCompile(`(?i)BD(?:1080[pi]|2160p|720p)|4320p|2160p|1440p|1080[pi]|720p|576p|480p|8k|4k`)},
 	{"video_codec", regexp.MustCompile(`(?i)x26[45]|h[ .]?26[45]|hevc|avc|av1|xvid`)},
-	{"dynamic_range", regexp.MustCompile(`(?i)dolby[ ._\-]+vision|hdr10\+|hdr10|hdr|hlg|dv`)},
-	{"source", regexp.MustCompile(`(?i)web[ ._\-]?dl|webrip|blu[ ._\-]?ray|bdrip|brrip|remux|hdtv|dvdrip`)},
-	{"audio_codec", regexp.MustCompile(`(?i)dts[ ._\-]?hd[ ._\-]?ma|truehd|ddp[ .]?[257]\.1|dd[ .]?[257]\.1|e[ ._\-]?ac3|ac3|aac|dts|atmos|flac|opus|pcm`)},
+	{"dynamic_range", regexp.MustCompile(`(?i)dolby[ ._\-]+vision|hdr10\+|hdr10|hdr|hlg|dv|\bSDR\b`)},
+	{"source", regexp.MustCompile(`(?i)web[ ._\-]?dl|webrip|blu[ ._\-]?ray|bdrip|brrip|remux|hdtv|dvdrip|DSNP|iTunes|\b(?:FRA|TC|EC|DC)\b|\bBD(?:[ ._-]*[1-9])?\b`)},
+	{"audio_codec", regexp.MustCompile(`(?i)dts[ ._\-]?hd[ ._\-]?ma[257][ ._]1|dts[ ._\-]?hd[ ._\-]?ma|truehd[257][ ._]1|truehd|ddp[ .]?[257]\.1|dd[ .]?[257]\.1|e[ ._\-]?ac3|ac3|aac|dts|atmos|flac|opus|pcm`)},
 	{"bit_depth", regexp.MustCompile(`(?i)(?:8|10|12)[ ._\-]?bit`)},
 	{"edition", regexp.MustCompile(`(?i)\b(?:IMAX|UHD|CC)\b`)},
 	{"audio_layout", regexp.MustCompile(`(?i)\b[257][ ._]1\b`)},
-	{"audio_variant", regexp.MustCompile(`(?i)\b(?:AAC[0-9]|[257]Audios?)\b`)},
+	{"audio_variant", regexp.MustCompile(`(?i)\b(?:AAC[0-9]|[1-9]Audios?)\b`)},
+	{"language", regexp.MustCompile(`(?i)Mandarin&English|English&Mandarin|CHS[ ._-]?ENG|\b(?:English|Mandarin|CHS|JP|CN)\b`)},
 	{"subtitle", regexp.MustCompile(`国英双语|中英双字|中英字幕|中英特效|国语中字|粤语中字|日语中字|法语中字|英语中字|国日粤三语|中日双字|简繁双语|双语中字|中文字幕`)},
-	{"release_group", regexp.MustCompile(`(?i)\b(?:MNHD-FRDS|RARBG|HDBWEB|DreamHD|BBQDDQ|CTRLTV|FRDS|MTeam|WiKi|PTer|HDC|HDS|D-Z0N3|DiaosMan)\b`)},
+	{"release_group", regexp.MustCompile(`(?i)\b(?:MNHD-FRDS|RARBG|HDBWEB|DreamHD|BBQDDQ|CTRLTV|FRDS|MTeam|WiKi|PTer|HDC|HDS|D-Z0N3|DiaosMan|SSDSSE|NukeHD|SONYHD|882FX|taobaobt|Mp4Ba(?:Fans)?|FFans|KOOK|UUMp4|D2Mp4|99Mp4|4KHDR|52movieba)\b`)},
 	{"site_prefix", regexp.MustCompile(`(?i)^\[[^\]]*(?:www[ ._]|https?://)[^\]]*\]`)},
 }
 

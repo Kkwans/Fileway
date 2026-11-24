@@ -15,7 +15,7 @@ import (
 // LocalRulesRevision identifies the scanner's extension, naming and sidecar
 // rules. Change it whenever those rules change; a claimed job must never be
 // resumed under a different rule set while retaining its old revision label.
-const LocalRulesRevision int64 = 5
+const LocalRulesRevision int64 = 7
 
 var ErrScanRulesUnavailable = errors.New("media scan rules revision is unavailable")
 
