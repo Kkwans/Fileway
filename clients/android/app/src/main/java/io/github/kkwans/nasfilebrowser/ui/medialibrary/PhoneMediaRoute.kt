@@ -156,7 +156,11 @@ internal fun PhoneMediaRoute(
             is PhoneMediaAction.UpdateSearchQuery -> route.editSearch(intent.query)
             is PhoneMediaAction.SearchMode -> route.chooseSearchMode(intent.mode)
             is PhoneMediaAction.SubmitSearch -> route.submitSearch(intent.query)
-            PhoneMediaAction.LoadMoreSearch -> if (route.searchMode == MediaSearchMode.WORKS) route.loadSearch(reset = false) else route.loadPeople(reset = false)
+            PhoneMediaAction.LoadMoreSearch -> when (route.searchMode) {
+                MediaSearchMode.WORKS -> route.loadSearch(reset = false)
+                MediaSearchMode.PEOPLE -> route.loadPeople(reset = false)
+                MediaSearchMode.FILES -> route.loadFiles(reset = false)
+            }
             is PhoneMediaAction.OpenCatalogPerson -> {
                 val person = route.people.firstOrNull { it.ref.libraryId == intent.libraryId && it.ref.personId == intent.personId }
                 if (person != null) {
@@ -173,7 +177,7 @@ internal fun PhoneMediaRoute(
                 val first = route.home?.hero?.items.orEmpty()
                 val homeItems = route.home?.rows.orEmpty().flatMap { it.items }
                 val episode = route.episodes.firstOrNull { key(it.ref) == intent.id }
-                (route.catalog + route.searchResults + route.personWorks + first + homeItems + watching.items.map { it.card } + listOfNotNull(episode?.card)).firstOrNull { key(it.ref) == intent.id }?.let {
+                (route.catalog + route.searchResults + route.files.map { it.card } + route.personWorks + first + homeItems + watching.items.map { it.card } + listOfNotNull(episode?.card)).firstOrNull { key(it.ref) == intent.id }?.let {
                     if (episode != null && item != null && library != null) {
                         parentItem = item; parentLibrary = library; parentSeason = season
                     } else { parentItem = null; parentLibrary = null; parentSeason = null }
@@ -229,7 +233,11 @@ internal fun PhoneMediaRoute(
                 "seasons" -> route.loadSeasons(reset = false)
                 "episodes" -> route.loadEpisodes(reset = false)
                 "sources" -> route.loadSources(reset = false)
-                "search" -> if (route.searchMode == MediaSearchMode.WORKS) route.loadSearch(reset = false) else route.loadPeople(reset = false)
+                "search" -> when (route.searchMode) {
+                    MediaSearchMode.WORKS -> route.loadSearch(reset = false)
+                    MediaSearchMode.PEOPLE -> route.loadPeople(reset = false)
+                    MediaSearchMode.FILES -> route.loadFiles(reset = false)
+                }
                 "person-works" -> route.loadPersonWorks(reset = false)
                 else -> Unit
             }
@@ -277,7 +285,9 @@ internal fun PhoneMediaRoute(
             pages.SaveableStateProvider("media-search/${session.owner}") {
                 PhoneMediaSearch(route.searchQuery, route.searchedQuery.isNotBlank(), route.searchMode,
                     route.searchResults.map(::poster), route.searchLoading, route.searchProblem, route.searchCursor != null,
-                    route.people, route.peopleLoading, route.peopleProblem, route.peopleCursor != null, imageLoader, action)
+                    route.people, route.peopleLoading, route.peopleProblem, route.peopleCursor != null,
+                    route.files, route.filesLoading, route.filesProblem, route.filesCursor != null,
+                    route.home?.capabilities?.get("fileSearch") == true, imageLoader, action)
             }
         } else {
             val home = route.home

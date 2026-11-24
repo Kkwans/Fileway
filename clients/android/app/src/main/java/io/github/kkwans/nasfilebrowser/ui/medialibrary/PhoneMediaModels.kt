@@ -87,7 +87,7 @@ internal data class PhoneMediaSetupState(val draft: MediaLibraryDraft, val roots
  * Routes retain drafts, queries, selected seasons and stable-ID list anchors across destinations.
  * Conflicts retain the user's choice and require a fresh preview before another mutation. */
 internal enum class MediaTargetKind { ITEM, EPISODE, CONTINUE }
-internal enum class MediaSearchMode { WORKS, PEOPLE }
+internal enum class MediaSearchMode { WORKS, PEOPLE, FILES }
 
 internal sealed interface PhoneMediaAction {
     data object Back : PhoneMediaAction

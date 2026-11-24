@@ -39,6 +39,10 @@ internal class PhoneMediaRouteState(
     var peopleLoading by mutableStateOf(false); private set
     var peopleProblem by mutableStateOf<MediaProblem?>(null); private set
     var peopleCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
+    var files by mutableStateOf<List<MediaCatalogFileMatch>>(emptyList()); private set
+    var filesLoading by mutableStateOf(false); private set
+    var filesProblem by mutableStateOf<MediaProblem?>(null); private set
+    var filesCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
     var person by mutableStateOf<MediaCatalogPersonRef?>(null); private set
     var personName by mutableStateOf(""); private set
     var personWorks by mutableStateOf<List<MediaCatalogCard>>(emptyList()); private set
@@ -77,6 +81,7 @@ internal class PhoneMediaRouteState(
     private var catalogJob: Job? = null
     private var searchJob: Job? = null
     private var peopleJob: Job? = null
+    private var filesJob: Job? = null
     private var personWorksJob: Job? = null
     private var detailJob: Job? = null
     private var seasonsJob: Job? = null
@@ -85,7 +90,7 @@ internal class PhoneMediaRouteState(
     private var userStateJob: Job? = null
 
     fun close() {
-        listOf(homeJob, catalogJob, searchJob, peopleJob, personWorksJob, detailJob, seasonsJob, episodesJob, sourcesJob, userStateJob).forEach { it?.cancel() }
+        listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, personWorksJob, detailJob, seasonsJob, episodesJob, sourcesJob, userStateJob).forEach { it?.cancel() }
     }
 
     fun start(initialFilter: String) {
@@ -117,7 +122,8 @@ internal class PhoneMediaRouteState(
                             supported = false; closeDetail()
                             home = null; catalog = emptyList(); catalogCursor = null; catalogPageState = null
                             searchResults = emptyList(); searchCursor = null
-                            people = emptyList(); peopleCursor = null; person = null; personWorks = emptyList(); personWorksCursor = null
+                            people = emptyList(); peopleCursor = null; files = emptyList(); filesCursor = null
+                            person = null; personWorks = emptyList(); personWorksCursor = null
                         }
                         checking = false; homeProblem = problem(result.error, "无法加载影视中心")
                     }
@@ -148,6 +154,7 @@ internal class PhoneMediaRouteState(
         if (searchedQuery.isNotBlank()) when (searchMode) {
             MediaSearchMode.WORKS -> loadSearch(reset = true, discardCurrent = true)
             MediaSearchMode.PEOPLE -> loadPeople(reset = true, discardCurrent = true)
+            MediaSearchMode.FILES -> loadFiles(reset = true, discardCurrent = true)
         }
     }
 
@@ -157,6 +164,7 @@ internal class PhoneMediaRouteState(
         if (searchedQuery.isNotBlank()) when (mode) {
             MediaSearchMode.WORKS -> loadSearch(reset = true, discardCurrent = true)
             MediaSearchMode.PEOPLE -> loadPeople(reset = true, discardCurrent = true)
+            MediaSearchMode.FILES -> loadFiles(reset = true, discardCurrent = true)
         }
     }
 
@@ -165,17 +173,26 @@ internal class PhoneMediaRouteState(
             searchProblem = MediaProblem("请输入有效片名", "最多 200 个字符，不要包含控制字符。")
             return
         }
-        searchJob?.cancel(); peopleJob?.cancel()
-        searchQuery = value; searchedQuery = ""; searchLoading = false; peopleLoading = false
+        searchJob?.cancel(); peopleJob?.cancel(); filesJob?.cancel()
+        searchQuery = value; searchedQuery = ""; searchLoading = false; peopleLoading = false; filesLoading = false
         searchResults = emptyList(); searchCursor = null; searchProblem = null
         people = emptyList(); peopleCursor = null; peopleProblem = null
+        files = emptyList(); filesCursor = null; filesProblem = null
     }
 
     fun submitSearch(value: String) {
         val query = value.trim()
         if (query.isEmpty()) {
-            val issue = MediaProblem("请输入搜索内容", if (searchMode == MediaSearchMode.PEOPLE) "可搜索演员、导演或编剧姓名。" else "可搜索作品标题或原名。")
-            if (searchMode == MediaSearchMode.PEOPLE) peopleProblem = issue else searchProblem = issue
+            val issue = MediaProblem("请输入搜索内容", when (searchMode) {
+                MediaSearchMode.PEOPLE -> "可搜索演员、导演或编剧姓名。"
+                MediaSearchMode.FILES -> "可搜索媒体文件名。"
+                MediaSearchMode.WORKS -> "可搜索作品标题或原名。"
+            })
+            when (searchMode) {
+                MediaSearchMode.PEOPLE -> peopleProblem = issue
+                MediaSearchMode.FILES -> filesProblem = issue
+                MediaSearchMode.WORKS -> searchProblem = issue
+            }
             return
         }
         editSearch(query)
@@ -183,6 +200,7 @@ internal class PhoneMediaRouteState(
         when (searchMode) {
             MediaSearchMode.WORKS -> loadSearch(reset = true, discardCurrent = true)
             MediaSearchMode.PEOPLE -> loadPeople(reset = true, discardCurrent = true)
+            MediaSearchMode.FILES -> loadFiles(reset = true, discardCurrent = true)
         }
     }
 
@@ -191,6 +209,7 @@ internal class PhoneMediaRouteState(
         else when (searchMode) {
             MediaSearchMode.WORKS -> loadSearch(reset = !searchLoading && searchCursor == null)
             MediaSearchMode.PEOPLE -> loadPeople(reset = !peopleLoading && peopleCursor == null)
+            MediaSearchMode.FILES -> loadFiles(reset = !filesLoading && filesCursor == null)
         }
     }
 
@@ -214,6 +233,29 @@ internal class PhoneMediaRouteState(
                 }
             }
             coroutineContext.ensureActive(); peopleLoading = false
+        }
+    }
+
+    fun loadFiles(reset: Boolean, discardCurrent: Boolean = false) {
+        if (!supported || searchedQuery.isBlank() || (!reset && (filesLoading || filesCursor == null))) return
+        filesJob?.cancel()
+        val continuation = if (reset) null else filesCursor
+        if (discardCurrent) { files = emptyList(); filesCursor = null }
+        filesLoading = true; filesProblem = null
+        filesJob = scope.launch {
+            when (val result = repository.searchFiles(searchedQuery, libraryFilter, cursor = continuation)) {
+                is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                    val page = result.value
+                    files = (if (reset) page.items else files + page.items).distinctBy { it.fileId }
+                    filesCursor = page.nextCursor
+                    filesProblem = pageProblem(page.state, page.nextCursor != null)
+                }
+                is MediaReadResult.Failure -> if (result.scope == repository.scope) {
+                    if (result.error.invalidatesVisibleData()) { files = emptyList(); filesCursor = null }
+                    filesProblem = problem(result.error, "无法搜索文件")
+                }
+            }
+            coroutineContext.ensureActive(); filesLoading = false
         }
     }
 
