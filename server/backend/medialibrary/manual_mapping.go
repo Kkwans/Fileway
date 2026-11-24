@@ -33,6 +33,7 @@ type SeriesMappingRequest struct {
 type SeriesMappingProviderDocument struct {
 	ProviderMatchDocument
 	Language  string
+	Region    string
 	FetchedAt int64
 }
 
@@ -473,6 +474,10 @@ func (store *Store) ConfirmSeriesMapping(ctx context.Context, actor uint, operat
 				encoded, _ := json.Marshal(preview.Document.ProviderMatchDocument)
 				_, err = tx.ExecContext(ctx, `INSERT INTO item_provider_match(library_id,item_id,connection_id,provider,entity_kind,external_id,language,document_json,fetched_at,revision) VALUES(?,?,?,'tmdb','series',?,?,?,?,1)`, libraryID, seriesID, request.ConnectionID, request.ExternalID, preview.Document.Language, string(encoded), preview.Document.FetchedAt)
 				if err != nil {
+					return nil, err
+				}
+				if err := recordProviderMatchProvenanceTx(ctx, tx, libraryID, seriesID, 1, "mapping",
+					preview.Document.Language, preview.Document.Region, "tmdb-v1", []string{"manual_series_mapping"}, preview.Document.FetchedAt); err != nil {
 					return nil, err
 				}
 			}

@@ -54,10 +54,14 @@ type mediaItemDetail struct {
 }
 
 type mediaOnlineMatch struct {
-	Provider   string `json:"provider"`
-	Kind       string `json:"kind"`
-	ExternalID string `json:"externalId"`
-	FetchedAt  int64  `json:"fetchedAt"`
+	Provider       string   `json:"provider"`
+	Kind           string   `json:"kind"`
+	ExternalID     string   `json:"externalId"`
+	FetchedAt      int64    `json:"fetchedAt"`
+	DecisionSource string   `json:"decisionSource,omitempty"`
+	Language       string   `json:"language,omitempty"`
+	Region         string   `json:"region,omitempty"`
+	Evidence       []string `json:"evidence,omitempty"`
 }
 
 type mediaMetadataCandidate struct {

@@ -12,9 +12,13 @@ import (
 func recordProviderMatchRevision(ctx context.Context, tx *sql.Tx, libraryID, itemID string, matchRevision, structureRevision int64) error {
 	_, err := tx.ExecContext(ctx, `INSERT INTO provider_match_revision(library_id,item_id,match_revision,structure_revision,previous_json)
 VALUES(?1,?2,?3,?4,(
- SELECT json_object('connectionId',connection_id,'kind',entity_kind,'externalId',external_id,'revision',revision,
- 'language',language,'document',json(document_json),'fetchedAt',fetched_at)
- FROM item_provider_match WHERE library_id=?1 AND item_id=?2
+ SELECT json_object('connectionId',pm.connection_id,'kind',pm.entity_kind,'externalId',pm.external_id,'revision',pm.revision,
+ 'language',pm.language,'document',json(pm.document_json),'fetchedAt',pm.fetched_at,
+ 'audit',json_object('source',COALESCE(a.decision_source,'legacy'),'region',COALESCE(a.region,''),
+ 'adapterVersion',COALESCE(a.adapter_version,''),'evidence',json(COALESCE(a.evidence_json,'[]'))))
+ FROM item_provider_match pm LEFT JOIN provider_match_provenance a
+ ON a.library_id=pm.library_id AND a.item_id=pm.item_id AND a.match_revision=pm.revision
+ WHERE pm.library_id=?1 AND pm.item_id=?2
 ))`, libraryID, itemID, matchRevision, structureRevision)
 	return err
 }
@@ -84,7 +88,15 @@ language=json_extract(?1,'$.language'),document_json=json_extract(?1,'$.document
 WHERE library_id=?3 AND item_id=?4`, previous.String, revision, request.LibraryID, request.ItemID)
 			if err == nil {
 				var prior struct {
-					Revision int64 `json:"revision"`
+					Revision  int64  `json:"revision"`
+					FetchedAt int64  `json:"fetchedAt"`
+					Language  string `json:"language"`
+					Audit     struct {
+						Source         string   `json:"source"`
+						Region         string   `json:"region"`
+						AdapterVersion string   `json:"adapterVersion"`
+						Evidence       []string `json:"evidence"`
+					} `json:"audit"`
 				}
 				if err := json.Unmarshal([]byte(previous.String), &prior); err != nil {
 					return nil, err
@@ -95,6 +107,14 @@ WHERE library_id=?3 AND item_id=?4`, previous.String, revision, request.LibraryI
 SELECT library_id,item_id,?,structure_revision,previous_json FROM provider_match_revision
 WHERE library_id=? AND item_id=? AND match_revision=? AND structure_revision=?`, revision,
 					request.LibraryID, request.ItemID, prior.Revision, request.StructureRevision)
+				if err == nil {
+					source := prior.Audit.Source
+					if source == "" {
+						source = "legacy"
+					}
+					err = recordProviderMatchProvenanceTx(ctx, tx, request.LibraryID, request.ItemID, revision,
+						source, prior.Language, prior.Audit.Region, prior.Audit.AdapterVersion, prior.Audit.Evidence, prior.FetchedAt)
+				}
 			}
 		} else {
 			_, err = tx.ExecContext(ctx, `DELETE FROM item_provider_match WHERE library_id=? AND item_id=?`, request.LibraryID, request.ItemID)

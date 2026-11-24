@@ -213,7 +213,8 @@ func loadVisibleItemDetail(ctx context.Context, d *data, library *medialibrary.L
 	result.ExternalIDs, result.ExternalIDsNextCursor = externalIDs.Items, externalIDs.NextCursor
 	if match != nil {
 		externalID := strconv.FormatInt(match.ExternalID, 10)
-		result.OnlineMatch = &mediaOnlineMatch{Provider: "tmdb", Kind: match.Kind, ExternalID: externalID, FetchedAt: match.FetchedAt}
+		result.OnlineMatch = &mediaOnlineMatch{Provider: "tmdb", Kind: match.Kind, ExternalID: externalID, FetchedAt: match.FetchedAt,
+			DecisionSource: match.Audit.Source, Language: match.Audit.Language, Region: match.Audit.Region, Evidence: match.Audit.Evidence}
 		for _, rating := range match.Document.Item.Ratings {
 			if rating.Value == nil || rating.Count != nil && *rating.Count == 0 {
 				continue

@@ -123,7 +123,8 @@ func mediaMatchConfirmHandler(slots chan struct{}, starts <-chan time.Time) hand
 			return catalogError(w, err)
 		}
 		receipt, err := store.ConfirmProviderMatch(ctx, d.user.ID, body.OperationID, request, *fence, doc.Language, doc.FetchedAt.UnixMilli(),
-			medialibrary.ProviderMatchDocument{Item: projection.Item, PosterPath: projection.PosterPath, BackdropPath: projection.BackdropPath})
+			medialibrary.ProviderMatchDocument{Item: projection.Item, PosterPath: projection.PosterPath, BackdropPath: projection.BackdropPath},
+			medialibrary.ProviderMatchAudit{Source: "manual", Region: policy.Region, AdapterVersion: "tmdb-v1", Evidence: []string{"manual_selection"}})
 		if err != nil {
 			return catalogError(w, err)
 		}

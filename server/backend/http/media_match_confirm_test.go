@@ -114,7 +114,8 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 	}
 	local := fixtureDetail(t, f, owner, library.ID, itemID)
 	if local.Item.Title != "Local film" || local.Fields["plot"].Source != "online" || local.OnlineMatch == nil || local.OnlineMatch.ExternalID != "55" ||
-		len(local.Ratings) != 1 || local.Ratings[0].Origin != "online" || local.Card == nil || local.Card.MatchState != "provider_confirmed" ||
+		local.OnlineMatch.DecisionSource != "manual" || local.OnlineMatch.Language != "zh-CN" || local.OnlineMatch.Region != "CN" ||
+		len(local.OnlineMatch.Evidence) != 1 || local.OnlineMatch.Evidence[0] != "manual_selection" || len(local.Ratings) != 1 || local.Ratings[0].Origin != "online" || local.Card == nil || local.Card.MatchState != "provider_confirmed" ||
 		local.Card.Artwork == nil || !strings.HasPrefix(local.Card.Artwork.AssetID, "art_") ||
 		local.Card.Backdrop == nil || !strings.HasPrefix(local.Card.Backdrop.AssetID, "tmdb_backdrop_") || imageCalls != 0 {
 		t.Fatalf("local-first projection: %+v", local)

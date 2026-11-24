@@ -143,7 +143,8 @@ func TestMediaManualMappingSeriesCandidateRequiresExplicitStructure(t *testing.T
 		t.Fatalf("provider mapping: %d %s", response.Code, response.Body)
 	}
 	parent := fixtureDetail(t, f, owner, library.ID, result.SeriesID)
-	if parent.OnlineMatch == nil || parent.OnlineMatch.ExternalID != "55" || parent.OnlineMatch.Kind != "series" || parent.Item.Title != "Selected show" {
+	if parent.OnlineMatch == nil || parent.OnlineMatch.ExternalID != "55" || parent.OnlineMatch.Kind != "series" || parent.Item.Title != "Selected show" ||
+		parent.OnlineMatch.DecisionSource != "mapping" || parent.OnlineMatch.Language != "zh-CN" || parent.OnlineMatch.Region != "CN" {
 		t.Fatal(parent)
 	}
 }

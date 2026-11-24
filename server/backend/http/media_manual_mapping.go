@@ -158,7 +158,7 @@ func mediaMappingPreviewHandler(slots chan struct{}, starts <-chan time.Time) ha
 			request.NewSeriesTitle = projection.Item.Fields["title"][0]
 			request.ConnectionID = connection
 			request.ExternalID = id
-			document = &medialibrary.SeriesMappingProviderDocument{ProviderMatchDocument: medialibrary.ProviderMatchDocument{Item: projection.Item, PosterPath: projection.PosterPath, BackdropPath: projection.BackdropPath}, Language: doc.Language, FetchedAt: doc.FetchedAt.UnixMilli()}
+			document = &medialibrary.SeriesMappingProviderDocument{ProviderMatchDocument: medialibrary.ProviderMatchDocument{Item: projection.Item, PosterPath: projection.PosterPath, BackdropPath: projection.BackdropPath}, Language: doc.Language, Region: policy.Region, FetchedAt: doc.FetchedAt.UnixMilli()}
 			authority = fence
 		} else if body.ConnectionID != "" {
 			return catalogError(w, medialibrary.ErrInvalid)

@@ -252,13 +252,13 @@ AND (?!='completed' OR NOT EXISTS(SELECT 1 FROM metadata_job_target WHERE job_id
 }
 
 func (c *ScanCoordinator) CommitMetadataJobMatch(ctx context.Context, job MetadataJob, operationID string, request ProviderMatchRequest,
-	language string, fetchedAt int64, document ProviderMatchDocument) (*ProviderMatchResult, error) {
+	language string, fetchedAt int64, document ProviderMatchDocument, audit ProviderMatchAudit) (*ProviderMatchResult, error) {
 	if request.LibraryID != job.LibraryID || !request.Automatic {
 		return nil, ErrInvalid
 	}
 	request.job = &job
 	return coordinatedCall(ctx, c, func(ctx context.Context, store *Store) (*ProviderMatchResult, error) {
-		return store.ConfirmProviderMatch(ctx, job.OwnerUserID, operationID, request, job.Authority, language, fetchedAt, document)
+		return store.ConfirmProviderMatch(ctx, job.OwnerUserID, operationID, request, job.Authority, language, fetchedAt, document, audit)
 	})
 }
 

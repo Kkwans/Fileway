@@ -23,6 +23,14 @@ type ProviderMatchDocument struct {
 	BackdropPath string             `json:"backdropPath,omitempty"`
 }
 
+type ProviderMatchAudit struct {
+	Source         string
+	Language       string
+	Region         string
+	AdapterVersion string
+	Evidence       []string
+}
+
 type ProviderMatchResult struct {
 	LibraryID    string `json:"libraryId"`
 	ItemID       string `json:"itemId"`
@@ -39,6 +47,7 @@ type ProviderMatch struct {
 	OnlineFirst    bool
 	PolicyRevision int64
 	Document       ProviderMatchDocument
+	Audit          ProviderMatchAudit
 }
 
 const providerMatchOperation = "metadata.tmdb.confirm"
@@ -67,7 +76,7 @@ func (store *Store) ReplayProviderMatch(ctx context.Context, actor uint, operati
 // HTTP boundary verifies live file access before calling it and before reply.
 // Provider data is retained independently so changing priority is reversible.
 func (store *Store) ConfirmProviderMatch(ctx context.Context, actor uint, operationID string, request ProviderMatchRequest,
-	authority ProviderUseAuthority, language string, fetchedAt int64, document ProviderMatchDocument) (*ProviderMatchResult, error) {
+	authority ProviderUseAuthority, language string, fetchedAt int64, document ProviderMatchDocument, audit ProviderMatchAudit) (*ProviderMatchResult, error) {
 	kind, ok := map[string]mediametadata.Kind{"movie": mediametadata.Movie, "series": mediametadata.TVShow}[request.Kind]
 	if !ok || kind != document.Item.Kind || request.ExternalID <= 0 || request.ItemRevision < 1 ||
 		request.StructureRevision < 1 || fetchedAt <= 0 || (request.ConnectionID != "" && request.ConnectionID != authority.ConnectionID) {
@@ -152,6 +161,34 @@ document_json=excluded.document_json,fetched_at=excluded.fetched_at,revision=exc
 		if err != nil {
 			return nil, err
 		}
+		policy, err := readLibraryMetadataPolicy(ctx, tx, actor, request.LibraryID)
+		if err != nil {
+			return nil, err
+		}
+		source, evidence := audit.Source, audit.Evidence
+		if source == "" {
+			source = "manual"
+			if request.Automatic {
+				source = "automatic"
+			}
+		}
+		if len(evidence) == 0 {
+			evidence = []string{"manual_confirmation"}
+			if request.Automatic {
+				evidence = []string{"automatic_fill"}
+			}
+		}
+		region, adapter := audit.Region, audit.AdapterVersion
+		if region == "" {
+			region = policy.Region
+		}
+		if adapter == "" {
+			adapter = "tmdb-v1"
+		}
+		if err := recordProviderMatchProvenanceTx(ctx, tx, request.LibraryID, request.ItemID, revision+1,
+			source, language, region, adapter, evidence, fetchedAt); err != nil {
+			return nil, err
+		}
 		if !request.Automatic {
 			if _, err := tx.ExecContext(ctx, `DELETE FROM provider_match_manual_review WHERE library_id=? AND item_id=?`, request.LibraryID, request.ItemID); err != nil {
 				return nil, err
@@ -169,20 +206,37 @@ document_json=excluded.document_json,fetched_at=excluded.fetched_at,revision=exc
 
 // VisibleProviderMatch reads only the catalog snapshot for a current library
 // member. The caller must already have verified the item's live source access.
+func recordProviderMatchProvenanceTx(ctx context.Context, tx *sql.Tx, libraryID, itemID string, revision int64,
+	source, language, region, adapter string, evidence []string, fetchedAt int64) error {
+	if len(evidence) == 0 {
+		evidence = []string{}
+	}
+	encoded, err := json.Marshal(evidence)
+	if err != nil {
+		return err
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO provider_match_provenance(library_id,item_id,match_revision,decision_source,language,region,adapter_version,evidence_json,fetched_at)
+VALUES(?,?,?,?,?,?,?,?,?)`, libraryID, itemID, revision, source, language, region, adapter, string(encoded), fetchedAt)
+	return err
+}
+
 func (store *Store) VisibleProviderMatch(ctx context.Context, viewer uint, libraryID, itemID string, itemRevision int64) (*ProviderMatch, error) {
 	if viewer == 0 {
 		return nil, ErrForbidden
 	}
 	var value ProviderMatch
-	var encoded, mode string
-	err := store.db.QueryRowContext(ctx, `SELECT pm.entity_kind,pm.external_id,pm.document_json,pm.fetched_at,pm.revision,p.mode,p.revision
+	var encoded, mode, evidence string
+	err := store.db.QueryRowContext(ctx, `SELECT pm.entity_kind,pm.external_id,pm.document_json,pm.fetched_at,pm.revision,p.mode,p.revision,
+COALESCE(a.decision_source,'legacy'),COALESCE(a.language,pm.language),COALESCE(a.region,''),COALESCE(a.adapter_version,''),COALESCE(a.evidence_json,'[]')
 FROM item_provider_match pm JOIN library l ON l.id=pm.library_id AND l.archived_at IS NULL
 JOIN library_item i ON i.library_id=pm.library_id AND i.id=pm.item_id
 JOIN item_structure st ON st.library_id=i.library_id AND st.item_id=i.id AND st.superseded_by IS NULL
 JOIN library_metadata_policy p ON p.library_id=l.id AND p.mode IN ('local_first_online','online_first')
 LEFT JOIN library_member m ON m.library_id=l.id AND m.user_id=? AND m.revoked_at IS NULL
+LEFT JOIN provider_match_provenance a ON a.library_id=pm.library_id AND a.item_id=pm.item_id AND a.match_revision=pm.revision
 WHERE pm.library_id=? AND pm.item_id=? AND i.revision=? AND (pm.entity_kind=i.kind OR (i.kind='video' AND pm.entity_kind='movie')) AND `+libraryVisibility,
-		viewer, libraryID, itemID, itemRevision, viewer).Scan(&value.Kind, &value.ExternalID, &encoded, &value.FetchedAt, &value.Revision, &mode, &value.PolicyRevision)
+		viewer, libraryID, itemID, itemRevision, viewer).Scan(&value.Kind, &value.ExternalID, &encoded, &value.FetchedAt, &value.Revision, &mode, &value.PolicyRevision,
+		&value.Audit.Source, &value.Audit.Language, &value.Audit.Region, &value.Audit.AdapterVersion, &evidence)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
@@ -190,6 +244,9 @@ WHERE pm.library_id=? AND pm.item_id=? AND i.revision=? AND (pm.entity_kind=i.ki
 		return nil, err
 	}
 	value.OnlineFirst = mode == MetadataOnlineFirst
+	if err := json.Unmarshal([]byte(evidence), &value.Audit.Evidence); err != nil {
+		return nil, err
+	}
 	if err := json.Unmarshal([]byte(encoded), &value.Document); err != nil {
 		return nil, err
 	}

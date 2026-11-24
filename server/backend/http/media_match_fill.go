@@ -180,11 +180,12 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 	}
 	request.ExternalID = decision.Document.Entity.ID
 	document := medialibrary.ProviderMatchDocument{Item: decision.Projection.Item, PosterPath: decision.Projection.PosterPath, BackdropPath: decision.Projection.BackdropPath}
+	audit := medialibrary.ProviderMatchAudit{Source: "automatic", Region: policy.Region, AdapterVersion: "tmdb-v1", Evidence: decision.Evidence}
 	var receipt *medialibrary.ProviderMatchResult
 	if lease == nil {
-		receipt, err = store.ConfirmProviderMatch(ctx, d.user.ID, operationID, request, *fence, decision.Document.Language, decision.Document.FetchedAt.UnixMilli(), document)
+		receipt, err = store.ConfirmProviderMatch(ctx, d.user.ID, operationID, request, *fence, decision.Document.Language, decision.Document.FetchedAt.UnixMilli(), document, audit)
 	} else {
-		receipt, err = lease.coordinator.CommitMetadataJobMatch(ctx, lease.job, operationID, request, decision.Document.Language, decision.Document.FetchedAt.UnixMilli(), document)
+		receipt, err = lease.coordinator.CommitMetadataJobMatch(ctx, lease.job, operationID, request, decision.Document.Language, decision.Document.FetchedAt.UnixMilli(), document, audit)
 	}
 	if err != nil {
 		return fillMatchResult{}, err

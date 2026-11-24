@@ -1,5 +1,22 @@
 package medialibrary
 
+// Provider decisions retain evidence independently from mutable projections.
+const schemaV19 = `
+CREATE TABLE IF NOT EXISTS provider_match_provenance (
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    match_revision INTEGER NOT NULL CHECK(match_revision>0),
+    decision_source TEXT NOT NULL CHECK(decision_source IN ('automatic','manual','mapping','refresh','legacy')),
+    language TEXT NOT NULL,
+    region TEXT NOT NULL DEFAULT '',
+    adapter_version TEXT NOT NULL DEFAULT '',
+    evidence_json TEXT NOT NULL CHECK(json_valid(evidence_json)),
+    fetched_at INTEGER NOT NULL CHECK(fetched_at>0),
+    PRIMARY KEY(library_id,item_id,match_revision),
+    FOREIGN KEY(library_id,item_id) REFERENCES library_item(library_id,id)
+) STRICT;
+`
+
 // Manual mappings retain bounded server-side previews and conditional history.
 // Existing catalog, source, playback and user-state identities are unchanged.
 const schemaV18 = `
