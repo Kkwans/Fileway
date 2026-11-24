@@ -41,14 +41,32 @@ type Scheduler struct {
 	hasMetadataWorker bool
 	metadataJobID     string
 	metadataCancel    context.CancelFunc
+	hasRefreshWorker  bool
+	refreshJobID      string
+	refreshCancel     context.CancelFunc
 }
 
 type RunMetadataJob func(context.Context, *medialibrary.ScanCoordinator, medialibrary.MetadataJob)
+type RunMetadataRefreshJob func(context.Context, *medialibrary.ScanCoordinator, medialibrary.MetadataRefreshJob)
 
 // NewScheduler obtains the exclusive catalog coordinator before interrupting
 // any old worker. A second process must fail closed and never fence or recover
 // another scheduler's jobs. The caller must Close before closing the Store.
 func NewScheduler(ctx context.Context, store *medialibrary.Store, resolve ResolveOwnerAuthority, metadata ...RunMetadataJob) (*Scheduler, error) {
+	var run RunMetadataJob
+	if len(metadata) != 0 {
+		run = metadata[0]
+	}
+	return newScheduler(ctx, store, resolve, run, nil)
+}
+
+func NewSchedulerWithMetadataRefresh(ctx context.Context, store *medialibrary.Store, resolve ResolveOwnerAuthority,
+	metadata RunMetadataJob, refresh RunMetadataRefreshJob) (*Scheduler, error) {
+	return newScheduler(ctx, store, resolve, metadata, refresh)
+}
+
+func newScheduler(ctx context.Context, store *medialibrary.Store, resolve ResolveOwnerAuthority,
+	metadata RunMetadataJob, refresh RunMetadataRefreshJob) (*Scheduler, error) {
 	if store == nil || resolve == nil {
 		return nil, fs.ErrInvalid
 	}
@@ -73,10 +91,15 @@ func NewScheduler(ctx context.Context, store *medialibrary.Store, resolve Resolv
 	for range scanWorkers {
 		go s.worker()
 	}
-	if len(metadata) != 0 && metadata[0] != nil {
+	if metadata != nil {
 		s.hasMetadataWorker = true
 		s.wg.Add(1)
-		go s.metadataWorker(metadata[0])
+		go s.metadataWorker(metadata)
+	}
+	if refresh != nil {
+		s.hasRefreshWorker = true
+		s.wg.Add(1)
+		go s.refreshWorker(refresh)
 	}
 	s.Wake()
 	return s, nil
@@ -115,6 +138,70 @@ func (s *Scheduler) metadataWorker(run RunMetadataJob) {
 		case <-ticker.C:
 		}
 	}
+}
+
+func (s *Scheduler) refreshWorker(run RunMetadataRefreshJob) {
+	defer s.wg.Done()
+	ticker := time.NewTicker(scanPollInterval)
+	defer ticker.Stop()
+	for {
+		if err := s.Ready(s.ctx); err != nil {
+			return
+		}
+		job, err := s.coord.ClaimNextMetadataRefreshJob(s.ctx)
+		if err == nil {
+			ctx, cancel := context.WithCancel(s.ctx)
+			s.mu.Lock()
+			s.refreshJobID, s.refreshCancel = job.ID, cancel
+			s.mu.Unlock()
+			if s.coord.CheckMetadataRefreshJob(ctx, job) == nil {
+				run(ctx, s.coord, job)
+			}
+			cancel()
+			s.mu.Lock()
+			s.refreshJobID, s.refreshCancel = "", nil
+			s.mu.Unlock()
+			continue
+		}
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-ticker.C:
+		}
+	}
+}
+
+func (s *Scheduler) RefreshMetadataAvailable(ctx context.Context) bool {
+	return s != nil && s.hasRefreshWorker && s.Ready(ctx) == nil
+}
+
+func (s *Scheduler) EnqueueMetadataRefreshJob(ctx context.Context, actor uint, operationID, libraryID string, expectedPolicyRevision int64) (medialibrary.MetadataRefreshJob, error) {
+	if !s.RefreshMetadataAvailable(ctx) {
+		return medialibrary.MetadataRefreshJob{}, medialibrary.ErrCoordinatorUnavailable
+	}
+	return s.coord.EnqueueMetadataRefreshJob(ctx, actor, operationID, libraryID, expectedPolicyRevision)
+}
+
+func (s *Scheduler) CancelMetadataRefreshJob(ctx context.Context, actor uint, libraryID, jobID string, generation int64) error {
+	if err := s.Ready(ctx); err != nil {
+		return err
+	}
+	if err := s.coord.CancelMetadataRefreshJob(ctx, actor, libraryID, jobID, generation); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.refreshJobID == jobID {
+		s.refreshCancel()
+	}
+	return nil
+}
+
+func (s *Scheduler) RetryMetadataRefreshJob(ctx context.Context, actor uint, job medialibrary.MetadataRefreshJob, generation int64) error {
+	if !s.RefreshMetadataAvailable(ctx) {
+		return medialibrary.ErrCoordinatorUnavailable
+	}
+	return s.coord.RetryMetadataRefreshJob(ctx, actor, job, generation)
 }
 
 func (s *Scheduler) CancelMetadataJob(ctx context.Context, actor uint, libraryID, jobID string, generation int64) error {

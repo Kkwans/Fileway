@@ -126,6 +126,12 @@ WHERE pm.library_id=? AND pm.language<>?`, id, id, libraryID, policy.Language)
 	})
 }
 
+func (c *ScanCoordinator) EnqueueMetadataRefreshJob(ctx context.Context, actor uint, operationID, libraryID string, expectedPolicyRevision int64) (MetadataRefreshJob, error) {
+	return coordinatedCall(ctx, c, func(ctx context.Context, store *Store) (MetadataRefreshJob, error) {
+		return store.EnqueueMetadataRefreshJob(ctx, actor, operationID, libraryID, expectedPolicyRevision)
+	})
+}
+
 func (store *Store) MetadataRefreshJob(ctx context.Context, actor uint, libraryID, jobID string) (MetadataRefreshJob, error) {
 	library, err := activeCatalogLibrary(ctx, store.db, actor, libraryID)
 	if err != nil {

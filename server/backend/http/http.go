@@ -85,10 +85,10 @@ func NewHandler(
 	providerStarts := time.NewTicker(500 * time.Millisecond)
 	providerSlots := make(chan struct{}, 2)
 	if store.MediaLibrary != nil {
-		mediaScans, err = mediascan.NewScheduler(context.Background(), store.MediaLibrary, func(ctx context.Context, binding *medialibrary.LibrarySource) (mediasource.LocalAuthority, error) {
+		mediaScans, err = mediascan.NewSchedulerWithMetadataRefresh(context.Background(), store.MediaLibrary, func(ctx context.Context, binding *medialibrary.LibrarySource) (mediasource.LocalAuthority, error) {
 			authority, _, err := resolveAttestedMediaConnection(ctx, store, server, binding.Source.OwnerUserID, binding.Source.ConfigurationRef, binding.RootLocator, binding.Proof)
 			return authority, err
-		}, newMetadataWorker(store, server, providerSlots, providerStarts.C))
+		}, newMetadataWorker(store, server, providerSlots, providerStarts.C), newMetadataRefreshWorker(store, server, providerSlots, providerStarts.C))
 		if err != nil {
 			// The catalog may be in use by another process. Do not fence its jobs,
 			// leak the catalog path, or disable the existing file service.
@@ -157,6 +157,8 @@ func NewHandler(
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/match-confirmation", monkey(mediaMatchConfirmHandler(providerSlots, providerStarts.C), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/match-confirmation/undo", monkey(mediaMatchUndoHandler, "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/metadata-refresh-preview", monkey(mediaMetadataLibraryRefreshPreviewHandler(), "")).Methods("POST")
+	api.Handle("/media-library/v1/libraries/{id}/metadata-refresh-jobs", monkey(mediaMetadataRefreshJobsHandler(mediaScans), "")).Methods("POST")
+	api.Handle("/media-library/v1/libraries/{id}/metadata-refresh-jobs/{jobId}", monkey(mediaMetadataRefreshJobHandler(mediaScans), "")).Methods("GET", "DELETE")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/metadata-refresh-preview", monkey(mediaMetadataRefreshHandler(true, providerSlots, providerStarts.C), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/metadata-refresh", monkey(mediaMetadataRefreshHandler(false, providerSlots, providerStarts.C), "")).Methods("POST")
 	api.Handle("/media-library/v1/libraries/{id}/items/{itemId}/mapping-previews", monkey(mediaMappingPreviewHandler(providerSlots, providerStarts.C), "")).Methods("POST")
