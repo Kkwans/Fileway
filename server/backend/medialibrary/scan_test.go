@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/Kkwans/nas-file-browser/backend/mediametadata"
+	"github.com/Kkwans/nas-file-browser/backend/mediatools"
 )
 
 func testScan(t *testing.T, store *Store, binding *LibrarySource, operation string) (*ScanJob, *ScanLease) {
@@ -222,26 +223,32 @@ func TestScanObservationPersistsProbedDurationEvidence(t *testing.T) {
 	parsed := mediametadata.ParseName("duration.mkv")
 	input.ParsedName = &parsed
 	input.DurationMs = 89*60_000 + 59_999
+	input.Technical = &mediatools.MediaObservation{DurationMs: input.DurationMs, VideoCodec: "hevc", VideoBitDepth: 10,
+		Width: 3840, Height: 2160, DynamicRange: "dolby-vision", AudioTracks: []mediatools.MediaTrack{{Index: 1, Codec: "eac3", Language: "eng"}}}
 	committed, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 1, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
 	evidence, err := store.GetFileIdentification(t.Context(), 7, library.ID, committed.SourceFileID, binding.ID, binding.ProofEpoch)
-	if err != nil || evidence.DurationMs != input.DurationMs {
-		t.Fatalf("duration evidence: %+v %v", evidence, err)
+	if err != nil || evidence.DurationMs != input.DurationMs || evidence.Technical == nil || evidence.Technical.VideoCodec != "hevc" || len(evidence.Technical.AudioTracks) != 1 {
+		t.Fatalf("technical evidence: %+v %v", evidence, err)
 	}
 	kind, durations, err := store.MetadataDurationsForItem(t.Context(), 7, library.ID, committed.ItemID)
 	if err != nil || kind != "video" || len(durations) != 1 || durations[0] != input.DurationMs {
 		t.Fatalf("item durations: kind=%q durations=%v err=%v", kind, durations, err)
 	}
 	input.ExpectedRevision, input.ExpectedLocatorRevision = committed.FileRevision, committed.LocatorRevision
-	input.SourceVersion, input.DurationMs = "v1:10:21", 0
+	input.SourceVersion, input.DurationMs, input.Technical = "v1:10:21", 0, nil
 	if _, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 2, 2)); err != nil {
 		t.Fatal(err)
 	}
 	_, durations, err = store.MetadataDurationsForItem(t.Context(), 7, library.ID, committed.ItemID)
 	if err != nil || len(durations) != 1 || durations[0] != 0 {
 		t.Fatalf("stale duration survived a new file version: %v %v", durations, err)
+	}
+	evidence, err = store.GetFileIdentification(t.Context(), 7, library.ID, committed.SourceFileID, binding.ID, binding.ProofEpoch)
+	if err != nil || evidence.Technical != nil {
+		t.Fatalf("stale technical evidence survived a new file version: %+v %v", evidence, err)
 	}
 }
 

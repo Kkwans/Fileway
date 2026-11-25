@@ -15,6 +15,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Kkwans/nas-file-browser/backend/mediametadata"
+	"github.com/Kkwans/nas-file-browser/backend/mediatools"
 )
 
 var (
@@ -71,6 +72,7 @@ type ScanObservation struct {
 	SourceVersion string // existing v1:size:mtime marker, never a content hash
 	SizeBytes     int64
 	DurationMs    int64
+	Technical     *mediatools.MediaObservation
 	// Read the existing revision (zero if absent) before the final safe-open
 	// verification. This prevents an older observation overwriting a newer one.
 	ExpectedRevision        int64
@@ -610,6 +612,9 @@ func cancelScanTx(ctx context.Context, tx *sql.Tx, actor uint, jobID string, exp
 func (store *Store) CommitScanObservation(ctx context.Context, actor uint, lease ScanLease, input ScanObservation, checkpoint ScanCheckpoint) (*ScanCommit, error) {
 	if len(input.ObjectKey) == 0 || len(input.ObjectKey) > 16384 || len(input.Locator) == 0 || len(input.Locator) > 8192 || input.SourceVersion == "" || len(input.SourceVersion) > 1024 || input.SizeBytes < 0 || input.DurationMs < 0 || input.DurationMs > 7*24*60*60*1000 || input.ExpectedRevision < 0 || input.ExpectedLocatorRevision < 0 || (input.Identity != "native" && input.Identity != "path_unverified") {
 		return nil, fmt.Errorf("%w: scan observation", ErrInvalid)
+	}
+	if input.Technical != nil && (input.Technical.Valid() != nil || input.Technical.DurationMs != input.DurationMs) {
+		return nil, fmt.Errorf("%w: technical observation", ErrInvalid)
 	}
 	if input.Identity == "path_unverified" && !bytes.Equal(input.ObjectKey, UnverifiedPathObjectKey(lease.Binding.BindingID, lease.Binding.ProofEpoch, input.Locator)) {
 		return nil, fmt.Errorf("%w: unverified identity must contain the full locator", ErrInvalid)

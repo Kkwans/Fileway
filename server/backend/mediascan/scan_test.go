@@ -16,6 +16,7 @@ import (
 	"github.com/Kkwans/nas-file-browser/backend/files"
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/mediasource"
+	"github.com/Kkwans/nas-file-browser/backend/mediatools"
 	"github.com/spf13/afero"
 )
 
@@ -126,25 +127,25 @@ func TestScanLocalDurationProbeKeepsUnknownEvidenceWithoutFailingScan(t *testing
 	f.write(t, "unknown.mkv", "video")
 	sink := &observationSink{}
 	calls := 0
-	result, err := ScanLocal(t.Context(), 7, f.binding, f.resolve, sink, Options{ProbeDuration: func(_ context.Context, file *os.File) (int64, error) {
+	result, err := ScanLocal(t.Context(), 7, f.binding, f.resolve, sink, Options{ProbeMedia: func(_ context.Context, file *os.File) (mediatools.MediaObservation, error) {
 		calls++
 		if strings.HasSuffix(file.Name(), "short.mkv") {
-			return 59*60_000 + 59_999, nil
+			return mediatools.MediaObservation{DurationMs: 59*60_000 + 59_999, VideoCodec: "h264", DynamicRange: "sdr"}, nil
 		}
-		return 0, errors.New("probe unavailable")
+		return mediatools.MediaObservation{}, errors.New("probe unavailable")
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if calls != 2 || result.DurationFailed != 1 || len(sink.observations) != 2 {
-		t.Fatalf("duration probe result: calls=%d result=%+v observations=%d", calls, result, len(sink.observations))
+	if calls != 2 || result.ProbeFailed != 1 || len(sink.observations) != 2 {
+		t.Fatalf("probe result: calls=%d result=%+v observations=%d", calls, result, len(sink.observations))
 	}
 	for _, observation := range sink.observations {
-		if strings.HasSuffix(string(observation.Locator), "short.mkv") && observation.DurationMs != 59*60_000+59_999 {
-			t.Fatalf("short duration lost: %+v", observation)
+		if strings.HasSuffix(string(observation.Locator), "short.mkv") && (observation.DurationMs != 59*60_000+59_999 || observation.Technical == nil || observation.Technical.VideoCodec != "h264") {
+			t.Fatalf("short technical evidence lost: %+v", observation)
 		}
-		if strings.HasSuffix(string(observation.Locator), "unknown.mkv") && observation.DurationMs != 0 {
-			t.Fatalf("failed probe fabricated duration: %+v", observation)
+		if strings.HasSuffix(string(observation.Locator), "unknown.mkv") && (observation.DurationMs != 0 || observation.Technical != nil) {
+			t.Fatalf("failed probe fabricated evidence: %+v", observation)
 		}
 	}
 }

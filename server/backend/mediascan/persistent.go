@@ -16,7 +16,7 @@ import (
 // LocalRulesRevision identifies the scanner's extension, naming and sidecar
 // rules. Change it whenever those rules change; a claimed job must never be
 // resumed under a different rule set while retaining its old revision label.
-const LocalRulesRevision int64 = 14
+const LocalRulesRevision int64 = 15
 
 var ErrScanRulesUnavailable = errors.New("media scan rules revision is unavailable")
 
@@ -105,9 +105,9 @@ func Run(ctx context.Context, actor uint, store *medialibrary.Store, coord *medi
 	if job.RulesRevision != LocalRulesRevision {
 		return result, ErrScanRulesUnavailable
 	}
-	if options.ProbeDuration == nil {
+	if options.ProbeMedia == nil {
 		if policy, policyErr := store.GetLibraryMetadataPolicy(ctx, actor, job.LibraryID); policyErr == nil && policy.OnlineEnabled() {
-			options.ProbeDuration = mediatools.ProbeDuration
+			options.ProbeMedia = mediatools.ProbeMedia
 		}
 	}
 	// Validation precedes both resolving the account and opening the root. The
@@ -257,7 +257,7 @@ func (s *persistentSink) Observe(ctx context.Context, observation Observation) e
 	next.Phase = "enumerate"
 	_, err := s.coord.CommitScanObservation(ctx, s.actor, s.lease, medialibrary.ScanObservation{
 		ObjectKey: observation.ObjectKey, Identity: string(observation.Identity), Locator: observation.Locator,
-		ExpectedRevision: observation.ExpectedRevision, ExpectedLocatorRevision: observation.ExpectedLocatorRevision, SourceVersion: observation.SourceVersion, SizeBytes: observation.SizeBytes, DurationMs: observation.DurationMs, InitialTitle: observation.InitialTitle, NFOStatus: string(observation.NFOStatus), NFO: observation.NFO,
+		ExpectedRevision: observation.ExpectedRevision, ExpectedLocatorRevision: observation.ExpectedLocatorRevision, SourceVersion: observation.SourceVersion, SizeBytes: observation.SizeBytes, DurationMs: observation.DurationMs, Technical: observation.Technical, InitialTitle: observation.InitialTitle, NFOStatus: string(observation.NFOStatus), NFO: observation.NFO,
 		DirectoryContext: observation.DirectoryContext, ParsedName: observation.ParsedName,
 	}, next)
 	if err == nil {

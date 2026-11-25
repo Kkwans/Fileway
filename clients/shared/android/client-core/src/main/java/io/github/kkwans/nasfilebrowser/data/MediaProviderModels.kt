@@ -55,9 +55,16 @@ sealed interface MediaProviderCredentialResult {
 
 enum class MediaProviderMatchKind(internal val wire: String) { MOVIE("movie"), SERIES("series") }
 data class MediaProviderDeclaredId(val provider: String, val mediaType: String?, val id: String)
+data class MediaTechnicalTrack(val index: Int, val codec: String, val language: String?, val title: String?, val default: Boolean, val forced: Boolean)
+data class MediaTechnicalObservation(
+    val durationMs: Long, val videoCodec: String?, val videoProfile: String?, val pixelFormat: String?,
+    val videoBitDepth: Int?, val width: Int?, val height: Int?, val colorTransfer: String?, val dynamicRange: String?,
+    val audioTracks: List<MediaTechnicalTrack>, val subtitleTracks: List<MediaTechnicalTrack>,
+)
 data class MediaProviderIdentificationFile(
     val filename: String, val parsedTitle: String, val year: Int?, val typeHint: String,
     val providerIds: List<MediaProviderDeclaredId>, val state: String, val issues: List<String>, val revision: Long,
+    val technical: MediaTechnicalObservation? = null,
 ) {
     override fun toString(): String = "MediaProviderIdentificationFile(redacted)"
 }
@@ -218,11 +225,12 @@ internal fun parseProviderIdentification(row: JSONObject, ref: MediaCatalogRef):
         val year = if (file.has("year") && !file.isNull("year")) file.providerLong("year", 1).also { require(it <= 9999) }.toInt() else null
         val providerIds = if (file.has("providerIds") && !file.isNull("providerIds")) file.getJSONArray("providerIds") else null
         require(providerIds == null || providerIds.length() <= 128)
+        val technical = file.providerOptionalObject("technical")?.let(::parseMediaTechnicalObservation)
         MediaProviderIdentificationFile(file.providerText("filename", 8192), file.providerText("parsedTitle", 4096), year,
             file.providerText("typeHint", 64), (0 until (providerIds?.length() ?: 0)).map { i ->
                 val id = requireNotNull(providerIds).getJSONObject(i)
                 MediaProviderDeclaredId(id.providerText("provider", 64), id.providerOptionalText("mediaType", 64), id.providerText("id", 256))
-            }, file.providerText("state", 64), file.providerStrings("issues", 128), file.providerLong("revision", 1))
+            }, file.providerText("state", 64), file.providerStrings("issues", 128), file.providerLong("revision", 1), technical)
     }
     return MediaProviderIdentification(ref, row.providerText("title", 4096), kind, state, row.providerLong("itemRevision", 1),
         row.providerLong("structureRevision", 1), (0 until ids.length()).map { index ->
@@ -233,6 +241,27 @@ internal fun parseProviderIdentification(row: JSONObject, ref: MediaCatalogRef):
         row.providerOptionalText("externalIdsNextCursor", 256)?.also(::mediaCursor), file,
         if (row.has("undoMatchRevision")) row.providerLong("undoMatchRevision", 1) else null,
         row.providerOptionalText("undoMappingRevision", 200)?.also(::requireMediaRouteId))
+}
+
+internal fun parseMediaTechnicalObservation(row: JSONObject): MediaTechnicalObservation {
+    val duration = row.providerLong("durationMs", 1).also { require(it <= 604_800_000) }
+    fun optionalInt(key: String, maximum: Int): Int? = if (row.has(key) && !row.isNull(key)) row.providerLong(key).also { require(it <= maximum) }.toInt() else null
+    fun tracks(key: String): List<MediaTechnicalTrack> {
+        if (!row.has(key) || row.isNull(key)) return emptyList()
+        val values = row.getJSONArray(key)
+        require(values.length() <= 64)
+        return (0 until values.length()).map { index ->
+            val track = values.getJSONObject(index)
+            MediaTechnicalTrack(track.providerLong("index").toInt(), track.providerText("codec", 128),
+                track.providerOptionalText("language", 32), track.providerOptionalText("title", 256),
+                track.optBoolean("default", false), track.optBoolean("forced", false))
+        }
+    }
+    val range = row.providerOptionalText("dynamicRange", 128)
+    require(range == null || range in setOf("unknown", "sdr", "pq", "hlg", "dolby-vision"))
+    return MediaTechnicalObservation(duration, row.providerOptionalText("videoCodec", 128), row.providerOptionalText("videoProfile", 128),
+        row.providerOptionalText("pixelFormat", 128), optionalInt("videoBitDepth", 16), optionalInt("width", 16384), optionalInt("height", 16384),
+        row.providerOptionalText("colorTransfer", 128), range, tracks("audioTracks"), tracks("subtitleTracks"))
 }
 
 internal fun parseProviderUndoReceipt(row: JSONObject) = MediaProviderUndoReceipt(

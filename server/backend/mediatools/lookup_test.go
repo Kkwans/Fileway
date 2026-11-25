@@ -29,6 +29,23 @@ func TestParseProbeDurationRejectsUnreliableValues(t *testing.T) {
 	}
 }
 
+func TestParseProbeMediaRetainsBoundedTechnicalEvidence(t *testing.T) {
+	output := []byte(`{"format":{"duration":"89.999"},"streams":[
+		{"index":0,"codec_type":"video","codec_name":"hevc","pix_fmt":"yuv420p10le","color_transfer":"smpte2084","profile":"Main 10","bits_per_raw_sample":"10","width":3840,"height":2160,"side_data_list":[{"side_data_type":"Dolby Vision","dv_profile":5}]},
+		{"index":1,"codec_type":"audio","codec_name":"eac3","channels":6,"sample_rate":"48000","tags":{"language":"eng","title":"English"},"disposition":{"default":1}},
+		{"index":2,"codec_type":"subtitle","codec_name":"subrip","tags":{"language":"zho","title":"中文"},"disposition":{"forced":1}}
+	]}`)
+	observation, err := ParseProbeMedia(output)
+	if err != nil || observation.DurationMs != 89_999 || observation.VideoCodec != "hevc" ||
+		observation.VideoBitDepth != 10 || observation.Width != 3840 || observation.Height != 2160 ||
+		observation.DynamicRange != "dolby-vision" || len(observation.AudioTracks) != 1 || len(observation.SubtitleTracks) != 1 {
+		t.Fatalf("technical observation: %+v %v", observation, err)
+	}
+	if observation.AudioTracks[0].Language != "eng" || !observation.AudioTracks[0].Default || !observation.SubtitleTracks[0].Forced {
+		t.Fatalf("track evidence lost: %+v", observation)
+	}
+}
+
 func TestProbeDurationReadsRealMediaHeaderWhenAvailable(t *testing.T) {
 	if _, err := Lookup("ffprobe"); err != nil {
 		t.Skip("ffprobe unavailable")

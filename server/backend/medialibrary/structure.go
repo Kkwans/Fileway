@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Kkwans/nas-file-browser/backend/mediametadata"
+	"github.com/Kkwans/nas-file-browser/backend/mediatools"
 )
 
 // DirectoryContextRef is private scan state. It is a revision fence, not an
@@ -546,17 +547,22 @@ func currentDirectoryForFile(ctx context.Context, tx *sql.Tx, r *scanRecord, inp
 	return current, nil
 }
 
-func recordNameEvidenceTx(ctx context.Context, tx *sql.Tx, r *scanRecord, fileID string, ref DirectoryContextRef, name *mediametadata.ParsedName, durationMs int64, sourceVersion string, resolution mediametadata.EpisodeResolution) (string, error) {
+func recordNameEvidenceTx(ctx context.Context, tx *sql.Tx, r *scanRecord, fileID string, ref DirectoryContextRef, name *mediametadata.ParsedName, durationMs int64, technical *mediatools.MediaObservation, sourceVersion string, resolution mediametadata.EpisodeResolution) (string, error) {
 	if name == nil {
 		return "", nil
 	}
 	evidence := struct {
 		mediametadata.ParsedName
-		DurationMs            int64  `json:"durationMs,omitempty"`
-		DurationSourceVersion string `json:"durationSourceVersion,omitempty"`
-	}{ParsedName: *name, DurationMs: durationMs, DurationSourceVersion: sourceVersion}
+		DurationMs             int64                        `json:"durationMs,omitempty"`
+		DurationSourceVersion  string                       `json:"durationSourceVersion,omitempty"`
+		Technical              *mediatools.MediaObservation `json:"technical,omitempty"`
+		TechnicalSourceVersion string                       `json:"technicalSourceVersion,omitempty"`
+	}{ParsedName: *name, DurationMs: durationMs, DurationSourceVersion: sourceVersion, Technical: technical, TechnicalSourceVersion: sourceVersion}
 	if durationMs == 0 {
 		evidence.DurationSourceVersion = ""
+	}
+	if technical == nil {
+		evidence.TechnicalSourceVersion = ""
 	}
 	nameJSON, err := json.Marshal(evidence)
 	if err != nil {
@@ -1047,7 +1053,7 @@ func identifyScanFileTx(ctx context.Context, tx *sql.Tx, actor uint, r *scanReco
 			}
 		}
 	}
-	decision.EvidenceID, err = recordNameEvidenceTx(ctx, tx, r, fileID, input.DirectoryContext, input.ParsedName, input.DurationMs, input.SourceVersion, decision.Resolution)
+	decision.EvidenceID, err = recordNameEvidenceTx(ctx, tx, r, fileID, input.DirectoryContext, input.ParsedName, input.DurationMs, input.Technical, input.SourceVersion, decision.Resolution)
 	if err != nil {
 		return decision, err
 	}
@@ -1280,6 +1286,7 @@ type StructureFileMapping struct {
 type FileIdentification struct {
 	Name       mediametadata.ParsedName
 	DurationMs int64
+	Technical  *mediatools.MediaObservation
 	MatchState string
 	Issues     []string
 	Revision   int64
@@ -1295,8 +1302,8 @@ func (store *Store) GetFileIdentification(ctx context.Context, actor uint, libra
 		return nil, err
 	}
 	var value FileIdentification
-	var name, issues string
-	err := store.db.QueryRowContext(ctx, `SELECT ie.evidence_json,ie.match_state,ie.issue_json,ie.revision FROM identification_evidence ie JOIN library_source ls ON ls.binding_id=ie.binding_id AND ls.library_id=ie.library_id JOIN library_file lf ON lf.library_id=ls.library_id AND lf.source_id=ls.source_id AND lf.root_locator=ls.root_locator AND lf.source_file_id=ie.source_file_id WHERE ie.library_id=? AND ie.source_file_id=? AND ie.binding_id=? AND ie.binding_epoch=? AND ie.binding_epoch=ls.proof_epoch AND lf.binding_epoch=ie.binding_epoch AND ls.active_proof_version=1`, libraryID, sourceFileID, bindingID, bindingEpoch).Scan(&name, &value.MatchState, &issues, &value.Revision)
+	var name, issues, sourceVersion string
+	err := store.db.QueryRowContext(ctx, `SELECT ie.evidence_json,ie.match_state,ie.issue_json,ie.revision,sf.source_version FROM identification_evidence ie JOIN library_source ls ON ls.binding_id=ie.binding_id AND ls.library_id=ie.library_id JOIN library_file lf ON lf.library_id=ls.library_id AND lf.source_id=ls.source_id AND lf.root_locator=ls.root_locator AND lf.source_file_id=ie.source_file_id JOIN source_file sf ON sf.id=lf.source_file_id WHERE ie.library_id=? AND ie.source_file_id=? AND ie.binding_id=? AND ie.binding_epoch=? AND ie.binding_epoch=ls.proof_epoch AND lf.binding_epoch=ie.binding_epoch AND ls.active_proof_version=1`, libraryID, sourceFileID, bindingID, bindingEpoch).Scan(&name, &value.MatchState, &issues, &value.Revision, &sourceVersion)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -1306,13 +1313,21 @@ func (store *Store) GetFileIdentification(ctx context.Context, actor uint, libra
 	if err = json.Unmarshal([]byte(name), &value.Name); err != nil {
 		return nil, err
 	}
-	var duration struct {
-		DurationMs int64 `json:"durationMs"`
+	var technical struct {
+		DurationMs             int64                        `json:"durationMs"`
+		Technical              *mediatools.MediaObservation `json:"technical"`
+		TechnicalSourceVersion string                       `json:"technicalSourceVersion"`
 	}
-	if err = json.Unmarshal([]byte(name), &duration); err != nil {
+	if err = json.Unmarshal([]byte(name), &technical); err != nil {
 		return nil, err
 	}
-	value.DurationMs = duration.DurationMs
+	value.DurationMs = technical.DurationMs
+	if technical.Technical != nil && technical.TechnicalSourceVersion == sourceVersion {
+		if technical.Technical.Valid() != nil {
+			return nil, fmt.Errorf("%w: stored technical evidence", ErrInvalid)
+		}
+		value.Technical = technical.Technical
+	}
 	if err = json.Unmarshal([]byte(issues), &value.Issues); err != nil {
 		return nil, err
 	}

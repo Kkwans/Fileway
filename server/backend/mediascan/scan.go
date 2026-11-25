@@ -20,6 +20,7 @@ import (
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/mediametadata"
 	"github.com/Kkwans/nas-file-browser/backend/mediasource"
+	"github.com/Kkwans/nas-file-browser/backend/mediatools"
 )
 
 var (
@@ -64,6 +65,7 @@ type Observation struct {
 	SourceVersion           string
 	SizeBytes               int64
 	DurationMs              int64
+	Technical               *mediatools.MediaObservation
 	InitialTitle            string
 	NFO                     *medialibrary.MetadataObservation
 	NFOStatus               NFOStatus
@@ -87,17 +89,17 @@ type Options struct {
 	// bounded even for a directory tree controlled by an untrusted writer.
 	ReadBatch int
 	MaxDepth  int
-	// ProbeDuration is enabled by persistent scans only when online metadata is
-	// configured. A failure leaves duration unknown and never fails the scan.
-	ProbeDuration func(context.Context, *os.File) (int64, error)
+	// ProbeMedia is enabled by persistent scans only when online metadata is
+	// configured. A failure leaves technical evidence unknown and never fails the scan.
+	ProbeMedia func(context.Context, *os.File) (mediatools.MediaObservation, error)
 }
 
 type Result struct {
-	Directories    int
-	Discovered     int
-	Observed       int
-	NFOFailed      int
-	DurationFailed int
+	Directories int
+	Discovered  int
+	Observed    int
+	NFOFailed   int
+	ProbeFailed int
 }
 
 // ScanLocal creates the adapter from the exact stored root, avoiding a caller
@@ -306,21 +308,21 @@ func (w *walker) videoInContext(ctx context.Context, locator, name string, direc
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	var durationMs int64
-	if w.options.ProbeDuration != nil {
-		probed, probeErr := w.options.ProbeDuration(ctx, file.File)
+	var technical *mediatools.MediaObservation
+	if w.options.ProbeMedia != nil {
+		probed, probeErr := w.options.ProbeMedia(ctx, file.File)
 		if probeErr != nil {
 			if ctx.Err() != nil {
 				return ctx.Err()
 			}
-			w.result.DurationFailed++
-		} else if probed > 0 && probed <= 7*24*60*60*1000 {
-			durationMs = probed
+			w.result.ProbeFailed++
+		} else if probeErr := probed.Valid(); probeErr != nil {
+			w.result.ProbeFailed++
 		} else {
-			w.result.DurationFailed++
+			technical = &probed
 		}
 	}
-	// Re-resolve live source authority after sidecar and duration probes, and refuse to
+	// Re-resolve live source authority after sidecar and technical probes, and refuse to
 	// publish an observation for a changed or replaced file.
 	current, err := w.source.Open(ctx, locator, false)
 	if err != nil {
@@ -349,10 +351,14 @@ func (w *walker) videoInContext(ctx context.Context, locator, name string, direc
 		return err
 	}
 	parsedName := mediametadata.ParseNameInDirectory(name, path.Base(path.Dir(locator)))
+	var durationMs int64
+	if technical != nil {
+		durationMs = technical.DurationMs
+	}
 	observation := Observation{
 		OwnerUserID: w.actor, Binding: w.binding, ObjectKey: key, Identity: identity,
 		Locator: abs, ExpectedRevision: expected.FileRevision, ExpectedLocatorRevision: expected.LocatorRevision, SourceVersion: fmt.Sprintf("v1:%d:%d", initial.Size(), initial.ModTime().UnixNano()),
-		SizeBytes: initial.Size(), DurationMs: durationMs, InitialTitle: displayTitle(name), NFO: nfo, NFOStatus: nfoStatus,
+		SizeBytes: initial.Size(), DurationMs: durationMs, Technical: technical, InitialTitle: displayTitle(name), NFO: nfo, NFOStatus: nfoStatus,
 		DirectoryContext: directory, ParsedName: &parsedName,
 	}
 	observation.Binding.RootLocator = append([]byte(nil), w.binding.RootLocator...)

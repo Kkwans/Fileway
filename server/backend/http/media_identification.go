@@ -8,6 +8,7 @@ import (
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/mediametadata"
 	"github.com/Kkwans/nas-file-browser/backend/mediascan"
+	"github.com/Kkwans/nas-file-browser/backend/mediatools"
 	"github.com/gorilla/mux"
 )
 
@@ -27,6 +28,7 @@ type mediaIdentificationFile struct {
 	Issues          []string                       `json:"issues,omitempty"`
 	Ambiguities     []string                       `json:"ambiguities,omitempty"`
 	Revision        int64                          `json:"revision"`
+	Technical       *mediatools.MediaObservation   `json:"technical,omitempty"`
 }
 
 type mediaIdentificationResponse struct {
@@ -129,7 +131,7 @@ func identifyCatalogItem(ctx context.Context, d *data, library *medialibrary.Lib
 				Filename: name.OriginalName, ParsedTitle: name.Title, Year: name.Year, TypeHint: name.TypeHint,
 				ProviderIDs: name.ProviderIDs, SeasonEpisodes: name.SeasonEpisodes, Absolute: name.AbsoluteEpisodes,
 				DateHint: name.DateHint, State: evidence.MatchState, Issues: evidence.Issues,
-				Ambiguities: name.Ambiguities, Revision: evidence.Revision,
+				Ambiguities: name.Ambiguities, Revision: evidence.Revision, Technical: evidence.Technical,
 			}
 			if name.Directory != nil {
 				file.DirectoryTitle = name.Directory.Title
