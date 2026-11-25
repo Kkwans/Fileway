@@ -36,6 +36,8 @@ import coil3.ImageLoader
 import coil3.compose.AsyncImage
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaPalette
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaShape
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSectionHeader
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSectionHeaderStyle
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSpace
 import io.github.kkwans.fileway.tv.LocalTvInteractive
 import io.github.kkwans.fileway.tv.tvTouch
@@ -245,8 +247,15 @@ internal fun MediaShelf(
 
 @Composable
 internal fun MediaSectionTitle(title: String, action: String? = null, onAction: (() -> Unit)? = null) {
-    Row(Modifier.fillMaxWidth().padding(horizontal = MediaLayout.pageInset), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, Modifier.weight(1f), style = MediaType.sectionTitle, color = LocalMediaColors.current.text)
+    FilewayMediaSectionHeader(
+        title = title,
+        modifier = Modifier.padding(horizontal = MediaLayout.pageInset),
+        style = FilewayMediaSectionHeaderStyle(
+            titleStyle = MediaType.sectionTitle,
+            titleColor = LocalMediaColors.current.text,
+            minHeight = 0.dp,
+        ),
+    ) {
         if (action != null && onAction != null) MediaQuietAction(action, onAction, icon = Art.drawable.fileway_ic_arrow_forward)
     }
 }

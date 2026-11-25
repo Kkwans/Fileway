@@ -5,12 +5,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.semantics.heading
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.kkwans.nasfilebrowser.ui.FilewayIcon
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSectionHeader
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSectionHeaderStyle
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSpace
 import kotlinx.coroutines.delay
 
 /** Detail roles follow the native media contract while retaining the app's system font. */
@@ -26,10 +27,16 @@ internal object PhoneDetailType {
 @Composable
 internal fun PhoneDetailHeading(title: String, modifier: Modifier = Modifier,
     actions: @Composable RowScope.() -> Unit = {}) {
-    Row(modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, Modifier.weight(1f).semantics { heading() }, style = PhoneDetailType.section)
-        actions()
-    }
+    FilewayMediaSectionHeader(
+        title = title,
+        modifier = modifier,
+        style = FilewayMediaSectionHeaderStyle(
+            titleStyle = PhoneDetailType.section,
+            titleColor = MaterialTheme.colorScheme.onBackground,
+            minHeight = FilewayMediaSpace.Phone.touchTarget,
+        ),
+        actions = actions,
+    )
 }
 
 /** Conditional composition cancels the delay immediately when the request finishes. */
