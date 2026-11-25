@@ -127,14 +127,65 @@ func TestReleaseYearSurvivesRealWorldSuffixNoise(t *testing.T) {
 	}
 }
 
-func TestPromotionalOnlyFilenameRequiresDirectoryEvidence(t *testing.T) {
+func TestPromotionalOnlyFilenameUsesUnambiguousDirectoryEvidence(t *testing.T) {
 	filename := "【更多无水印蓝光原盘请访问 www.BBSDDS.com】【更多无水印蓝光原盘请访问 www.BBSDDS.com】.MP4.mkv"
 	parsed := ParseNameInDirectory(filename, "芳芳.fanfan 1993 1080P H264 AC3-TAG")
-	if parsed.Title != "" || !slices.Contains(parsed.Ambiguities, "promotional_filename") {
-		t.Fatalf("promotional filename was treated as a work title: %+v", parsed)
+	if parsed.Title != "" || len(parsed.Ambiguities) != 0 {
+		t.Fatalf("clear directory evidence did not resolve promotional filename: %+v", parsed)
 	}
 	if parsed.Directory == nil || parsed.Directory.Title != "芳芳 fanfan" || parsed.Directory.Year == nil || *parsed.Directory.Year != 1993 {
 		t.Fatalf("independent directory evidence missing: %+v", parsed.Directory)
+	}
+	ambiguous := ParseNameInDirectory(filename, "芳芳.fanfan 1993-1994 1080P")
+	if !slices.Contains(ambiguous.Ambiguities, "promotional_filename") || !slices.Contains(ambiguous.Ambiguities, "directory_ambiguous_evidence") {
+		t.Fatalf("ambiguous directory evidence was ignored: %+v", ambiguous)
+	}
+}
+
+func TestChineseSitePrefixDoesNotPolluteTitle(t *testing.T) {
+	parsed := ParseName("【首发于高清影视之家 www.BBQDDQ.com】人间中毒[中文字幕].Obsessed.2014.BluRay.1080p.HEVC-CHD.mkv")
+	if parsed.Title != "人间中毒 Obsessed" || parsed.Year == nil || *parsed.Year != 2014 || len(parsed.Ambiguities) != 0 {
+		t.Fatalf("site prefix polluted title: %+v", parsed)
+	}
+}
+
+func TestBracketedReleaseTagsDoNotPolluteTitle(t *testing.T) {
+	for _, tc := range []struct{ filename, title string }{
+		{"【首发于高清影视之家 www.BBQDDQ.com】银河护卫队2[IMAX满屏版][简繁英字幕].Guardians.of.the.Galaxy.Vol.2.2017.IMAX.2160p.HDR.mkv", "银河护卫队2 Guardians of the Galaxy Vol 2"},
+		{"【首发于高清影视之家 www.BBQDDQ.com】雷神3：诸神黄昏[IMAX满屏版][简繁英字幕].Thor.Ragnarok.2017.IMAX.2160p.HDR.mkv", "雷神3：诸神黄昏 Thor Ragnarok"},
+		{"【高清影视之家发布 www.HDBTHD.com】火星救援[共2部合集][国英多音轨+中文字幕+特效字幕].2015.2in1.Bluray.2160p.mkv", "火星救援"},
+		{"【高清影视之家发布 www.HDBTHD.com】薄荷糖[30帧率版本][简繁字幕].Peppermint.Candy.1999.2160p.WEB-DL.mkv", "薄荷糖 Peppermint Candy"},
+	} {
+		parsed := ParseName(tc.filename)
+		if parsed.Title != tc.title || parsed.Year == nil || len(parsed.Ambiguities) != 0 {
+			t.Fatalf("%s: title=%q year=%v ambiguities=%v", tc.filename, parsed.Title, parsed.Year, parsed.Ambiguities)
+		}
+	}
+}
+
+func TestNumericTitleDoesNotBecomeDirectoryYearConflict(t *testing.T) {
+	const name = "[www.domp4.cc]2012.2009.BD1080p.国英双语.中英双字.mp4"
+	parsed := ParseNameInDirectory(name, name)
+	if parsed.Title != "2012" || parsed.Year == nil || *parsed.Year != 2009 || len(parsed.Ambiguities) != 0 {
+		t.Fatalf("numeric title was treated as a conflicting year: %+v", parsed)
+	}
+	if parsed.Directory == nil || parsed.Directory.Title != "2012" || parsed.Directory.Year == nil || *parsed.Directory.Year != 2009 || len(parsed.Directory.Ambiguities) != 0 {
+		t.Fatalf("numeric directory title lost its release year: %+v", parsed.Directory)
+	}
+}
+
+func TestCompleteFilenameDoesNotInheritUnusedDirectoryAmbiguity(t *testing.T) {
+	parsed := ParseNameInDirectory("Blade.Runner.2049.2017.BluRay.2160p.x265.mkv",
+		"【高清影视之家发布 www.BBQDDQ.com】银翼杀手2049.Blade.Runner.2049.2017.BluRay")
+	if parsed.Title != "Blade Runner 2049" || parsed.Year == nil || *parsed.Year != 2017 || len(parsed.Ambiguities) != 0 {
+		t.Fatalf("complete filename inherited unused directory ambiguity: %+v", parsed)
+	}
+	if parsed.Directory == nil || parsed.Directory.Year == nil || *parsed.Directory.Year != 2017 || len(parsed.Directory.Ambiguities) != 0 {
+		t.Fatalf("independent directory evidence was not normalized: %+v", parsed.Directory)
+	}
+	missingYear := ParseNameInDirectory("Blade.Runner.mkv", "Pirates.2003-2017.BluRay")
+	if !slices.Contains(missingYear.Ambiguities, "directory_ambiguous_evidence") {
+		t.Fatalf("needed directory evidence remained ambiguous: %+v", missingYear)
 	}
 }
 

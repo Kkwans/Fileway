@@ -241,9 +241,9 @@ func automaticMatchInput(item mediaIdentificationResponse, allowTitleMatch bool)
 				input.Ambiguities = append(input.Ambiguities, "directory_year_conflict")
 			}
 		}
-		input.Ambiguities = append(input.Ambiguities, file.DirectoryIssues...)
 		directoryTitle := strings.TrimSpace(file.DirectoryTitle)
 		if input.Title == "" {
+			input.Ambiguities = append(input.Ambiguities, file.DirectoryIssues...)
 			input.Title = directoryTitle
 		} else if directoryTitle != "" && directoryTitle != input.Title {
 			input.Aliases = append(input.Aliases, directoryTitle)

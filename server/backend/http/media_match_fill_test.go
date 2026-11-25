@@ -22,6 +22,23 @@ func TestAutomaticMatchInputCarriesTitleWithoutEnablingUnbenchmarkedMatches(t *t
 	}
 }
 
+func TestAutomaticMatchInputIgnoresUnusedDirectoryIssues(t *testing.T) {
+	year := 2017
+	item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{
+		ParsedTitle: "Blade Runner 2049", Year: &year, DirectoryTitle: "银翼杀手2049",
+		DirectoryIssues: []string{"directory_multiple_years"},
+	}}
+	input := automaticMatchInput(item, true)
+	if len(input.Ambiguities) != 0 || input.Title != "Blade Runner 2049" || input.Year != 2017 {
+		t.Fatalf("complete filename inherited unused directory issues: %+v", input)
+	}
+	item.File.ParsedTitle = ""
+	input = automaticMatchInput(item, true)
+	if len(input.Ambiguities) != 1 || input.Ambiguities[0] != "directory_multiple_years" || input.Title != "银翼杀手2049" {
+		t.Fatalf("required directory evidence lost its issues: %+v", input)
+	}
+}
+
 func TestAutomaticTitleMatchRequiresExplicitServerGate(t *testing.T) {
 	t.Setenv("FILEWAY_MEDIA_AUTO_TITLE_MATCH", "")
 	if mediaAutoTitleMatchEnabled() {

@@ -2,6 +2,7 @@ package mediametadata
 
 import (
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -88,6 +89,7 @@ var (
 	compactDatePattern     = regexp.MustCompile(`((?:19|20|21)[0-9]{2})([0-9]{2})([0-9]{2})`)
 	bracketYearPattern     = regexp.MustCompile(`[\[(（【]((?:18|19|20|21)[0-9]{2})[\])）】]`)
 	yearPattern            = regexp.MustCompile(`(?:18|19|20|21)[0-9]{2}`)
+	directoryYearRange     = regexp.MustCompile(`(?:18|19|20|21)[0-9]{2}[ ._]*[-–][ ._]*(?:18|19|20|21)[0-9]{2}`)
 	partPattern            = regexp.MustCompile(`(?i)(?:cd|disc|part)[ ._\-]*([0-9]{1,2}|VIII|VII|VI|IV|III|II|IX|X|V|I)`)
 	chinesePartPattern     = regexp.MustCompile(`[上中下][部集篇]`)
 	editionPattern         = regexp.MustCompile(`(?i)director'?s[ ._\-]+cut|extended(?:[ ._\-]+cut)?|theatrical[ ._\-]+cut|final[ ._\-]+cut|unrated|remastered|导演剪辑(?:加长版|版)?|導演剪輯版|加长版|加長版|院线版|院線版|未分级(?:加长版|版)?|未分級版|修复版|修復版|[0-9]{1,3}分钟|终极剪辑版|終極剪輯版`)
@@ -101,6 +103,8 @@ type technicalRule struct {
 }
 
 var technicalNameRules = []technicalRule{
+	{"release_tag", regexp.MustCompile(`(?i)(?:\[[^\]\r\n]*(?:满屏版|杜比视界|帧率版本|简繁英字幕|国语音轨|多音轨|合集)[^\]\r\n]*\]|【[^】\r\n]*(?:满屏版|杜比视界|帧率版本|简繁英字幕|国语音轨|多音轨|合集)[^】\r\n]*】)`)},
+	{"collection", regexp.MustCompile(`(?i)\b[0-9]+in1\b`)},
 	{"resolution", regexp.MustCompile(`(?i)BD(?:1080[pi]|2160p|720p)|4320p|2160p|1440p|1080[pi]|720p|576p|480p|8k|4k`)},
 	{"video_codec", regexp.MustCompile(`(?i)x26[45]|h[ .]?26[45]|hevc|avc|av1|xvid`)},
 	{"dynamic_range", regexp.MustCompile(`(?i)dolby[ ._\-]+vision|hdr10\+|hdr10|hdr|hlg|DoVi|dv|\bSDR\b`)},
@@ -113,13 +117,13 @@ var technicalNameRules = []technicalRule{
 	{"frame_rate", regexp.MustCompile(`(?i)\b[0-9]{2,3}fps\b`)},
 	{"version", regexp.MustCompile(`(?i)\bV[0-9]+\b`)},
 	{"language", regexp.MustCompile(`(?i)Mandarin&English|English&Mandarin|CHS[ ._-]?ENG|\b(?:English|Mandarin|CHS|JP|CN|USA|JPN|GER|CEE)\b`)},
-	{"subtitle", regexp.MustCompile(`国英双语|中英双字|中英字幕|中英特效|特效字幕|国语中字|粤语中字|日语中字|法语中字|英语中字|国日粤三语|泰国粤三语|中日双字|简繁双语|双语中字|中文字幕|内嵌特效中简|特效`)},
+	{"subtitle", regexp.MustCompile(`国英双语|中英双字|中英字幕|中英特效|特效字幕|国语中字|粤语中字|日语中字|法语中字|英语中字|国日粤三语|泰国粤三语|中日双字|简繁双语|简繁字幕|双语中字|中文字幕|内嵌特效中简|特效`)},
 	{"release_noise", regexp.MustCompile(`(?i)\b[0-9]{1,3}(?:st|nd|rd|th)[ ._\-]+anniversary\b`)},
-	{"release_group", regexp.MustCompile(`(?i)(?:\b(?:MNHD-FRDS|RARBG|HDBWEB|DreamHD|ParkHD|BBQDDQ|CTRLTV|FRDS|MTeam|WiKi|PTer|HDC|HDS|D-Z0N3|DiaosMan|SSDSSE|NukeHD|SONYHD|882FX|taobaobt|Mp4Ba(?:Fans)?|FFans|KOOK|UUMp4|D2Mp4|99Mp4|4KHDR|52movieba|TAG)\b|人人影视|BT世界网|抠脚)`)},
+	{"release_group", regexp.MustCompile(`(?i)(?:\b(?:MNHD-FRDS|RARBG|HDBWEB|DreamHD|ParkHD|BBQDDQ|CTRLTV|FRDS|MTeam|WiKi|PTer|HDC|HDS|D-Z0N3|DiaosMan|SSDSSE|NukeHD|SONYHD|882FX|taobaobt|Mp4Ba(?:Fans)?|FFans|KOOK|UUMp4|D2Mp4|99Mp4|4KHDR|52movieba|TAG|CHD|MiniFHD)\b|人人影视|BT世界网|抠脚)`)},
 	{"market_tag", regexp.MustCompile(`(?i)\[(?:泰国|港版|日本|美国|韩国|剧情|喜剧|动作|爱情|科幻|悬疑|犯罪)(?:[ ._-]+(?:泰国|港版|日本|美国|韩国|剧情|喜剧|动作|爱情|科幻|悬疑|犯罪))*\]`)},
-	{"promotional_prefix", regexp.MustCompile(`(?i)^(?:【[^】]*(?:无水印|请访问)[^】]*】|\[[^\]]*(?:www[ ._]|https?://)[^\]]*\])+`)},
-	{"site_prefix", regexp.MustCompile(`(?i)^\[[^\]]*(?:www[ ._]|https?://)[^\]]*\]`)},
-	{"site_tag", regexp.MustCompile(`(?i)\[[^\]]*(?:www[ ._]|https?://)[^\]]*\]`)},
+	{"promotional_prefix", regexp.MustCompile(`(?i)^(?:【[^】]*(?:无水印|请访问|www[ ._]|https?://)[^】]*】|\[[^\]]*(?:www[ ._]|https?://)[^\]]*\])+`)},
+	{"site_prefix", regexp.MustCompile(`(?i)^(?:【[^】]*(?:www[ ._]|https?://)[^】]*】|\[[^\]]*(?:www[ ._]|https?://)[^\]]*\])`)},
+	{"site_tag", regexp.MustCompile(`(?i)(?:【[^】]*(?:www[ ._]|https?://)[^】]*】|\[[^\]]*(?:www[ ._]|https?://)[^\]]*\])`)},
 }
 
 // ParseName parses a single filename, not a filesystem path or URL. It uses
@@ -206,21 +210,25 @@ func ParseNameInDirectory(filename, directory string) ParsedName {
 	}
 	parsed := ParseName(directory)
 	year := parsed.Year
-	var years []int
-	for _, match := range yearPattern.FindAllStringIndex(directory, -1) {
-		if !tokenBounds(directory, match[0], match[1]) {
-			continue
-		}
-		value, _ := strconv.Atoi(directory[match[0]:match[1]])
-		years = appendUniqueInt(years, value)
-	}
-	if len(years) > 1 {
+	if directoryYearRange.MatchString(directory) {
 		year = nil
 		parsed.Ambiguities = append(parsed.Ambiguities, "directory_multiple_years")
-	} else if year == nil && len(years) == 1 {
-		match := yearPattern.FindStringIndex(directory)
-		if match != nil && cleanNameTitle(directory[:match[0]]) != "" {
-			year = &years[0]
+	} else if year == nil {
+		var years []int
+		for _, match := range yearPattern.FindAllStringIndex(directory, -1) {
+			if !tokenBounds(directory, match[0], match[1]) {
+				continue
+			}
+			value, _ := strconv.Atoi(directory[match[0]:match[1]])
+			years = appendUniqueInt(years, value)
+		}
+		if len(years) > 1 {
+			parsed.Ambiguities = append(parsed.Ambiguities, "directory_multiple_years")
+		} else if len(years) == 1 {
+			match := yearPattern.FindStringIndex(directory)
+			if match != nil && cleanNameTitle(directory[:match[0]]) != "" {
+				year = &years[0]
+			}
 		}
 	}
 	result.Directory = &DirectoryNameEvidence{OriginalName: directory, Title: parsed.Title, Year: year,
@@ -228,7 +236,10 @@ func ParseNameInDirectory(filename, directory string) ParsedName {
 	if result.Year != nil && year != nil && *result.Year != *year {
 		result.Ambiguities = append(result.Ambiguities, "directory_year_conflict")
 	}
-	if len(parsed.Ambiguities) != 0 {
+	if result.Title == "" && slices.Contains(result.Ambiguities, "promotional_filename") && parsed.Title != "" && year != nil && len(parsed.Ambiguities) == 0 {
+		result.Ambiguities = slices.DeleteFunc(result.Ambiguities, func(issue string) bool { return issue == "promotional_filename" })
+	}
+	if len(parsed.Ambiguities) != 0 && result.Year == nil {
 		result.Ambiguities = append(result.Ambiguities, "directory_ambiguous_evidence")
 	}
 	sort.Strings(result.Ambiguities)
@@ -536,7 +547,7 @@ func (p *nameParser) parseEditionsAndParts() {
 func (p *nameParser) parseTechnicalHints() {
 	for _, rule := range technicalNameRules {
 		for _, match := range rule.pattern.FindAllStringIndex(p.stem, -1) {
-			if !p.available(match[0], match[1]) {
+			if !p.available(match[0], match[1]) || rule.kind != "release_tag" && rule.kind != "promotional_prefix" && rule.kind != "site_prefix" && rule.kind != "site_tag" && p.insideSiteTag(match[0]) {
 				continue
 			}
 			if rule.kind == "audio_layout" {
@@ -547,7 +558,7 @@ func (p *nameParser) parseTechnicalHints() {
 				if left > 0 && asciiAlphanumeric(p.stem[left-1]) && !unicode.IsLetter(rune(p.stem[left-1])) || !p.rightTokenBound(match[1]) {
 					continue
 				}
-			} else if !p.leftTokenBound(match[0]) || !p.rightTokenBound(match[1]) {
+			} else if rule.kind != "release_tag" && rule.kind != "promotional_prefix" && rule.kind != "site_prefix" && rule.kind != "site_tag" && (!p.leftTokenBound(match[0]) || !p.rightTokenBound(match[1])) {
 				continue
 			}
 			value := strings.ToLower(p.stem[match[0]:match[1]])
@@ -597,6 +608,20 @@ func (p *nameParser) parseYears() {
 		}
 		break
 	}
+}
+
+func (p *nameParser) insideSiteTag(offset int) bool {
+	start := strings.LastIndexAny(p.stem[:offset+1], "[【（(")
+	if start < 0 {
+		return false
+	}
+	end := strings.IndexAny(p.stem[offset:], "]】）)")
+	if end < 0 {
+		return false
+	}
+	tag := strings.ToLower(p.stem[start : offset+end+1])
+	return strings.Contains(tag, "www.") || strings.Contains(tag, "www ") || strings.Contains(tag, "www_") ||
+		strings.Contains(tag, "http://") || strings.Contains(tag, "https://")
 }
 
 func (p *nameParser) leftTokenBound(start int) bool {
