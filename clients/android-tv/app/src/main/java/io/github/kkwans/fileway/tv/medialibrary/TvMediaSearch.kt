@@ -90,7 +90,7 @@ internal fun TvMediaSearchScreen(query: String, searched: Boolean, mode: TvMedia
             modes.forEach { (value, label) -> SearchModeTab(label, mode == value, { onMode(value) }, colors.accent, colors.secondary) }
         }
         when {
-            issue != null -> MediaStatus(issue, onRetry)
+            issue != null && empty -> MediaStatus(issue, onRetry)
             searched && empty && !busy -> MediaStatus(when (mode) {
                 TvMediaSearchMode.WORKS -> "没有找到相关影视，试试缩短片名或使用原名。"
                 TvMediaSearchMode.PEOPLE -> "没有找到相关人物，试试使用姓名中的一部分。"
@@ -102,6 +102,7 @@ internal fun TvMediaSearchScreen(query: String, searched: Boolean, mode: TvMedia
             mode == TvMediaSearchMode.COLLECTIONS -> TvMediaCollectionShelf(collections, imageLoader, onCollection)
             else -> MediaShelf(TvMediaShelf("search-results", "搜索结果", entries), imageLoader, onItem)
         }
+        if (issue != null && !empty) MediaStatus(issue, onRetry, compact = true)
         if (busy && empty) MediaLoadingStatus(when (mode) {
             TvMediaSearchMode.WORKS -> "正在搜索影视"
             TvMediaSearchMode.PEOPLE -> "正在搜索人物"
