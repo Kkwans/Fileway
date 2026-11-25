@@ -110,42 +110,43 @@ internal fun PhoneMediaRefreshJobSection(repository: MediaLibraryRepository, lib
         submit { if (pending != null) repository.retryOperation(operation) else repository.enqueueMetadataRefreshJob(operation, libraryId, currentPreview.policyRevision) }
     }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(FilewaySpace.small)) {
+        if (busy) MediaLoading("正在处理资料刷新")
         pending?.let {
             MediaProblemCard(MediaProblem("刷新操作待确认", "确认上次操作，避免重复提交。", "确认"), {
                 submit { repository.retryOperation(it) }
             })
         }
-        if (dirty) Text("请先保存资料设置，再开始刷新。", style = MaterialTheme.typography.bodySmall,
+        if (dirty) Text("请先保存资料设置，再开始刷新。", style = PhoneMediaType.secondary,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         job?.let { current ->
-            Text(refreshJobStatusLabel(current), style = MaterialTheme.typography.bodyMedium)
+            Text(refreshJobStatusLabel(current), style = PhoneMediaType.itemTitle)
             Text("共 ${current.total} 条；已刷新 ${current.refreshed}，已是目标语言 ${current.alreadyCurrent}，保留 ${current.preserved}，失败 ${current.failed}，待处理 ${current.pending}。",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            current.failureCode.takeIf(String::isNotBlank)?.let { Text("原因：$it", style = MaterialTheme.typography.bodySmall,
+                style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            current.failureCode.takeIf(String::isNotBlank)?.let { Text("原因：$it", style = PhoneMediaType.secondary,
                 color = MaterialTheme.colorScheme.error) }
             when {
                 current.status in setOf("queued", "running") -> Button(onClick = {
                     submit { repository.cancelMetadataRefreshJob(repository.newOperation(), libraryId, current.jobId, current.generation) }
-                }, enabled = enabled && !busy && pending == null, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("取消刷新") }
+                }, enabled = enabled && !busy && pending == null, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("取消刷新", style = PhoneMediaType.action) }
                 current.status in setOf("failed", "canceled") || current.status == "completed" && current.failed > 0 -> Button(onClick = {
                     submit { repository.retryMetadataRefreshJob(repository.newOperation(), libraryId, current.jobId, current.generation) }
-                }, enabled = enabled && !busy && pending == null, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("重试刷新") }
+                }, enabled = enabled && !busy && pending == null, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("重试刷新", style = PhoneMediaType.action) }
                 current.refreshed > 0 && current.undone == 0L -> TextButton(onClick = { confirmUndo = true },
-                    enabled = enabled && !busy && pending == null, modifier = Modifier.heightIn(min = 48.dp)) { Text("撤销本次刷新") }
-                current.undone > 0 -> Text("本次刷新已撤销。", style = MaterialTheme.typography.bodyMedium)
+                    enabled = enabled && !busy && pending == null, modifier = Modifier.heightIn(min = 48.dp)) { Text("撤销本次刷新", style = PhoneMediaType.action) }
+                current.undone > 0 -> Text("本次刷新已撤销。", style = PhoneMediaType.body)
             }
             if (current.status == "completed" && current.failed == 0L && preview != null && preview.canRefresh && preview.languageMismatchItems > 0) {
                 TextButton(onClick = ::start, enabled = enabled && !busy && !dirty && pending == null,
-                    modifier = Modifier.heightIn(min = 48.dp)) { Text("开始新一轮刷新") }
+                    modifier = Modifier.heightIn(min = 48.dp)) { Text("开始新一轮刷新", style = PhoneMediaType.action) }
             }
-            TextButton(onClick = ::refreshProgress, enabled = enabled && !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("刷新进度") }
+            TextButton(onClick = ::refreshProgress, enabled = enabled && !busy, modifier = Modifier.heightIn(min = 48.dp)) { Text("刷新进度", style = PhoneMediaType.action) }
         } ?: run {
             if (preview != null) Button(onClick = ::start, enabled = enabled && !dirty && preview.canRefresh && preview.languageMismatchItems > 0 && !busy,
-                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("开始刷新资料") }
-            if (preview?.languageMismatchItems == 0) Text("没有需要刷新语言的条目。", style = MaterialTheme.typography.bodyMedium)
+                modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("开始刷新资料", style = PhoneMediaType.action) }
+            if (preview?.languageMismatchItems == 0) Text("没有需要刷新语言的条目。", style = PhoneMediaType.secondary)
         }
         error?.let { message ->
-            if (preview == null && pending == null && job == null) Text(message, style = MaterialTheme.typography.bodySmall,
+            if (preview == null && pending == null && job == null) Text(message, style = PhoneMediaType.secondary,
                 color = MaterialTheme.colorScheme.error)
             else MediaProblemCard(MediaProblem("资料刷新未完成", message, "重试"), {
                 when {
