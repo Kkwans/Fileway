@@ -42,28 +42,28 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             item(key = "current") {
                 MediaHeading("当前识别")
-                Text(state.currentTitle, style = MaterialTheme.typography.titleMedium)
-                state.evidence.forEach { Text(it, style = MaterialTheme.typography.bodySmall,
+                Text(state.currentTitle, style = PhoneMediaType.itemTitle)
+                state.evidence.forEach { Text(it, style = PhoneMediaType.secondary,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp)) }
-                if (state.canUndo) TextButton(onClick = { confirmUndo = true }, enabled = !state.busy) { Text("撤销 TMDB 匹配") }
-                if (state.canUndoMapping) TextButton(onClick = { confirmMappingUndo = true }, enabled = !state.busy) { Text("撤销剧集关联") }
+                if (state.canUndo) TextButton(onClick = { confirmUndo = true }, enabled = !state.busy) { Text("撤销 TMDB 匹配", style = PhoneMediaType.action) }
+                if (state.canUndoMapping) TextButton(onClick = { confirmMappingUndo = true }, enabled = !state.busy) { Text("撤销剧集关联", style = PhoneMediaType.action) }
                 if (state.canRefresh) {
                     state.refreshPreview?.let { preview ->
                         Text("资料语言：${preview.currentLanguage.ifBlank { "未记录" }} → ${preview.targetLanguage}",
-                            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(top = 8.dp))
+                            style = PhoneMediaType.body, modifier = Modifier.padding(top = 8.dp))
                         if (preview.changedFields.isNotEmpty()) Text("将更新：${preview.changedFields.joinToString("、")}",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (preview.protectedFields.isNotEmpty()) Text("保留人工锁定：${preview.protectedFields.joinToString("、")}",
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Button(onClick = { onAction(PhoneMediaAction.ApplyMetadataRefresh) }, enabled = !state.busy && preview.canRefresh,
-                            modifier = Modifier.heightIn(min = 48.dp)) { Text("刷新中文资料") }
+                            modifier = Modifier.heightIn(min = 48.dp)) { Text("刷新中文资料", style = PhoneMediaType.action) }
                     } ?: TextButton(onClick = { onAction(PhoneMediaAction.PreviewMetadataRefresh) }, enabled = !state.busy,
-                        modifier = Modifier.heightIn(min = 48.dp)) { Text("预览资料刷新") }
+                        modifier = Modifier.heightIn(min = 48.dp)) { Text("预览资料刷新", style = PhoneMediaType.action) }
                 }
             }
             if (state.canChooseSeries) item(key = "kind") {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("内容类型", style = MaterialTheme.typography.titleMedium)
+                    Text("内容类型", style = PhoneMediaType.itemTitle)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         FilterChip(selected = !state.seriesMode, onClick = { onAction(PhoneMediaAction.MatchSeriesMode(false)) },
                             enabled = !state.busy, label = { Text("电影") }, modifier = Modifier.heightIn(min = 48.dp))
@@ -81,7 +81,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                         }
                     }), shape = MaterialTheme.shapes.medium)
                 TextButton(onClick = { focus.clearFocus(); onAction(PhoneMediaAction.SearchMatches(state.query)) },
-                    enabled = state.query.isNotBlank() && !state.busy && !state.candidates.loading, modifier = Modifier.heightIn(min = 48.dp)) { Text("搜索候选") }
+                    enabled = state.query.isNotBlank() && !state.busy && !state.candidates.loading, modifier = Modifier.heightIn(min = 48.dp)) { Text("搜索候选", style = PhoneMediaType.action) }
             }
             state.conflict?.let { conflict -> item(key = "conflict") {
                 // No force-overwrite button. Reload must preserve the query and candidate selection.
@@ -95,21 +95,21 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
             } }
             if (state.searched || state.candidates.entries.isNotEmpty() || state.candidates.loading) item(key = "candidate-heading") { MediaHeading("匹配候选") }
             if (state.searched && state.candidates.entries.isEmpty() && !state.candidates.loading && state.candidates.problem == null && state.problem == null) item(key = "empty") {
-                Text("没有找到候选，可以修改片名后重试。", style = MaterialTheme.typography.bodyMedium,
+                Text("没有找到候选，可以修改片名后重试。", style = PhoneMediaType.body,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             items(state.candidates.entries, key = { "candidate/${it.id}" }) { candidate ->
                 Surface(shape = MaterialTheme.shapes.medium,
                     color = if (candidate.id == state.selectedCandidate) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface) {
-                    Row(Modifier.fillMaxWidth().selectable(candidate.id == state.selectedCandidate, enabled = !state.busy,
+                    Row(Modifier.fillMaxWidth().heightIn(min = 88.dp).selectable(candidate.id == state.selectedCandidate, enabled = !state.busy,
                         role = Role.RadioButton, onClick = { onAction(PhoneMediaAction.PreviewMatch(candidate.id, state.revision)) })
                         .padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
                         if (candidate.poster != null) MediaImage(candidate.poster, imageLoader, Modifier.width(64.dp).aspectRatio(2f / 3f))
                         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            Text(candidate.title, style = MaterialTheme.typography.titleMedium)
-                            Text(candidate.metadata, style = MaterialTheme.typography.bodySmall)
-                            Text(candidate.externalIds, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            candidate.evidence?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            Text(candidate.title, style = PhoneMediaType.itemTitle)
+                            Text(candidate.metadata, style = PhoneMediaType.secondary)
+                            Text(candidate.externalIds, style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            candidate.evidence?.let { Text(it, style = PhoneMediaType.body) }
                         }
                         RadioButton(selected = candidate.id == state.selectedCandidate, onClick = null, enabled = !state.busy)
                     }
@@ -118,9 +118,9 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
             item(key = "paging") { MediaPaging("match-candidates", state.candidates.loading, state.candidates.hasMore, onAction) }
             if (state.seriesMode) item(key = "series-structure") {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("确定季集", style = MaterialTheme.typography.titleMedium)
+                    Text("确定季集", style = PhoneMediaType.itemTitle)
                     Text("选择 TMDB 候选，或直接使用输入的剧名创建本地剧集。多个集号用英文逗号分隔。",
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         OutlinedTextField(state.seasonNumber, { onAction(PhoneMediaAction.MatchSeason(it)) },
                             label = { Text("季号") }, singleLine = true, enabled = !state.busy,
@@ -131,20 +131,20 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                     }
                     TextButton(onClick = { focus.clearFocus(); onAction(PhoneMediaAction.PreviewSeriesMapping) },
                         enabled = !state.busy && !state.candidates.loading && state.query.isNotBlank(),
-                        modifier = Modifier.heightIn(min = 48.dp)) { Text("预览剧集关联") }
+                        modifier = Modifier.heightIn(min = 48.dp)) { Text("预览剧集关联", style = PhoneMediaType.action) }
                 }
             }
             state.impact?.takeIf { it.candidateId == state.selectedCandidate }?.let { impact -> item(key = "impact") {
                 Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         MediaHeading("变更预览")
-                        Text(impact.summary, style = MaterialTheme.typography.bodyMedium)
-                        impact.consequences.forEach { Text(it, style = MaterialTheme.typography.bodySmall,
+                        Text(impact.summary, style = PhoneMediaType.body)
+                        impact.consequences.forEach { Text(it, style = PhoneMediaType.secondary,
                             color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         Button(onClick = { onAction(PhoneMediaAction.ApplyMatch(impact.candidateId, impact.expectedRevision, state.suggestionOnly)) },
                             enabled = state.canApply && impact.canApply && !state.busy && state.conflict == null && impact.expectedRevision == state.revision,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = MaterialTheme.shapes.medium) {
-                            Text(if (state.suggestionOnly) "提交建议" else "确认更正")
+                            Text(if (state.suggestionOnly) "提交建议" else "确认更正", style = PhoneMediaType.action)
                         }
                     }
                 }
