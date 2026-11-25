@@ -108,6 +108,25 @@ func TestRealReleaseNoiseDoesNotPolluteExactTitle(t *testing.T) {
 	}
 }
 
+func TestReleaseYearSurvivesRealWorldSuffixNoise(t *testing.T) {
+	cases := []struct {
+		filename string
+		year     int
+	}{
+		{"飞越疯人院(蓝光国英双音轨特效中英双字幕).One.Flew.Over.the.Cuckoo‘s.Nest.1975.35th.Anniversary.CEE.BD-1080p.X265.10bit.AAC.2AUDIOS.CHS.ENG-UUMp4.mp4", 1975},
+		{"萝莉视频989pa.com-雷神1.雷神索尔.Thor.2011.BD1080P.X264.AAC.国英双语特效中英双字.mkv", 2011},
+	}
+	for _, fixture := range cases {
+		t.Run(fixture.filename, func(t *testing.T) {
+			parsed := ParseName(fixture.filename)
+			validateNameEvidence(t, fixture.filename, parsed)
+			if parsed.Year == nil || *parsed.Year != fixture.year {
+				t.Fatalf("got title=%q year=%v ambiguities=%v; want year=%d", parsed.Title, parsed.Year, parsed.Ambiguities, fixture.year)
+			}
+		})
+	}
+}
+
 func TestPromotionalOnlyFilenameRequiresDirectoryEvidence(t *testing.T) {
 	filename := "【更多无水印蓝光原盘请访问 www.BBSDDS.com】【更多无水印蓝光原盘请访问 www.BBSDDS.com】.MP4.mkv"
 	parsed := ParseNameInDirectory(filename, "芳芳.fanfan 1993 1080P H264 AC3-TAG")
