@@ -2,6 +2,7 @@ package mediaprovider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"slices"
 	"strconv"
@@ -213,8 +214,17 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 			queries = append(queries, alias)
 		}
 	}
+	fetchParts := []Part{Credits, ExternalIDs}
+	alternativeSearch := alternativeTitleSearchTitle(title)
+	for _, query := range queries {
+		if alternativeTitleSearchTitle(query) {
+			fetchParts = append(fetchParts, AlternativeTitles)
+			break
+		}
+	}
 	var documents []Document
 	var ranked []MatchCandidate
+	var yearCandidates, directCandidates []MatchCandidate
 	eligible := make([]MatchCandidate, 0)
 	unfilteredSearch := false
 	searchComplete := true
@@ -250,8 +260,16 @@ queries:
 			ranked = RankCandidates(MatchHint{Kind: input.Kind, Title: title, Year: input.Year}, documents)
 			eligible = eligible[:0]
 			for _, candidate := range ranked {
-				if matchesAnyTitle(candidate, queries) && input.Year > 0 && candidate.Year == input.Year {
-					eligible = append(eligible, candidate)
+				direct := matchesAnyTitle(candidate, queries)
+				if direct {
+					directCandidates = append(directCandidates, candidate)
+				}
+				if input.Year > 0 && candidate.Year == input.Year {
+					if direct {
+						eligible = append(eligible, candidate)
+					} else {
+						yearCandidates = append(yearCandidates, candidate)
+					}
 				}
 			}
 			if len(eligible) != 0 {
@@ -261,6 +279,9 @@ queries:
 				break
 			}
 		}
+	}
+	if len(eligible) == 0 && len(directCandidates) == 0 && input.Year > 0 && alternativeSearch && len(yearCandidates) != 0 {
+		eligible = append(eligible, yearCandidates[:min(len(yearCandidates), maxAutomaticTitleQueries)]...)
 	}
 	if len(documents) == 0 {
 		return AutomaticMatch{State: AutoNoMatch, Reason: "title_not_found"}, nil
@@ -314,7 +335,7 @@ queries:
 			if err := authorize(ctx); err != nil {
 				return AutomaticMatch{}, err
 			}
-			detail, err := client.Fetch(ctx, candidate.Entity, FetchOptions{Language: language, Parts: []Part{Credits, ExternalIDs}})
+			detail, err := client.Fetch(ctx, candidate.Entity, FetchOptions{Language: language, Parts: fetchParts})
 			if err != nil {
 				if providerErrorIs(err, NotFound) {
 					continue
@@ -324,6 +345,10 @@ queries:
 			projected, err := ProjectTMDB(detail)
 			if err != nil {
 				return AutomaticMatch{}, err
+			}
+			direct, alternative := documentMatchesAnyQuery(detail, queries)
+			if !direct && !alternative {
+				continue
 			}
 			if year := projected.Item.Fields["year"]; input.Year > 0 && len(year) != 0 && year[0] != strconv.Itoa(input.Year) {
 				continue
@@ -367,7 +392,7 @@ queries:
 			return AutomaticMatch{}, err
 		}
 		var err error
-		document, err = client.Fetch(ctx, candidate.Entity, FetchOptions{Language: language, Parts: []Part{Credits, ExternalIDs}})
+		document, err = client.Fetch(ctx, candidate.Entity, FetchOptions{Language: language, Parts: fetchParts})
 		if err != nil {
 			if providerErrorIs(err, NotFound) {
 				return AutomaticMatch{State: AutoNoMatch, Reason: "identifier_not_found"}, nil
@@ -384,13 +409,16 @@ queries:
 		titleField, originalField = "name", "original_name"
 	}
 	matchedQuery := ""
+	matchedAlternative := false
 	for _, query := range queries {
-		matches := matchTitle(query) == matchTitle(textField(document, titleField)) || matchTitle(query) == matchTitle(textField(document, originalField))
+		direct, alternative := documentQueryTitleMatch(query, document)
+		matches := direct || alternative
 		if input.Year <= 0 && !matches {
 			matches = numberedTitleMatches(query, textField(document, titleField)) || numberedTitleMatches(query, textField(document, originalField))
 		}
 		if matches {
 			matchedQuery = query
+			matchedAlternative = alternative && !direct
 			break
 		}
 	}
@@ -450,7 +478,9 @@ queries:
 		evidence = append(evidence, "unfiltered_title_search")
 	}
 	if !slices.Contains(evidence, "title_match") {
-		if matchedQuery == title {
+		if matchedAlternative {
+			evidence = append(evidence, "alternative_title_match")
+		} else if matchedQuery == title {
 			evidence = append(evidence, "title_match")
 		} else {
 			evidence = append(evidence, "alias_title_match")
@@ -458,6 +488,65 @@ queries:
 	}
 	evidence = append(evidence, "unique_candidate")
 	return AutomaticMatch{State: AutoMatched, Evidence: evidence, Document: document, Projection: projection}, nil
+}
+
+func documentMatchesAnyQuery(document Document, queries []string) (bool, bool) {
+	direct, alternative := false, false
+	for _, query := range queries {
+		queryDirect, queryAlternative := documentQueryTitleMatch(query, document)
+		direct = direct || queryDirect
+		alternative = alternative || queryAlternative
+	}
+	return direct, alternative
+}
+
+func documentQueryTitleMatch(query string, document Document) (bool, bool) {
+	titleField, originalField := "title", "original_title"
+	if document.Entity.Kind == Series {
+		titleField, originalField = "name", "original_name"
+	}
+	query = matchTitle(query)
+	direct := query != "" && (query == matchTitle(textField(document, titleField)) || query == matchTitle(textField(document, originalField)))
+	return direct, !direct && alternativeTitleMatches(document, query)
+}
+
+func alternativeTitleMatches(document Document, query string) bool {
+	if query == "" {
+		return false
+	}
+	var payload struct {
+		Titles []struct {
+			Title string `json:"title"`
+		} `json:"titles"`
+	}
+	if json.Unmarshal(document.Fields["alternative_titles"], &payload) != nil || len(payload.Titles) > 1000 {
+		return false
+	}
+	for _, title := range payload.Titles {
+		if matchTitle(title.Title) == query {
+			return true
+		}
+	}
+	return false
+}
+
+func alternativeTitleSearchTitle(title string) bool {
+	words := strings.Fields(title)
+	if len(words) < 2 {
+		return false
+	}
+	for _, r := range title {
+		if unicode.Is(unicode.Han, r) || unicode.IsDigit(r) {
+			return false
+		}
+		if !unicode.IsSpace(r) && !unicode.IsLetter(r) && r != '-' && r != '\'' && r != '’' {
+			return false
+		}
+		if unicode.IsLetter(r) && r > unicode.MaxASCII {
+			return false
+		}
+	}
+	return true
 }
 
 func numberedTitleCandidates(candidates []MatchCandidate, queries []string) []MatchCandidate {

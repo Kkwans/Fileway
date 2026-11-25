@@ -528,6 +528,79 @@ func TestResolveAutomaticMatchAllowsOneYearDifferenceWithRuntime(t *testing.T) {
 	}
 }
 
+func TestResolveAutomaticMatchUsesProviderAlternativeTitleForRomanizedInput(t *testing.T) {
+	for _, tc := range []struct {
+		name, alternatives string
+		want               AutomaticMatchState
+		reason             string
+	}{
+		{"romaji alternative matches", `,"alternative_titles":{"id":372058,"titles":[{"iso_3166_1":"JP","title":"Kimi no Na wa","type":"Romaji"}]}`, AutoMatched, ""},
+		{"unrelated alternatives remain review", `,"alternative_titles":{"id":372058,"titles":[{"iso_3166_1":"JP","title":"君の名は。","type":"Standard"}]}`, AutoNeedsReview, "title_year_conflict"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+				switch request.URL.Path {
+				case "/3/search/movie":
+					if request.URL.Query().Get("query") != "Kimi no Na wa" || request.URL.Query().Get("primary_release_year") != "2016" {
+						t.Fatalf("unexpected title lookup %s", request.URL)
+					}
+					return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":372058,"title":"你的名字。","original_title":"君の名は。","release_date":"2016-08-26"}]}`), nil
+				case "/3/movie/372058":
+					return response(200, `{"id":372058,"title":"你的名字。","original_title":"君の名は。","release_date":"2016-08-26","runtime":106`+tc.alternatives+`}`), nil
+				default:
+					t.Fatalf("unexpected outbound request %s", request.URL)
+					return nil, nil
+				}
+			})
+			result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: "Kimi no Na wa", Year: 2016, DurationMs: 6_395_639, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+			if err != nil || result.State != tc.want || result.Reason != tc.reason {
+				t.Fatalf("state=%s reason=%s err=%v", result.State, result.Reason, err)
+			}
+			if tc.want == AutoMatched && (result.Document.Entity.ID != 372058 || !slices.Contains(result.Evidence, "alternative_title_match")) {
+				t.Fatalf("alternative title evidence missing: %+v", result)
+			}
+		})
+	}
+}
+
+func TestResolveAutomaticMatchDoesNotUseAlternativeFallbackForMixedTitleAlias(t *testing.T) {
+	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/3/search/movie":
+			return response(200, `{"page":1,"total_pages":1,"total_results":2,"results":[{"id":329,"title":"侏罗纪公园","release_date":"1994-01-01"},{"id":999,"title":"无关电影","release_date":"1993-01-01"}]}`), nil
+		case "/3/movie/329":
+			return response(200, `{"id":329,"title":"侏罗纪公园","release_date":"1993-06-11","runtime":127}`), nil
+		default:
+			t.Fatalf("unexpected outbound request %s", request.URL)
+			return nil, nil
+		}
+	})
+	result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie,
+		Title: "侏罗纪公园( 国英双音轨 幕) Jurassic Park", Aliases: []string{"侏罗纪公园", "Jurassic Park"}, Year: 1993, AllowTitleMatch: true,
+	}, "zh-CN", func(context.Context) error { return nil })
+	if err != nil || result.State != AutoMatched || result.Document.Entity.ID != 329 {
+		t.Fatalf("mixed-title alias triggered alternative fallback: state=%s id=%d err=%v", result.State, result.Document.Entity.ID, err)
+	}
+}
+
+func TestResolveAutomaticMatchDoesNotReplaceDirectTitleWithAlternativeFallback(t *testing.T) {
+	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/3/search/movie":
+			return response(200, `{"page":1,"total_pages":1,"total_results":2,"results":[{"id":718930,"title":"Bullet Train","release_date":"2021-08-06"},{"id":999,"title":"Unrelated","release_date":"2022-01-01"}]}`), nil
+		case "/3/movie/718930":
+			return response(200, `{"id":718930,"title":"Bullet Train","release_date":"2022-08-05","runtime":126}`), nil
+		default:
+			t.Fatalf("unexpected outbound request %s", request.URL)
+			return nil, nil
+		}
+	})
+	result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: "Bullet Train", Year: 2022, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+	if err != nil || result.State != AutoMatched || result.Document.Entity.ID != 718930 {
+		t.Fatalf("direct title was replaced by alternative fallback: state=%s id=%d err=%v", result.State, result.Document.Entity.ID, err)
+	}
+}
+
 func TestResolveAutomaticMatchRetriesWithoutYearOnlyAfterEmptySearch(t *testing.T) {
 	for _, tc := range []struct {
 		name, details string

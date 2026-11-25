@@ -78,9 +78,10 @@ func (client *TMDBClient) Search(ctx context.Context, input SearchQuery) (Candid
 type Part string
 
 const (
-	Credits     Part = "credits"
-	ExternalIDs Part = "external_ids"
-	Images      Part = "images"
+	Credits           Part = "credits"
+	ExternalIDs       Part = "external_ids"
+	Images            Part = "images"
+	AlternativeTitles Part = "alternative_titles"
 )
 
 type FetchOptions struct {
@@ -100,6 +101,10 @@ func fetchQuery(kind Kind, options FetchOptions) (url.Values, error) {
 		case Images:
 		case ExternalIDs:
 			if kind == Collection {
+				return nil, &Error{Code: InvalidRequest}
+			}
+		case AlternativeTitles:
+			if kind != Movie && kind != Series {
 				return nil, &Error{Code: InvalidRequest}
 			}
 		case Credits:

@@ -70,6 +70,19 @@ func TestTMDBSearchKeepsEntityTypesAndDoesNotChooseMatch(t *testing.T) {
 	}
 }
 
+func TestTMDBAlternativeTitlesPartIsAppended(t *testing.T) {
+	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path != "/3/movie/372058" || request.URL.Query().Get("append_to_response") != "alternative_titles" {
+			t.Fatal(request.URL)
+		}
+		return response(200, `{"id":372058,"title":"你的名字。","alternative_titles":{"id":372058,"titles":[{"iso_3166_1":"JP","title":"Kimi no Na wa","type":"Romaji"}]}}`), nil
+	})
+	document, err := client.Fetch(t.Context(), EntityRef{"tmdb", Movie, 372058}, FetchOptions{Language: "zh-CN", Parts: []Part{AlternativeTitles}})
+	if err != nil || document.Fields["alternative_titles"] == nil {
+		t.Fatal(document, err)
+	}
+}
+
 func TestTMDBDetailsPreserveNullsAndCheckRequestedIdentity(t *testing.T) {
 	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
 		if request.URL.Path != "/3/tv/7" || request.URL.Query().Get("append_to_response") != "aggregate_credits,external_ids" {
