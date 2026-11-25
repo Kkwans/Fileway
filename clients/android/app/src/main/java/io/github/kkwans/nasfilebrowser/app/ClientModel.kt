@@ -150,6 +150,9 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
             if (catalogClosed || !sessionCurrent(bound)) throw CancellationException("影视库会话已切换")
             MediaLibraryRepository(bound, ::sessionCurrent, journal).also { catalogRepository = bound to it }
         }
+    private fun handoffSessionCurrent(bound: SessionContext): Boolean =
+        sessionCurrent(bound) && bound.api.sessionHealth.value?.code == null
+
     internal suspend fun prepareTvHandoff(file:ResourceRef,sourceScope:String):PhoneTvHandoff {
         val bound=context?:error("请先连接服务器")
         check(sourceScope==bound.api.id){"手机服务器已变化，请重新选择文件"}
@@ -160,7 +163,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         val binding=playback?.takeIf{it.context===bound&&it.file.mediaKey==file.mediaKey&&opened}
         val image=mutable.value.image?.mediaKey==file.mediaKey
         val existingQueue=mutable.value.mediaQueue?.takeIf{opened&&it.owner==bound.account.key}
-        fun current()=context===bound&&mediaRequest==request&&(!opened||
+        fun current()=handoffSessionCurrent(bound)&&mediaRequest==request&&(!opened||
             if(image)mutable.value.image?.mediaKey==file.mediaKey&&mutable.value.mediaQueue?.snapshotId==existingQueue?.snapshotId
             else playback===binding&&binding!=null&&player.state.value.mediaGeneration==engineGeneration&&mutable.value.selected?.mediaKey==file.mediaKey)
         check(current()){"当前媒体来源无法确认，请重新打开后接力"}
@@ -219,7 +222,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         val binding = currentBinding
         check(currentRepository.first === bound && selection.repository === currentRepository.second && selection.variant.ref == ref) { "当前影视来源已变化" }
         val generation = player.state.value.mediaGeneration
-        fun current() = context === bound && catalogSelection === selection && catalogPlayback === binding &&
+        fun current() = handoffSessionCurrent(bound) && catalogSelection === selection && catalogPlayback === binding &&
             player.state.value.mediaGeneration == generation
         check(current() && player.state.value.canSavePosition && !mutable.value.busy) { "请等待视频就绪或跳转完成后再接力" }
         val detail = selection.repository.catalogDetail(ref)
@@ -275,7 +278,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     private suspend fun prepareCatalogOpenTvHandoff(ref: MediaCatalogRef): PhoneTvHandoff {
         val bound = context ?: error("请先连接服务器")
         val repository = mediaLibraryRepository(bound)
-        fun current() = context === bound && sessionCurrent(bound) && !catalogClosed
+        fun current() = handoffSessionCurrent(bound) && !catalogClosed
         val detail = repository.catalogDetail(ref)
         check(current())
         val itemRevision = when (detail) {

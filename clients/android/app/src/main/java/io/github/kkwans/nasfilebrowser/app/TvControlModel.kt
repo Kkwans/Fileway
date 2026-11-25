@@ -274,7 +274,8 @@ class TvControlModel(application:Application):AndroidViewModel(application){
     }
     internal suspend fun sendBound(operation:String,payload:JSONObject,deviceId:String,version:Long):RemoteResult {
         check(version==revision){"控制设备已切换"}
-        return send(operation,payload,deviceId).also{check(version==revision&&connection.value.device?.id==deviceId){"控制设备已切换"}}
+        val expected=connection.value.snapshot
+        return send(operation,payload,deviceId,expected).also{check(version==revision&&connection.value.device?.id==deviceId){"控制设备已切换"}}
     }
     fun authorize(phone:ClientModel,expected:SessionContext?){
         if(busyMutable.value)return

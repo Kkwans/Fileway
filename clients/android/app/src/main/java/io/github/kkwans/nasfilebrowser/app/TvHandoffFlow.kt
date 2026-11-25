@@ -18,7 +18,7 @@ internal data class TvHandoffUi(
 /** One explicit transfer. Reconnection reconciles state; it never replays open. */
 internal class TvHandoffFlow(private val scope:CoroutineScope,private val control:TvControlModel) {
     private data class Source(val phone:ClientModel,val file:ResourceRef,val scope:String,val catalogRef:MediaCatalogRef?=null)
-    private data class Attempt(val device:String,val request:PhoneTvHandoff,var mediaEpoch:Long?=null,var sessionEpoch:Long?=null)
+    private data class Attempt(val device:String,val request:PhoneTvHandoff,var mediaEpoch:Long?=null,var sessionEpoch:Long?=null,var connectionId:String?=null)
     private val mutable=MutableStateFlow<TvHandoffUi?>(null)
     val state=mutable.asStateFlow()
     private var source:Source?=null
@@ -91,7 +91,7 @@ internal class TvHandoffFlow(private val scope:CoroutineScope,private val contro
                 }
                 val instance=request.source.api.request("GET","/api/instance")
                 guard(expected,selection,device.id,request)
-                val opening=Attempt(device.id,request,sessionEpoch=control.connection.value.snapshot?.sessionEpoch);attempt=opening
+                val opening=Attempt(device.id,request,sessionEpoch=target.snapshot?.sessionEpoch,connectionId=target.snapshot?.connectionId);attempt=opening
                 val response=control.sendBound("media.open",request.payload(instance),device.id,selection).payload?:error("TV 未返回接力状态")
                 guard(expected,selection,device.id,request)
                 check(response.getString("handoffId")==request.id){"TV 返回了不同的接力请求"}
@@ -104,7 +104,9 @@ internal class TvHandoffFlow(private val scope:CoroutineScope,private val contro
                 check(response.getString("status")=="PREPARING"){"TV 尚未接受接力"}
                 opening.mediaEpoch=response.getLong("mediaEpoch")
                 val initial=withTimeout(8000) { control.connection.first { value ->
-                    value.phase!=RemotePhase.CONNECTED||value.device?.id!=device.id||value.snapshot?.mediaEpoch==opening.mediaEpoch
+                    value.phase!=RemotePhase.CONNECTED||value.device?.id!=device.id||value.snapshot?.let {
+                        it.connectionId==opening.connectionId&&it.sessionEpoch==opening.sessionEpoch&&it.mediaEpoch==opening.mediaEpoch
+                    }==true
                 } }
                 guard(expected,selection,device.id,request)
                 check(initial.phase==RemotePhase.CONNECTED){"TV 连接中断，接力结果尚未确认"}
@@ -120,7 +122,7 @@ internal class TvHandoffFlow(private val scope:CoroutineScope,private val contro
                 mutable.value=TvHandoffUi(input.file.name,TvHandoffStage.WAITING,transferred=request.queue.manifest.count,total=request.queue.manifest.count)
                 val final=withTimeout(125_000) { control.connection.first { value ->
                     value.phase!=RemotePhase.CONNECTED||value.device?.id!=device.id||value.snapshot?.let { snapshot ->
-                        snapshot.mediaEpoch!=opening.mediaEpoch||snapshot.sessionEpoch!=opening.sessionEpoch||
+                        snapshot.mediaEpoch!=opening.mediaEpoch||snapshot.sessionEpoch!=opening.sessionEpoch||snapshot.connectionId!=opening.connectionId||
                             snapshot.content.optJSONObject("handoff")?.let{it.optString("id")==request.id&&it.optString("status") in setOf("READY","FAILED","CANCELLED")}==true
                     }==true
                 } }
@@ -139,7 +141,7 @@ internal class TvHandoffFlow(private val scope:CoroutineScope,private val contro
         val result=snapshot.content.optJSONObject("handoff")?:error("TV 没有确认接力状态")
         check(result.optString("id")==opening.request.id){"TV 接力请求已变化"}
         val expectedMedia=opening.mediaEpoch?:result.optLong("mediaEpoch",-1).takeIf{it>=0}
-        check(snapshot.mediaEpoch==expectedMedia&&snapshot.sessionEpoch==opening.sessionEpoch){"TV 播放或登录来源已变化；手机继续播放"}
+        check(snapshot.mediaEpoch==expectedMedia&&snapshot.sessionEpoch==opening.sessionEpoch&&snapshot.connectionId==opening.connectionId){"TV 播放或登录来源已变化；手机继续播放"}
         check(result.optString("status")=="READY"){result.optString("message").takeIf{it.isNotBlank()&&it!="null"}?:"TV 尚未完成接管，手机继续播放"}
         opening.request.confirmReady()
         completedRequest=opening.request
@@ -167,7 +169,7 @@ internal class TvHandoffFlow(private val scope:CoroutineScope,private val contro
                 }}?:return@runCatching
                 val snapshot=state.snapshot?:return@runCatching
                 val receipt=snapshot.content.optJSONObject("handoff")?:return@runCatching
-                if(state.phase==RemotePhase.CONNECTED&&state.device?.id==opening.device&&snapshot.sessionEpoch==opening.sessionEpoch&&
+                if(state.phase==RemotePhase.CONNECTED&&state.device?.id==opening.device&&
                     receipt.optString("id")==opening.request.id&&receipt.optLong("mediaEpoch",-1)==snapshot.mediaEpoch)
                     control.client.execute("media.open",JSONObject().put("cancelHandoff",opening.request.id))
             }
