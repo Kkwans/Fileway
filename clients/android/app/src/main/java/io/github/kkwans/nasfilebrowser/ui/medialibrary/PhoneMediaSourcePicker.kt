@@ -69,8 +69,9 @@ internal data class PhoneMediaSourceSelection(val itemId: String, val selectedId
                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("加载更多", style = PhoneMediaType.action) }
             }
         }
+        val selectedAvailable = state.entries.any { it.id == state.selectedId && it.available }
         Button(onClick = { state.selectedId?.let { onAction(PhoneMediaAction.ConfirmSource(it, state.revision)) } },
-            enabled = state.selectedId != null && !state.busy && !state.loading,
+            enabled = selectedAvailable && !state.busy && !state.loading,
             modifier = Modifier.fillMaxWidth().padding(horizontal = FilewaySpace.page, vertical = FilewaySpace.small)
                 .heightIn(min = 56.dp), shape = MaterialTheme.shapes.medium) {
             Text("使用所选片源", style = PhoneMediaType.action)
