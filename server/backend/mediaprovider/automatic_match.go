@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+const maxAutomaticTitleQueries = 6
+
 // WorkIdentifier is a declaration from an authorized input. An empty Kind
 // can contradict a typed declaration but cannot establish a work identity.
 type WorkIdentifier struct {
@@ -176,7 +178,7 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 	queries := []string{title}
 	for _, alias := range input.Aliases {
 		alias = strings.TrimSpace(alias)
-		if alias != "" && !slices.Contains(queries, alias) && len(queries) < 4 {
+		if alias != "" && !slices.Contains(queries, alias) && len(queries) < maxAutomaticTitleQueries {
 			queries = append(queries, alias)
 		}
 	}

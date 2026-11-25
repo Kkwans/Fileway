@@ -165,6 +165,34 @@ func TestResolveAutomaticMatchUsesAliasAfterUnqualifiedPrimaryResults(t *testing
 	}
 }
 
+func TestResolveAutomaticMatchUsesFourthAliasWithinBoundedQueries(t *testing.T) {
+	calls := 0
+	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+		calls++
+		switch request.URL.Path {
+		case "/3/search/movie":
+			if request.URL.Query().Get("query") == "Thor" {
+				return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":42,"title":"Thor","original_title":"Thor","release_date":"2011-01-01"}]}`), nil
+			}
+			return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":99,"title":"Unrelated","release_date":"2011-01-01"}]}`), nil
+		case "/3/movie/42":
+			return response(200, `{"id":42,"title":"Thor","original_title":"Thor","release_date":"2011-01-01"}`), nil
+		default:
+			t.Fatalf("unexpected request: %s", request.URL.Path)
+			return nil, nil
+		}
+	})
+	result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie,
+		Title: "Noise 123 Movie Thor", Aliases: []string{"Noise", "123", "Movie", "Thor"}, Year: 2011, AllowTitleMatch: true},
+		"zh-CN", func(context.Context) error { return nil })
+	if err != nil || result.State != AutoMatched || result.Document.Entity.ID != 42 || calls != 6 {
+		t.Fatalf("fourth alias fallback failed: state=%s calls=%d err=%v", result.State, calls, err)
+	}
+	if !slices.Contains(result.Evidence, "alias_title_match") {
+		t.Fatalf("alias evidence missing: %v", result.Evidence)
+	}
+}
+
 func TestResolveAutomaticMatchPreservesRetryAndStopsAfterRevocation(t *testing.T) {
 	input := AutomaticMatchInput{Kind: Movie, Identifiers: []WorkIdentifier{{Movie, ExternalRef{"imdb", "tt1234567"}}}}
 	client := fixtureClient(func(*http.Request) (*http.Response, error) {
