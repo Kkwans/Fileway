@@ -214,6 +214,44 @@ func TestResolveAutomaticMatchDoesNotLeakFallbackEvidenceAcrossAliases(t *testin
 	}
 }
 
+func TestResolveAutomaticMatchUsesEmbeddedTitleOnlyAfterPrimaryFailure(t *testing.T) {
+	for _, tc := range []struct {
+		name, details string
+		want          AutomaticMatchState
+		reason        string
+	}{
+		{"detail year verifies", `{"id":42,"title":"本杰明·巴顿奇事","release_date":"2008-12-25"}`, AutoMatched, ""},
+		{"detail year rejects", `{"id":42,"title":"本杰明·巴顿奇事","release_date":"2009-12-25"}`, AutoNeedsReview, "title_year_conflict"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+				switch request.URL.Path {
+				case "/3/search/movie":
+					if request.URL.Query().Get("query") == "损坏文件名" {
+						return response(200, `{"page":1,"total_pages":0,"total_results":0,"results":[]}`), nil
+					}
+					if request.URL.Query().Get("query") != "本杰明·巴顿奇事" {
+						t.Fatalf("unexpected embedded title query %s", request.URL)
+					}
+					return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":42,"title":"本杰明·巴顿奇事","release_date":"2008-12-25"}]}`), nil
+				case "/3/movie/42":
+					return response(200, tc.details), nil
+				default:
+					t.Fatalf("unexpected request %s", request.URL.Path)
+					return nil, nil
+				}
+			})
+			result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: "损坏文件名", FallbackTitle: "本杰明·巴顿奇事", Year: 2008, FallbackYear: 2008, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+			if err != nil || result.State != tc.want || result.Reason != tc.reason {
+				t.Fatalf("state=%s reason=%s err=%v", result.State, result.Reason, err)
+			}
+			if tc.want == AutoMatched && (result.Document.Entity.ID != 42 || !slices.Contains(result.Evidence, "embedded_title_match")) {
+				t.Fatalf("embedded title evidence missing: %+v", result)
+			}
+		})
+	}
+}
+
 func TestResolveAutomaticMatchUsesAliasAfterUnqualifiedPrimaryResults(t *testing.T) {
 	calls := 0
 	client := fixtureClient(func(request *http.Request) (*http.Response, error) {

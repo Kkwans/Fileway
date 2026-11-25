@@ -11,6 +11,7 @@ import (
 
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/mediaprovider"
+	"github.com/Kkwans/nas-file-browser/backend/mediatools"
 )
 
 func TestAutomaticMatchInputCarriesTitleWithoutEnablingUnbenchmarkedMatches(t *testing.T) {
@@ -19,6 +20,23 @@ func TestAutomaticMatchInputCarriesTitleWithoutEnablingUnbenchmarkedMatches(t *t
 	input := automaticMatchInput(item, false)
 	if input.Title != "Echo 2020 CC" || input.Year != 2020 || input.AllowTitleMatch || len(input.Aliases) != 1 || input.Aliases[0] != "Echo" {
 		t.Fatalf("unexpected automatic input: %+v", input)
+	}
+}
+
+func TestAutomaticMatchInputUsesEmbeddedTitleAsFallback(t *testing.T) {
+	year := 2008
+	item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{
+		ParsedTitle: "b杰m·b顿q事", Year: &year,
+		Technical: &mediatools.MediaObservation{FormatTitle: "本杰明·巴顿奇事.2008.BD1080p"},
+	}}
+	input := automaticMatchInput(item, true)
+	if input.FallbackTitle != "本杰明·巴顿奇事" || input.FallbackYear != 2008 || input.Title != "b杰m·b顿q事" {
+		t.Fatalf("embedded title fallback missing: %+v", input)
+	}
+	item.File.Technical.FormatTitle = "本杰明·巴顿奇事.2009.BD1080p"
+	input = automaticMatchInput(item, true)
+	if input.FallbackTitle != "" || input.FallbackYear != 0 {
+		t.Fatalf("conflicting embedded year was accepted: %+v", input)
 	}
 }
 

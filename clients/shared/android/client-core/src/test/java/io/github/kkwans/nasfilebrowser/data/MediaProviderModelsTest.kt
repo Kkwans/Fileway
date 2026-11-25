@@ -11,10 +11,11 @@ class MediaProviderModelsTest {
     fun technicalObservationRetainsCodecHdrAndTracks() {
         val observation = parseMediaTechnicalObservation(JSONObject()
             .put("durationMs", 5_400_000).put("videoCodec", "hevc").put("videoBitDepth", 10)
-            .put("width", 3840).put("height", 2160).put("dynamicRange", "dolby-vision")
+            .put("width", 3840).put("height", 2160).put("dynamicRange", "dolby-vision").put("formatTitle", "本杰明·巴顿奇事.2008.BD1080p")
             .put("audioTracks", JSONArray(listOf(JSONObject().put("index", 1).put("codec", "eac3").put("language", "eng")))))
         assertEquals(5_400_000L, observation.durationMs)
         assertEquals("dolby-vision", observation.dynamicRange)
+        assertEquals("本杰明·巴顿奇事.2008.BD1080p", observation.formatTitle)
         assertEquals("eng", observation.audioTracks.single().language)
         assertTrue(observation.subtitleTracks.isEmpty())
     }

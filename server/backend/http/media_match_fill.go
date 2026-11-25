@@ -249,6 +249,12 @@ func automaticMatchInput(item mediaIdentificationResponse, allowTitleMatch bool)
 		} else if directoryTitle != "" && directoryTitle != input.Title {
 			input.Aliases = append(input.Aliases, directoryTitle)
 		}
+		if technical := file.Technical; technical != nil && strings.TrimSpace(technical.FormatTitle) != "" {
+			embedded := mediametadata.ParseName(technical.FormatTitle)
+			if embedded.Title != "" && embedded.Year != nil && (input.Year == 0 || *embedded.Year == input.Year) {
+				input.FallbackTitle, input.FallbackYear = embedded.Title, *embedded.Year
+			}
+		}
 		for _, id := range file.ProviderIDs {
 			kind := mediaprovider.Kind(id.MediaType)
 			if id.MediaType == "tv" {

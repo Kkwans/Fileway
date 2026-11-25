@@ -223,14 +223,14 @@ func TestScanObservationPersistsProbedDurationEvidence(t *testing.T) {
 	parsed := mediametadata.ParseName("duration.mkv")
 	input.ParsedName = &parsed
 	input.DurationMs = 89*60_000 + 59_999
-	input.Technical = &mediatools.MediaObservation{DurationMs: input.DurationMs, VideoCodec: "hevc", VideoBitDepth: 10,
+	input.Technical = &mediatools.MediaObservation{DurationMs: input.DurationMs, FormatTitle: "本杰明·巴顿奇事.2008.BD1080p", VideoCodec: "hevc", VideoBitDepth: 10,
 		Width: 3840, Height: 2160, DynamicRange: "dolby-vision", AudioTracks: []mediatools.MediaTrack{{Index: 1, Codec: "eac3", Language: "eng"}}}
 	committed, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 1, 1))
 	if err != nil {
 		t.Fatal(err)
 	}
 	evidence, err := store.GetFileIdentification(t.Context(), 7, library.ID, committed.SourceFileID, binding.ID, binding.ProofEpoch)
-	if err != nil || evidence.DurationMs != input.DurationMs || evidence.Technical == nil || evidence.Technical.VideoCodec != "hevc" || len(evidence.Technical.AudioTracks) != 1 {
+	if err != nil || evidence.DurationMs != input.DurationMs || evidence.Technical == nil || evidence.Technical.FormatTitle != "本杰明·巴顿奇事.2008.BD1080p" || evidence.Technical.VideoCodec != "hevc" || len(evidence.Technical.AudioTracks) != 1 {
 		t.Fatalf("technical evidence: %+v %v", evidence, err)
 	}
 	kind, durations, err := store.MetadataDurationsForItem(t.Context(), 7, library.ID, committed.ItemID)

@@ -22,6 +22,8 @@ type AutomaticMatchInput struct {
 	Year            int
 	Title           string
 	Aliases         []string
+	FallbackTitle   string
+	FallbackYear    int
 	Region          string
 	Identifiers     []WorkIdentifier
 	Ambiguities     []string
@@ -109,7 +111,24 @@ func (client *TMDBClient) ResolveAutomaticMatch(ctx context.Context, input Autom
 		if !input.AllowTitleMatch {
 			return review("typed_identifier_required")
 		}
-		return client.resolveTitleMatch(ctx, input, language, authorize)
+		result, err := client.resolveTitleMatch(ctx, input, language, authorize)
+		if err != nil {
+			return AutomaticMatch{}, err
+		}
+		if fallback := strings.TrimSpace(input.FallbackTitle); fallback != "" && (result.State == AutoNoMatch || result.Reason == "title_year_conflict") {
+			fallbackInput := input
+			fallbackInput.Title, fallbackInput.Year = fallback, input.FallbackYear
+			fallbackInput.FallbackTitle, fallbackInput.FallbackYear = "", 0
+			fallbackInput.Aliases = append([]string{input.Title}, input.Aliases...)
+			result, err = client.resolveTitleMatch(ctx, fallbackInput, language, authorize)
+			if err != nil {
+				return AutomaticMatch{}, err
+			}
+			if result.State == AutoMatched {
+				result.Evidence = append(result.Evidence, "embedded_title_match")
+			}
+		}
+		return result, nil
 	}
 	entity := EntityRef{Provider: "tmdb", Kind: input.Kind, ID: tmdbID}
 	for _, ref := range external {

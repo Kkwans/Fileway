@@ -40,6 +40,7 @@ type MediaObservation struct {
 	Height         int          `json:"height,omitempty"`
 	ColorTransfer  string       `json:"colorTransfer,omitempty"`
 	DynamicRange   string       `json:"dynamicRange,omitempty"`
+	FormatTitle    string       `json:"formatTitle,omitempty"`
 	AudioTracks    []MediaTrack `json:"audioTracks,omitempty"`
 	SubtitleTracks []MediaTrack `json:"subtitleTracks,omitempty"`
 }
@@ -94,7 +95,7 @@ func ProbeMedia(ctx context.Context, file *os.File) (MediaObservation, error) {
 	defer cancel()
 	command := exec.CommandContext(probeCtx, ffprobePath,
 		"-v", "error", "-probesize", "1M", "-analyzeduration", "1M",
-		"-show_entries", "format=duration:stream=index,codec_type,codec_name,pix_fmt,color_transfer,profile,bits_per_raw_sample,width,height,channels,sample_rate:stream_tags=language,title:stream_disposition=default,forced:stream_side_data=side_data_type,dv_profile",
+		"-show_entries", "format=duration:format_tags=title:stream=index,codec_type,codec_name,pix_fmt,color_transfer,profile,bits_per_raw_sample,width,height,channels,sample_rate:stream_tags=language,title:stream_disposition=default,forced:stream_side_data=side_data_type,dv_profile",
 		"-of", "json", input)
 	command.ExtraFiles = extraFiles
 	command.Stderr = io.Discard
@@ -114,7 +115,8 @@ func ParseProbeMedia(output []byte) (MediaObservation, error) {
 	}
 	var document struct {
 		Format struct {
-			Duration string `json:"duration"`
+			Duration string            `json:"duration"`
+			Tags     map[string]string `json:"tags"`
 		} `json:"format"`
 		Streams []struct {
 			Index            int               `json:"index"`
@@ -144,7 +146,7 @@ func ParseProbeMedia(output []byte) (MediaObservation, error) {
 	if err != nil {
 		return MediaObservation{}, err
 	}
-	observation := MediaObservation{DurationMs: duration}
+	observation := MediaObservation{DurationMs: duration, FormatTitle: document.Format.Tags["title"]}
 	for _, stream := range document.Streams {
 		track := MediaTrack{Index: stream.Index, Codec: stream.CodecName,
 			Language: stream.Tags["language"], Title: stream.Tags["title"],
@@ -204,6 +206,7 @@ func (observation MediaObservation) Valid() error {
 	if observation.DurationMs <= 0 || observation.DurationMs > maxProbeDurationMS ||
 		observation.VideoBitDepth < 0 || observation.VideoBitDepth > 16 ||
 		observation.Width < 0 || observation.Width > 16384 || observation.Height < 0 || observation.Height > 16384 ||
+		len(observation.FormatTitle) > 4096 || strings.ContainsRune(observation.FormatTitle, 0) ||
 		len(observation.AudioTracks) > maxProbeTracks || len(observation.SubtitleTracks) > maxProbeTracks {
 		return errors.New("媒体技术证据超出有效范围")
 	}

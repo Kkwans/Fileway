@@ -59,7 +59,7 @@ data class MediaTechnicalTrack(val index: Int, val codec: String, val language: 
 data class MediaTechnicalObservation(
     val durationMs: Long, val videoCodec: String?, val videoProfile: String?, val pixelFormat: String?,
     val videoBitDepth: Int?, val width: Int?, val height: Int?, val colorTransfer: String?, val dynamicRange: String?,
-    val audioTracks: List<MediaTechnicalTrack>, val subtitleTracks: List<MediaTechnicalTrack>,
+    val audioTracks: List<MediaTechnicalTrack>, val subtitleTracks: List<MediaTechnicalTrack>, val formatTitle: String? = null,
 )
 data class MediaProviderIdentificationFile(
     val filename: String, val parsedTitle: String, val year: Int?, val typeHint: String,
@@ -261,7 +261,7 @@ internal fun parseMediaTechnicalObservation(row: JSONObject): MediaTechnicalObse
     require(range == null || range in setOf("unknown", "sdr", "pq", "hlg", "dolby-vision"))
     return MediaTechnicalObservation(duration, row.providerOptionalText("videoCodec", 128), row.providerOptionalText("videoProfile", 128),
         row.providerOptionalText("pixelFormat", 128), optionalInt("videoBitDepth", 16), optionalInt("width", 16384), optionalInt("height", 16384),
-        row.providerOptionalText("colorTransfer", 128), range, tracks("audioTracks"), tracks("subtitleTracks"))
+        row.providerOptionalText("colorTransfer", 128), range, tracks("audioTracks"), tracks("subtitleTracks"), row.providerOptionalText("formatTitle", 4096))
 }
 
 internal fun parseProviderUndoReceipt(row: JSONObject) = MediaProviderUndoReceipt(
