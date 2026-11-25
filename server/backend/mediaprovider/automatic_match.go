@@ -185,6 +185,7 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 	var documents []Document
 	var ranked []MatchCandidate
 	eligible := make([]MatchCandidate, 0)
+	unfilteredSearch := false
 	for _, query := range queries {
 		if err := authorize(ctx); err != nil {
 			return AutomaticMatch{}, err
@@ -193,6 +194,17 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 			Language: language, Region: input.Region, Page: 1})
 		if err != nil {
 			return AutomaticMatch{}, err
+		}
+		if len(page.Items) == 0 && input.Year > 0 {
+			if err := authorize(ctx); err != nil {
+				return AutomaticMatch{}, err
+			}
+			page, err = client.Search(ctx, SearchQuery{Kind: input.Kind, Title: query,
+				Language: language, Region: input.Region, Page: 1})
+			if err != nil {
+				return AutomaticMatch{}, err
+			}
+			unfilteredSearch = len(page.Items) != 0
 		}
 		documents = append(documents, page.Items...)
 		ranked = RankCandidates(MatchHint{Kind: input.Kind, Title: title, Year: input.Year}, documents)
@@ -257,6 +269,9 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 		return review("title_year_conflict")
 	}
 	evidence := append([]string(nil), candidate.Evidence...)
+	if unfilteredSearch {
+		evidence = append(evidence, "unfiltered_title_search")
+	}
 	if !slices.Contains(evidence, "title_match") {
 		if matchedQuery == title {
 			evidence = append(evidence, "title_match")

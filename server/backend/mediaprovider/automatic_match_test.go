@@ -92,7 +92,7 @@ func TestResolveAutomaticMatchTitleEvidenceIsConservative(t *testing.T) {
 			name:   "no candidate",
 			search: `{"page":1,"total_pages":0,"total_results":0,"results":[]}`,
 			input:  AutomaticMatchInput{Kind: Movie, Title: "回声", Year: 2020, AllowTitleMatch: true},
-			want:   AutoNoMatch, reason: "title_not_found", calls: 1,
+			want:   AutoNoMatch, reason: "title_not_found", calls: 2,
 		},
 		{
 			name:    "unique exact candidate verifies detail year after search mismatch",
@@ -124,7 +124,7 @@ func TestResolveAutomaticMatchTitleEvidenceIsConservative(t *testing.T) {
 				switch request.URL.Path {
 				case "/3/search/movie":
 					wantYear := "2020"
-					if tc.input.Year == 0 {
+					if tc.input.Year == 0 || tc.name == "no candidate" && calls > 1 {
 						wantYear = ""
 					}
 					if request.URL.Query().Get("query") != "回声" || request.URL.Query().Get("primary_release_year") != wantYear {
@@ -144,6 +144,43 @@ func TestResolveAutomaticMatchTitleEvidenceIsConservative(t *testing.T) {
 			}
 			if tc.want == AutoMatched && (result.Document.Entity.ID != 42 || len(result.Evidence) == 0) {
 				t.Fatalf("title match lacks typed evidence: %+v", result)
+			}
+		})
+	}
+}
+
+func TestResolveAutomaticMatchRetriesWithoutYearOnlyAfterEmptySearch(t *testing.T) {
+	for _, tc := range []struct {
+		name, details string
+		want          AutomaticMatchState
+		reason        string
+	}{
+		{"detail year verifies", `{"id":42,"title":"Echo","release_date":"2020-09-01"}`, AutoMatched, ""},
+		{"detail year rejects", `{"id":42,"title":"Echo","release_date":"2021-09-01"}`, AutoNeedsReview, "title_year_conflict"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+				calls++
+				switch request.URL.Path {
+				case "/3/search/movie":
+					if request.URL.Query().Get("primary_release_year") != "" {
+						return response(200, `{"page":1,"total_pages":0,"total_results":0,"results":[]}`), nil
+					}
+					return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":42,"title":"Echo","release_date":"2020-09-01"}]}`), nil
+				case "/3/movie/42":
+					return response(200, tc.details), nil
+				default:
+					t.Fatalf("unexpected request %s", request.URL.Path)
+					return nil, nil
+				}
+			})
+			result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: "Echo", Year: 2020, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+			if err != nil || result.State != tc.want || result.Reason != tc.reason || calls != 3 {
+				t.Fatalf("state=%s reason=%s calls=%d err=%v", result.State, result.Reason, calls, err)
+			}
+			if tc.want == AutoMatched && (result.Document.Entity.ID != 42 || !slices.Contains(result.Evidence, "unfiltered_title_search")) {
+				t.Fatalf("fallback evidence missing: %+v", result)
 			}
 		})
 	}
