@@ -4,11 +4,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -71,82 +71,92 @@ internal fun PhoneMediaSearch(query: String, searched: Boolean, mode: MediaSearc
             focus.clearFocus(); onAction(PhoneMediaAction.SubmitSearch(query))
         }
     }
-    Column(Modifier.fillMaxSize()) {
-        FilewayTopAppBar("搜索影视", leadingIcon = Art.drawable.fileway_ic_arrow_back,
-            leadingDescription = "返回", onLeadingClick = { onAction(PhoneMediaAction.CloseSearch) })
-        OutlinedTextField(query, { onAction(PhoneMediaAction.UpdateSearchQuery(it)) }, modifier = Modifier.fillMaxWidth().padding(horizontal = FilewaySpace.page),
-            label = { Text(when (mode) {
-                MediaSearchMode.WORKS -> "作品标题或原名"
-                MediaSearchMode.PEOPLE -> "演员、导演或编剧姓名"
-                MediaSearchMode.FILES -> "媒体文件名"
-                MediaSearchMode.COLLECTIONS -> "合集名称"
-            }) }, singleLine = true, shape = MaterialTheme.shapes.medium,
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { submit() }))
-        Row(Modifier.fillMaxWidth().padding(horizontal = FilewaySpace.page), horizontalArrangement = Arrangement.spacedBy(FilewaySpace.content)) {
-            FilterChip(mode == MediaSearchMode.WORKS, { onAction(PhoneMediaAction.SearchMode(MediaSearchMode.WORKS)) },
-                modifier = Modifier.heightIn(min = 48.dp), label = { Text("作品") })
-            FilterChip(mode == MediaSearchMode.PEOPLE, { onAction(PhoneMediaAction.SearchMode(MediaSearchMode.PEOPLE)) },
-                modifier = Modifier.heightIn(min = 48.dp), label = { Text("人物") })
-            if (canSearchFiles) FilterChip(mode == MediaSearchMode.FILES, { onAction(PhoneMediaAction.SearchMode(MediaSearchMode.FILES)) },
-                modifier = Modifier.heightIn(min = 48.dp), label = { Text("文件") })
-        }
-        Button(onClick = ::submit, enabled = query.isNotBlank() && !busy,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = FilewaySpace.page).heightIn(min = 48.dp),
-            shape = MaterialTheme.shapes.medium) { Text("搜索") }
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val columns = when { maxWidth >= 840.dp -> 4; maxWidth >= 600.dp -> 3; else -> 2 }
-            LazyVerticalGrid(columns = GridCells.Fixed(columns), modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = FilewaySpace.page, end = FilewaySpace.page, top = FilewaySpace.small, bottom = FilewaySpace.section),
-                horizontalArrangement = Arrangement.spacedBy(FilewaySpace.content), verticalArrangement = Arrangement.spacedBy(FilewaySpace.page)) {
-                if (busy) item(key = "loading", span = { GridItemSpan(maxLineSpan) }) {
-                    MediaLoading(when (mode) {
-                        MediaSearchMode.WORKS -> "正在搜索影视"
-                        MediaSearchMode.PEOPLE -> "正在搜索人物"
-                        MediaSearchMode.FILES -> "正在搜索文件"
-                        MediaSearchMode.COLLECTIONS -> "正在搜索合集"
-                    })
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val pageInset = phoneMediaGridSpec(maxWidth).pageInset
+        Column(Modifier.fillMaxSize()) {
+            FilewayTopAppBar("搜索影视", leadingIcon = Art.drawable.fileway_ic_arrow_back,
+                leadingDescription = "返回", onLeadingClick = { onAction(PhoneMediaAction.CloseSearch) })
+            OutlinedTextField(query, { onAction(PhoneMediaAction.UpdateSearchQuery(it)) }, modifier = Modifier.fillMaxWidth().padding(horizontal = pageInset),
+                label = { Text(when (mode) {
+                    MediaSearchMode.WORKS -> "作品标题或原名"
+                    MediaSearchMode.PEOPLE -> "演员、导演或编剧姓名"
+                    MediaSearchMode.FILES -> "媒体文件名"
+                    MediaSearchMode.COLLECTIONS -> "合集名称"
+                }) }, singleLine = true, shape = MaterialTheme.shapes.medium,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { submit() }))
+            LazyRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = pageInset),
+                horizontalArrangement = Arrangement.spacedBy(FilewaySpace.small)) {
+                item {
+                    FilterChip(mode == MediaSearchMode.WORKS, { onAction(PhoneMediaAction.SearchMode(MediaSearchMode.WORKS)) },
+                        modifier = Modifier.heightIn(min = 48.dp), label = { Text("作品", style = PhoneMediaType.action) })
                 }
-                issue?.let { item(key = "problem", span = { GridItemSpan(maxLineSpan) }) {
-                    MediaProblemCard(it, { onAction(PhoneMediaAction.Retry("search")) })
-                } }
-                if (searched && empty && !busy && issue == null) item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
-                    FilewayEmptyState(Art.drawable.fileway_ic_search, when (mode) {
-                        MediaSearchMode.WORKS -> "没有找到相关影视"
-                        MediaSearchMode.PEOPLE -> "没有找到相关人物"
-                        MediaSearchMode.FILES -> "没有找到相关文件"
-                        MediaSearchMode.COLLECTIONS -> "没有找到相关合集"
-                    }, when (mode) {
-                        MediaSearchMode.WORKS -> "试试缩短片名或使用原名。"
-                        MediaSearchMode.PEOPLE -> "试试使用姓名中的一部分。"
-                        MediaSearchMode.FILES -> "试试使用文件名中的一部分。"
-                        MediaSearchMode.COLLECTIONS -> "试试使用合集名称中的一部分。"
-                    })
+                item {
+                    FilterChip(mode == MediaSearchMode.PEOPLE, { onAction(PhoneMediaAction.SearchMode(MediaSearchMode.PEOPLE)) },
+                        modifier = Modifier.heightIn(min = 48.dp), label = { Text("人物", style = PhoneMediaType.action) })
                 }
-                when (mode) {
-                    MediaSearchMode.WORKS -> items(entries, key = { "search/${it.id}" }) { entry ->
-                        MediaPosterCard(entry, imageLoader) { onAction(PhoneMediaAction.OpenItem(entry.id)) }
+                if (canSearchFiles) item {
+                    FilterChip(mode == MediaSearchMode.FILES, { onAction(PhoneMediaAction.SearchMode(MediaSearchMode.FILES)) },
+                        modifier = Modifier.heightIn(min = 48.dp), label = { Text("文件", style = PhoneMediaType.action) })
+                }
+            }
+            Button(onClick = ::submit, enabled = query.isNotBlank() && !busy,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = pageInset).heightIn(min = 48.dp),
+                shape = MaterialTheme.shapes.medium) { Text("搜索", style = PhoneMediaType.action) }
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                val columns = phoneMediaGridSpec(maxWidth).columns
+                LazyVerticalGrid(columns = GridCells.Fixed(columns), modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(start = pageInset, end = pageInset, top = FilewaySpace.small, bottom = FilewaySpace.section),
+                    horizontalArrangement = Arrangement.spacedBy(FilewaySpace.content), verticalArrangement = Arrangement.spacedBy(FilewaySpace.page)) {
+                    if (busy) item(key = "loading", span = { GridItemSpan(maxLineSpan) }) {
+                        MediaLoading(when (mode) {
+                            MediaSearchMode.WORKS -> "正在搜索影视"
+                            MediaSearchMode.PEOPLE -> "正在搜索人物"
+                            MediaSearchMode.FILES -> "正在搜索文件"
+                            MediaSearchMode.COLLECTIONS -> "正在搜索合集"
+                        })
                     }
-                    MediaSearchMode.PEOPLE -> items(people, key = { "people/${it.ref.libraryId}/${it.ref.personId}" },
-                        span = { GridItemSpan(maxLineSpan) }) { person ->
-                        PhoneMediaPersonResult(person) {
-                            onAction(PhoneMediaAction.OpenCatalogPerson(person.ref.libraryId, person.ref.personId))
+                    issue?.let { item(key = "problem", span = { GridItemSpan(maxLineSpan) }) {
+                        MediaProblemCard(it, { onAction(PhoneMediaAction.Retry("search")) })
+                    } }
+                    if (searched && empty && !busy && issue == null) item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
+                        FilewayEmptyState(Art.drawable.fileway_ic_search, when (mode) {
+                            MediaSearchMode.WORKS -> "没有找到相关影视"
+                            MediaSearchMode.PEOPLE -> "没有找到相关人物"
+                            MediaSearchMode.FILES -> "没有找到相关文件"
+                            MediaSearchMode.COLLECTIONS -> "没有找到相关合集"
+                        }, when (mode) {
+                            MediaSearchMode.WORKS -> "试试缩短片名或使用原名。"
+                            MediaSearchMode.PEOPLE -> "试试使用姓名中的一部分。"
+                            MediaSearchMode.FILES -> "试试使用文件名中的一部分。"
+                            MediaSearchMode.COLLECTIONS -> "试试使用合集名称中的一部分。"
+                        })
+                    }
+                    when (mode) {
+                        MediaSearchMode.WORKS -> items(entries, key = { "search/${it.id}" }) { entry ->
+                            MediaPosterCard(entry, imageLoader) { onAction(PhoneMediaAction.OpenItem(entry.id)) }
+                        }
+                        MediaSearchMode.PEOPLE -> items(people, key = { "people/${it.ref.libraryId}/${it.ref.personId}" },
+                            span = { GridItemSpan(maxLineSpan) }) { person ->
+                            PhoneMediaPersonResult(person) {
+                                onAction(PhoneMediaAction.OpenCatalogPerson(person.ref.libraryId, person.ref.personId))
+                            }
+                        }
+                        MediaSearchMode.FILES -> items(files, key = { "files/${it.fileId}" },
+                            span = { GridItemSpan(maxLineSpan) }) { file ->
+                            PhoneMediaFileResult(file.fileName, poster(file.card), imageLoader) {
+                                onAction(PhoneMediaAction.OpenItem(key(file.card.ref)))
+                            }
+                        }
+                        MediaSearchMode.COLLECTIONS -> items(collections, key = { "collections/${it.ref.libraryId}/${it.ref.collectionId}" },
+                            span = { GridItemSpan(maxLineSpan) }) { collection ->
+                            PhoneMediaCollectionResult(collection, imageLoader) {
+                                onAction(PhoneMediaAction.OpenCollection(collection.ref.libraryId, collection.ref.collectionId))
+                            }
                         }
                     }
-                    MediaSearchMode.FILES -> items(files, key = { "files/${it.fileId}" },
-                        span = { GridItemSpan(maxLineSpan) }) { file ->
-                        PhoneMediaFileResult(file.fileName, poster(file.card), imageLoader) {
-                            onAction(PhoneMediaAction.OpenItem(key(file.card.ref)))
-                        }
+                    if (more && !busy) item(key = "more", span = { GridItemSpan(maxLineSpan) }) {
+                        MediaPaging("search", false, true, onAction)
                     }
-                    MediaSearchMode.COLLECTIONS -> items(collections, key = { "collections/${it.ref.libraryId}/${it.ref.collectionId}" },
-                        span = { GridItemSpan(maxLineSpan) }) { collection ->
-                        PhoneMediaCollectionResult(collection, imageLoader) {
-                            onAction(PhoneMediaAction.OpenCollection(collection.ref.libraryId, collection.ref.collectionId))
-                        }
-                    }
-                }
-                if (more && !busy) item(key = "more", span = { GridItemSpan(maxLineSpan) }) {
-                    MediaPaging("search", false, true, onAction)
                 }
             }
         }
