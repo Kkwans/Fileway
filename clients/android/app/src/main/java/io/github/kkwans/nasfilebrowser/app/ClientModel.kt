@@ -208,9 +208,16 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     }
     internal suspend fun prepareCatalogTvHandoff(ref: MediaCatalogRef): PhoneTvHandoff {
         val bound = context ?: error("请先连接服务器")
-        val selection = catalogSelection ?: error("请先在手机打开影视")
-        val binding = catalogPlayback ?: error("请等待影视播放就绪")
-        check(selection.repository === catalogRepository?.second && catalogRepository?.first === bound && selection.variant.ref == ref) { "当前影视来源已变化" }
+        val currentSelection = catalogSelection
+        val currentBinding = catalogPlayback
+        val currentRepository = catalogRepository
+        val canTransferCurrent = currentSelection != null && currentBinding != null && currentRepository != null &&
+            currentRepository.first === bound && currentRepository.second === currentSelection.repository &&
+            currentSelection.variant.ref == ref && player.state.value.canSavePosition && !mutable.value.busy
+        if (!canTransferCurrent) return prepareCatalogOpenTvHandoff(ref)
+        val selection = currentSelection
+        val binding = currentBinding
+        check(currentRepository.first === bound && selection.repository === currentRepository.second && selection.variant.ref == ref) { "当前影视来源已变化" }
         val generation = player.state.value.mediaGeneration
         fun current() = context === bound && catalogSelection === selection && catalogPlayback === binding &&
             player.state.value.mediaGeneration == generation
@@ -263,6 +270,39 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         }
         check(current())
         return PhoneTvHandoff(bound, item, queue, "", payload, external, mediaRef, ::current) { player.pause() }
+    }
+
+    private suspend fun prepareCatalogOpenTvHandoff(ref: MediaCatalogRef): PhoneTvHandoff {
+        val bound = context ?: error("请先连接服务器")
+        val repository = mediaLibraryRepository(bound)
+        fun current() = context === bound && sessionCurrent(bound) && !catalogClosed
+        val detail = repository.catalogDetail(ref)
+        check(current())
+        val itemRevision = when (detail) {
+            is MediaReadResult.Success -> (detail.value as? MediaCatalogDetail.Complete)?.detail?.item?.revision
+                ?: error("影视详情尚未加载完成，请刷新后重试")
+            is MediaReadResult.Failure -> throw IllegalStateException("无法确认影视详情，请刷新后重试")
+        }
+        val variants = repository.playbackVariants(ref)
+        check(current())
+        val variant = when (variants) {
+            is MediaReadResult.Success -> defaultAvailableCatalogVariant(variants.value.items)
+                ?: error("当前没有可用片源，请刷新后重试")
+            is MediaReadResult.Failure -> throw IllegalStateException("无法确认可用片源，请刷新后重试")
+        }
+        val instance = bound.api.request("GET", "/api/instance")
+        check(current())
+        val mediaRef = HandoffMediaRef(instance.getString("id"), ref.libraryId, ref.itemId, itemRevision,
+            variant.editionId, variant.variantId, variant.bindingId, variant.sourceFileId,
+            variant.fileRevision, variant.identityEpoch, variant.mappingRevision.takeIf { it > 0 })
+        val path = "/@catalog/${ref.libraryId}/${variant.variantId}"
+        val item = HandoffItem(path, path, variant.displayName, variant.contentType, variant.size, "")
+        val queue = HandoffQueue.snapshot(listOf(item), 0)
+        val payload = JSONObject().put("positionMs", 0).put("wantsPlay", true)
+            .put("rate", 1f).put("audioOff", false).put("subtitleMode", DecoderSubtitleMode.AUTO.name)
+            .put("subtitleDelayMs", 0)
+        check(current())
+        return PhoneTvHandoff(bound, item, queue, "", payload, null, mediaRef, ::current) {}
     }
 
     private var sessionSyncJob: Job? = null

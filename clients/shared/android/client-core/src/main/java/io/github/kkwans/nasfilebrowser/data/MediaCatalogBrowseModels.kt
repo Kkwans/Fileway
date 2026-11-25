@@ -207,6 +207,9 @@ class MediaCatalogVariant internal constructor(
 }
 data class MediaCatalogVariantPage(val items: List<MediaCatalogVariant>, val nextCursor: MediaCatalogCursor?)
 
+fun defaultAvailableCatalogVariant(items: List<MediaCatalogVariant>): MediaCatalogVariant? =
+    items.firstOrNull { it.isDefault && it.available } ?: items.firstOrNull { it.available }
+
 /** The legacy `url` is deliberately not retained. A missing endpoint requires a newer server. */
 class MediaCatalogPlaybackResolution internal constructor(
     val ref: MediaCatalogRef, val editionId: String, val variantId: String, val sourceFileId: String,

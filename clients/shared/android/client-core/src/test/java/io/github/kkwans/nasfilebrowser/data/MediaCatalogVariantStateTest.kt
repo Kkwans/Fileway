@@ -38,6 +38,26 @@ class MediaCatalogVariantStateTest {
         assertFalse(variant.available)
     }
 
+    @Test
+    fun availableDefaultWinsOverEarlierAlternate() {
+        val alternate = parseCatalogVariant(variantRow().put("isDefault", false).put("variantId", "variant_2"), ref)
+        val preferred = parseCatalogVariant(variantRow(), ref)
+        assertEquals(preferred, defaultAvailableCatalogVariant(listOf(alternate, preferred)))
+    }
+
+    @Test
+    fun unavailableDefaultFallsBackToAvailableSource() {
+        val unavailable = parseCatalogVariant(variantRow().put("availability", "missing"), ref)
+        val alternate = parseCatalogVariant(variantRow().put("isDefault", false).put("variantId", "variant_2"), ref)
+        assertEquals(alternate, defaultAvailableCatalogVariant(listOf(unavailable, alternate)))
+    }
+
+    @Test
+    fun noAvailableSourceProducesNoHandoff() {
+        val unavailable = parseCatalogVariant(variantRow().put("availability", "offline"), ref)
+        assertNull(defaultAvailableCatalogVariant(listOf(unavailable)))
+    }
+
     private fun variantRow() = JSONObject()
         .put("itemId", "item_1").put("editionId", "edition_1").put("variantId", "variant_1")
         .put("bindingId", "binding_1").put("sourceFileId", "file_1").put("editionName", "原始版本")
