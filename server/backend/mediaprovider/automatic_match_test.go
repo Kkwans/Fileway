@@ -95,6 +95,20 @@ func TestResolveAutomaticMatchTitleEvidenceIsConservative(t *testing.T) {
 			want:   AutoNoMatch, reason: "title_not_found", calls: 1,
 		},
 		{
+			name:    "unique exact candidate verifies detail year after search mismatch",
+			search:  `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":42,"title":"回声","original_title":"Echo","release_date":"2021-09-01"}]}`,
+			details: `{"id":42,"title":"回声","original_title":"Echo","release_date":"2020-09-01"}`,
+			input:   AutomaticMatchInput{Kind: Movie, Title: "回声", Year: 2020, AllowTitleMatch: true},
+			want:    AutoMatched, calls: 2,
+		},
+		{
+			name:    "unique exact candidate still rejects detail year mismatch",
+			search:  `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":42,"title":"回声","original_title":"Echo","release_date":"2021-09-01"}]}`,
+			details: `{"id":42,"title":"回声","original_title":"Echo","release_date":"2021-09-01"}`,
+			input:   AutomaticMatchInput{Kind: Movie, Title: "回声", Year: 2020, AllowTitleMatch: true},
+			want:    AutoNeedsReview, reason: "title_year_conflict", calls: 2,
+		},
+		{
 			name:  "title matching disabled",
 			input: AutomaticMatchInput{Kind: Movie, Title: "回声", Year: 2020},
 			want:  AutoNeedsReview, reason: "typed_identifier_required", calls: 0,

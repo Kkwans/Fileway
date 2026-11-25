@@ -198,11 +198,7 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 		ranked = RankCandidates(MatchHint{Kind: input.Kind, Title: title, Year: input.Year}, documents)
 		eligible = eligible[:0]
 		for _, candidate := range ranked {
-			exact := false
-			for _, candidateQuery := range queries {
-				exact = exact || matchTitle(candidateQuery) == matchTitle(candidate.Title) || matchTitle(candidateQuery) == matchTitle(candidate.OriginalTitle)
-			}
-			if exact && input.Year > 0 && candidate.Year == input.Year {
+			if matchesAnyTitle(candidate, queries) && input.Year > 0 && candidate.Year == input.Year {
 				eligible = append(eligible, candidate)
 			}
 		}
@@ -217,7 +213,16 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 		return review("year_required")
 	}
 	if len(eligible) == 0 {
-		return review("title_year_conflict")
+		exact := exactTitleCandidates(ranked, queries)
+		if len(exact) == 0 {
+			return review("title_year_conflict")
+		}
+		if len(exact) > 1 {
+			return review("ambiguous_candidates")
+		}
+		// Search result dates can be stale. A unique exact title is safe to
+		// fetch, but the detail's own release year remains a hard fence below.
+		eligible = append(eligible, exact[0])
 	}
 	if len(eligible) != 1 {
 		return review("ambiguous_candidates")
@@ -261,6 +266,31 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 	}
 	evidence = append(evidence, "unique_candidate")
 	return AutomaticMatch{State: AutoMatched, Evidence: evidence, Document: document, Projection: projection}, nil
+}
+
+func matchesAnyTitle(candidate MatchCandidate, queries []string) bool {
+	for _, query := range queries {
+		if matchTitle(query) == matchTitle(candidate.Title) || matchTitle(query) == matchTitle(candidate.OriginalTitle) {
+			return true
+		}
+	}
+	return false
+}
+
+func exactTitleCandidates(candidates []MatchCandidate, queries []string) []MatchCandidate {
+	result := make([]MatchCandidate, 0, 1)
+	seen := make(map[EntityRef]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		if !matchesAnyTitle(candidate, queries) {
+			continue
+		}
+		if _, exists := seen[candidate.Entity]; exists {
+			continue
+		}
+		seen[candidate.Entity] = struct{}{}
+		result = append(result, candidate)
+	}
+	return result
 }
 
 func providerErrorIs(err error, code ErrorCode) bool {
