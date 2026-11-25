@@ -2,6 +2,7 @@ package mediaprovider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"slices"
@@ -147,6 +148,115 @@ func TestResolveAutomaticMatchTitleEvidenceIsConservative(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestResolveAutomaticMatchRecoversMissingHanCharactersWithYearAndRuntime(t *testing.T) {
+	for _, tc := range []struct {
+		name, damaged, query, otherQuery, title string
+		id                                      int64
+		runtime, duration                       int
+		want                                    AutomaticMatchState
+		reason                                  string
+	}{
+		{"I Am Sam", "w是s姆", "是", "姆", "我是山姆", 10950, 132, 7938645, AutoMatched, ""},
+		{"The Piano Teacher", "钢q教s", "钢", "教", "钢琴教师", 1791, 131, 7863274, AutoMatched, ""},
+		{"runtime conflict", "w是s姆", "是", "姆", "我是山姆", 10950, 132, 90 * 60_000, AutoNeedsReview, "runtime_conflict"},
+		{"visible character conflict", "w是s姆", "是", "姆", "我是山猫", 10950, 132, 7938645, AutoNoMatch, "title_not_found"},
+		{"sequel suffix is not ignored", "w是s姆", "是", "姆", "我是山姆2", 10950, 132, 7938645, AutoNoMatch, "title_not_found"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+				switch request.URL.Path {
+				case "/3/search/movie":
+					query := request.URL.Query().Get("query")
+					if query == tc.damaged {
+						return response(200, `{"page":1,"total_pages":1,"total_results":0,"results":[]}`), nil
+					}
+					if (query != tc.query && query != tc.otherQuery) || request.URL.Query().Get("primary_release_year") != "2001" {
+						t.Fatalf("unexpected recovery query %s", request.URL)
+					}
+					return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":`+jsonNumber(tc.id)+`,"title":"`+tc.title+`","release_date":"2001-09-01"}]}`), nil
+				case "/3/movie/" + jsonNumber(tc.id):
+					return response(200, `{"id":`+jsonNumber(tc.id)+`,"title":"`+tc.title+`","release_date":"2001-09-01","runtime":`+jsonNumber(int64(tc.runtime))+`}`), nil
+				default:
+					t.Fatalf("unexpected outbound request %s", request.URL)
+					return nil, nil
+				}
+			})
+			result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: tc.damaged, Year: 2001, DurationMs: int64(tc.duration), AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+			if err != nil || result.State != tc.want || result.Reason != tc.reason {
+				t.Fatalf("state=%s reason=%s err=%v", result.State, result.Reason, err)
+			}
+			if tc.want == AutoMatched {
+				if result.Document.Entity.ID != tc.id || !slices.Contains(result.Evidence, "incomplete_title_shape") ||
+					!slices.Contains(result.Evidence, "runtime_match") || !slices.Contains(result.Evidence, "unique_candidate") {
+					t.Fatalf("recovery evidence missing: %+v", result)
+				}
+			}
+		})
+	}
+}
+
+func TestResolveAutomaticMatchRecoveryRequiresUniqueRuntimeCompatibleCandidate(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		runtimes []int
+		want     AutomaticMatchState
+		reason   string
+	}{
+		{"runtime disambiguates", []int{90, 132}, AutoMatched, ""},
+		{"same runtime remains ambiguous", []int{132, 132}, AutoNeedsReview, "ambiguous_candidates"},
+		{"missing runtime remains unknown", []int{0, 132}, AutoMatched, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+				switch request.URL.Path {
+				case "/3/search/movie":
+					if request.URL.Query().Get("query") == "w是s姆" {
+						return response(200, `{"page":1,"total_pages":1,"total_results":0,"results":[]}`), nil
+					}
+					return response(200, `{"page":1,"total_pages":1,"total_results":2,"results":[{"id":42,"title":"我是山姆","release_date":"2001-12-28"},{"id":43,"title":"我是山姆","release_date":"2001-12-28"}]}`), nil
+				case "/3/movie/42", "/3/movie/43":
+					id := int64(42)
+					if request.URL.Path == "/3/movie/43" {
+						id = 43
+					}
+					index := id - 42
+					return response(200, `{"id":`+jsonNumber(id)+`,"title":"我是山姆","release_date":"2001-12-28","runtime":`+jsonNumber(int64(tc.runtimes[index]))+`}`), nil
+				default:
+					t.Fatalf("unexpected outbound request %s", request.URL)
+					return nil, nil
+				}
+			})
+			result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: "w是s姆", Year: 2001, DurationMs: 7_938_645, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+			if err != nil || result.State != tc.want || result.Reason != tc.reason {
+				t.Fatalf("state=%s reason=%s err=%v", result.State, result.Reason, err)
+			}
+			if tc.want == AutoMatched && result.Document.Entity.ID != 43 {
+				t.Fatalf("wrong runtime-compatible candidate: %+v", result.Document.Entity)
+			}
+		})
+	}
+}
+
+func TestResolveAutomaticMatchDoesNotRecoverIncompleteTitleWithoutDuration(t *testing.T) {
+	calls := 0
+	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+		calls++
+		if request.URL.Path != "/3/search/movie" || request.URL.Query().Get("query") != "w是s姆" {
+			t.Fatalf("unexpected recovery request %s", request.URL)
+		}
+		return response(200, `{"page":1,"total_pages":1,"total_results":0,"results":[]}`), nil
+	})
+	result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: "w是s姆", Year: 2001, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+	if err != nil || result.State != AutoNoMatch || result.Reason != "title_not_found" || calls != 2 {
+		t.Fatalf("state=%s reason=%s calls=%d err=%v", result.State, result.Reason, calls, err)
+	}
+}
+
+func jsonNumber(value int64) string {
+	encoded, _ := json.Marshal(value)
+	return string(encoded)
 }
 
 func TestResolveAutomaticMatchRetriesWithoutYearOnlyAfterEmptySearch(t *testing.T) {

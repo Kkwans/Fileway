@@ -23,6 +23,18 @@ func TestAutomaticMatchInputCarriesTitleWithoutEnablingUnbenchmarkedMatches(t *t
 	}
 }
 
+func TestAutomaticMatchInputCarriesProbedDurationForTitleRecovery(t *testing.T) {
+	year := 2001
+	item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{
+		ParsedTitle: "w是s姆", Year: &year,
+		Technical: &mediatools.MediaObservation{DurationMs: 7_938_645, FormatTitle: "domp4电影"},
+	}}
+	input := automaticMatchInput(item, true)
+	if input.DurationMs != 7_938_645 || input.FallbackTitle != "" {
+		t.Fatalf("probed duration or invalid embedded title mishandled: %+v", input)
+	}
+}
+
 func TestAutomaticMatchInputUsesEmbeddedTitleAsFallback(t *testing.T) {
 	year := 2008
 	item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{
@@ -57,10 +69,14 @@ func TestAutomaticMatchInputIgnoresUnusedDirectoryIssues(t *testing.T) {
 	}
 }
 
-func TestAutomaticTitleMatchRequiresExplicitServerGate(t *testing.T) {
+func TestAutomaticTitleMatchDefaultsOnWithExplicitOptOut(t *testing.T) {
 	t.Setenv("FILEWAY_MEDIA_AUTO_TITLE_MATCH", "")
+	if !mediaAutoTitleMatchEnabled() {
+		t.Fatal("benchmarked conservative title matching must default on")
+	}
+	t.Setenv("FILEWAY_MEDIA_AUTO_TITLE_MATCH", "0")
 	if mediaAutoTitleMatchEnabled() {
-		t.Fatal("title matching must default off")
+		t.Fatal("explicit opt-out was ignored")
 	}
 	t.Setenv("FILEWAY_MEDIA_AUTO_TITLE_MATCH", "1")
 	year := 2020
@@ -219,6 +235,7 @@ WHERE source_file_id IN (SELECT v.source_file_id FROM variant v JOIN edition e O
 }
 
 func TestMediaMatchFillRespectsExplicitIdentityAndReplays(t *testing.T) {
+	t.Setenv("FILEWAY_MEDIA_AUTO_TITLE_MATCH", "0")
 	f := newMediaScanHTTPFixture(t)
 	catalogFixtureWrite(t, f, "Echo (2020) [tmdb-movie-42].mkv", "owned video")
 	catalogFixtureWrite(t, f, "Remake (1998).mkv", "owned video")

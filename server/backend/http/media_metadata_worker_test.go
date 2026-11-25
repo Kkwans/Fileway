@@ -16,6 +16,7 @@ import (
 )
 
 func TestMetadataWorkerRunsAfterScanAndFencesCancellation(t *testing.T) {
+	t.Setenv("FILEWAY_MEDIA_AUTO_TITLE_MATCH", "0")
 	for _, cancel := range []bool{false, true} {
 		t.Run(strconv.FormatBool(cancel), func(t *testing.T) {
 			var calls atomic.Int32

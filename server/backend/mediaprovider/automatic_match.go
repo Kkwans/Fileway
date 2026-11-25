@@ -24,6 +24,7 @@ type AutomaticMatchInput struct {
 	Aliases         []string
 	FallbackTitle   string
 	FallbackYear    int
+	DurationMs      int64
 	Region          string
 	Identifiers     []WorkIdentifier
 	Ambiguities     []string
@@ -126,6 +127,13 @@ func (client *TMDBClient) ResolveAutomaticMatch(ctx context.Context, input Autom
 			}
 			if result.State == AutoMatched {
 				result.Evidence = append(result.Evidence, "embedded_title_match")
+			}
+		}
+		if result.State == AutoNoMatch || result.Reason == "title_year_conflict" {
+			if recovered, handled, err := client.resolveIncompleteMovieTitle(ctx, input, language, authorize); err != nil {
+				return AutomaticMatch{}, err
+			} else if handled {
+				return recovered, nil
 			}
 		}
 		return result, nil

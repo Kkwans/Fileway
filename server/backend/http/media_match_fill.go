@@ -206,9 +206,8 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 	return fillMatchResult{State: "matched", Match: receipt}, nil
 }
 
-// Keep production title confirmation off until the real-provider benchmark passes.
 func mediaAutoTitleMatchEnabled() bool {
-	return strings.TrimSpace(os.Getenv("FILEWAY_MEDIA_AUTO_TITLE_MATCH")) == "1"
+	return strings.TrimSpace(os.Getenv("FILEWAY_MEDIA_AUTO_TITLE_MATCH")) != "0"
 }
 
 func automaticMatchInput(item mediaIdentificationResponse, allowTitleMatch bool) mediaprovider.AutomaticMatchInput {
@@ -249,10 +248,13 @@ func automaticMatchInput(item mediaIdentificationResponse, allowTitleMatch bool)
 		} else if directoryTitle != "" && directoryTitle != input.Title {
 			input.Aliases = append(input.Aliases, directoryTitle)
 		}
-		if technical := file.Technical; technical != nil && strings.TrimSpace(technical.FormatTitle) != "" {
-			embedded := mediametadata.ParseName(technical.FormatTitle)
-			if embedded.Title != "" && embedded.Year != nil && (input.Year == 0 || *embedded.Year == input.Year) {
-				input.FallbackTitle, input.FallbackYear = embedded.Title, *embedded.Year
+		if technical := file.Technical; technical != nil {
+			input.DurationMs = technical.DurationMs
+			if strings.TrimSpace(technical.FormatTitle) != "" {
+				embedded := mediametadata.ParseName(technical.FormatTitle)
+				if embedded.Title != "" && embedded.Year != nil && (input.Year == 0 || *embedded.Year == input.Year) {
+					input.FallbackTitle, input.FallbackYear = embedded.Title, *embedded.Year
+				}
 			}
 		}
 		for _, id := range file.ProviderIDs {
