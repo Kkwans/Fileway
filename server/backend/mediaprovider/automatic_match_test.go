@@ -487,6 +487,47 @@ func TestResolveAutomaticMatchDisambiguatesExactCandidatesByRuntime(t *testing.T
 	}
 }
 
+func TestResolveAutomaticMatchAllowsOneYearDifferenceWithRuntime(t *testing.T) {
+	for _, tc := range []struct {
+		name, details string
+		duration      int64
+		want          AutomaticMatchState
+		reason        string
+	}{
+		{"one year and close runtime", `{"id":41245,"title":"薄荷糖","original_title":"박하사탕","release_date":"2000-01-01","runtime":131}`, 7_814_773, AutoMatched, ""},
+		{"one year but distant runtime", `{"id":41245,"title":"薄荷糖","original_title":"박하사탕","release_date":"2000-01-01","runtime":131}`, 90 * 60_000, AutoNeedsReview, "title_year_conflict"},
+		{"two year difference", `{"id":41245,"title":"薄荷糖","original_title":"박하사탕","release_date":"2001-01-01","runtime":131}`, 7_814_773, AutoNeedsReview, "title_year_conflict"},
+		{"missing duration", `{"id":41245,"title":"薄荷糖","original_title":"박하사탕","release_date":"2000-01-01","runtime":131}`, 0, AutoNeedsReview, "title_year_conflict"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+				switch request.URL.Path {
+				case "/3/search/movie":
+					if request.URL.Query().Get("query") != "薄荷糖" {
+						t.Fatalf("unexpected title lookup %s", request.URL)
+					}
+					if request.URL.Query().Get("primary_release_year") == "" {
+						return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":41245,"title":"薄荷糖","original_title":"박하사탕","release_date":"2000-01-01"}]}`), nil
+					}
+					return response(200, `{"page":1,"total_pages":1,"total_results":0,"results":[]}`), nil
+				case "/3/movie/41245":
+					return response(200, tc.details), nil
+				default:
+					t.Fatalf("unexpected outbound request %s", request.URL)
+					return nil, nil
+				}
+			})
+			result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: "薄荷糖", Year: 1999, DurationMs: tc.duration, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+			if err != nil || result.State != tc.want || result.Reason != tc.reason {
+				t.Fatalf("state=%s reason=%s err=%v", result.State, result.Reason, err)
+			}
+			if tc.want == AutoMatched && (result.Document.Entity.ID != 41245 || !slices.Contains(result.Evidence, "year_difference_runtime_verified")) {
+				t.Fatalf("year difference evidence missing: %+v", result)
+			}
+		})
+	}
+}
+
 func TestResolveAutomaticMatchRetriesWithoutYearOnlyAfterEmptySearch(t *testing.T) {
 	for _, tc := range []struct {
 		name, details string

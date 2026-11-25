@@ -400,10 +400,26 @@ queries:
 		}
 		return review("title_year_conflict")
 	}
+	yearDifferenceVerified := false
 	if input.Year > 0 && len(projection.Item.Fields["year"]) != 0 && projection.Item.Fields["year"][0] != strconv.Itoa(input.Year) {
-		return review("title_year_conflict")
+		providerYear, _ := strconv.Atoi(projection.Item.Fields["year"][0])
+		yearDifference := providerYear - input.Year
+		if yearDifference < 0 {
+			yearDifference = -yearDifference
+		}
+		runtime := documentRuntimeMinutes(document)
+		if providerYear == 0 || yearDifference != 1 || input.DurationMs <= 0 || runtime == 0 || !runtimeMatches(input.DurationMs, runtime) {
+			return review("title_year_conflict")
+		}
+		yearDifferenceVerified = true
 	}
 	evidence := append([]string(nil), candidate.Evidence...)
+	if yearDifferenceVerified {
+		if !slices.Contains(evidence, "year_difference") {
+			evidence = append(evidence, "year_difference")
+		}
+		evidence = append(evidence, "year_difference_runtime_verified")
+	}
 	if input.Year <= 0 && !runtimeDisambiguated {
 		runtime := documentRuntimeMinutes(document)
 		if runtime == 0 {
