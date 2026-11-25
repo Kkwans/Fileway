@@ -46,9 +46,14 @@ internal enum class PhoneMediaPage { HOME, LIBRARIES, CATEGORIES }
     key(state.scopeKey) {
         var continueMenuOpen by remember { mutableStateOf(false) }
         BoxWithConstraints(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-            val columns = when { maxWidth >= 840.dp -> 4; maxWidth >= 600.dp -> 3; else -> 2 }
+            val pageInset = if (maxWidth >= 600.dp) 24.dp else 16.dp
+            val columns = if (maxWidth < 600.dp) 2 else {
+                val minimumPoster = if (maxWidth >= 840.dp) 160.dp else 152.dp
+                val maximumColumns = if (maxWidth >= 840.dp) 6 else 4
+                ((maxWidth - pageInset * 2 + 12.dp) / (minimumPoster + 12.dp)).toInt().coerceIn(2, maximumColumns)
+            }
             LazyVerticalGrid(columns = GridCells.Fixed(columns), state = gridState,
-                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                contentPadding = PaddingValues(start = pageInset, end = pageInset, bottom = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 item(key = "heading", span = { GridItemSpan(maxLineSpan) }) {
                     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
