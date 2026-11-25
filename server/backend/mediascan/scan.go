@@ -63,6 +63,7 @@ type Observation struct {
 	ExpectedLocatorRevision int64
 	SourceVersion           string
 	SizeBytes               int64
+	DurationMs              int64
 	InitialTitle            string
 	NFO                     *medialibrary.MetadataObservation
 	NFOStatus               NFOStatus
@@ -86,13 +87,17 @@ type Options struct {
 	// bounded even for a directory tree controlled by an untrusted writer.
 	ReadBatch int
 	MaxDepth  int
+	// ProbeDuration is enabled by persistent scans only when online metadata is
+	// configured. A failure leaves duration unknown and never fails the scan.
+	ProbeDuration func(context.Context, *os.File) (int64, error)
 }
 
 type Result struct {
-	Directories int
-	Discovered  int
-	Observed    int
-	NFOFailed   int
+	Directories    int
+	Discovered     int
+	Observed       int
+	NFOFailed      int
+	DurationFailed int
 }
 
 // ScanLocal creates the adapter from the exact stored root, avoiding a caller
@@ -301,7 +306,21 @@ func (w *walker) videoInContext(ctx context.Context, locator, name string, direc
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	// Re-resolve live source authority after any sidecar read, and refuse to
+	var durationMs int64
+	if w.options.ProbeDuration != nil {
+		probed, probeErr := w.options.ProbeDuration(ctx, file.File)
+		if probeErr != nil {
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			w.result.DurationFailed++
+		} else if probed > 0 && probed <= 7*24*60*60*1000 {
+			durationMs = probed
+		} else {
+			w.result.DurationFailed++
+		}
+	}
+	// Re-resolve live source authority after sidecar and duration probes, and refuse to
 	// publish an observation for a changed or replaced file.
 	current, err := w.source.Open(ctx, locator, false)
 	if err != nil {
@@ -333,7 +352,7 @@ func (w *walker) videoInContext(ctx context.Context, locator, name string, direc
 	observation := Observation{
 		OwnerUserID: w.actor, Binding: w.binding, ObjectKey: key, Identity: identity,
 		Locator: abs, ExpectedRevision: expected.FileRevision, ExpectedLocatorRevision: expected.LocatorRevision, SourceVersion: fmt.Sprintf("v1:%d:%d", initial.Size(), initial.ModTime().UnixNano()),
-		SizeBytes: initial.Size(), InitialTitle: displayTitle(name), NFO: nfo, NFOStatus: nfoStatus,
+		SizeBytes: initial.Size(), DurationMs: durationMs, InitialTitle: displayTitle(name), NFO: nfo, NFOStatus: nfoStatus,
 		DirectoryContext: directory, ParsedName: &parsedName,
 	}
 	observation.Binding.RootLocator = append([]byte(nil), w.binding.RootLocator...)

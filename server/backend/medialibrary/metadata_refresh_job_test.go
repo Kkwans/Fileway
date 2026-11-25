@@ -83,7 +83,7 @@ func TestSchema21MigratesPopulatedV20Catalog(t *testing.T) {
 		t.Fatal(err)
 	}
 	var version int
-	if err := store.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != 21 {
+	if err := store.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != SchemaVersion {
 		t.Fatalf("schema was not upgraded: version=%d err=%v", version, err)
 	}
 	if item.ID == "" || library.ID == "" {

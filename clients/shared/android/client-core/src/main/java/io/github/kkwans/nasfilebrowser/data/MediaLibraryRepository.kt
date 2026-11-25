@@ -436,11 +436,12 @@ class MediaLibraryRepository(
 
     suspend fun updateMetadataPolicy(operation: MediaOperation, libraryId: String, expectedRevision: Long,
         mode: MediaProviderPolicyMode, connectionId: String? = null, language: String = "zh-CN", region: String = "CN",
-        allowEditorJobs: Boolean = false): MediaWriteResult<MediaProviderPolicy> {
-        requireProviderPolicy(mode, connectionId, language, region)
+        allowEditorJobs: Boolean = false, movieMinMinutes: Int = 60, seriesMinMinutes: Int = 10): MediaWriteResult<MediaProviderPolicy> {
+        requireProviderPolicy(mode, connectionId, language, region, movieMinMinutes, seriesMinMinutes)
         return providerWrite(mutation(operation, MediaMutationKind.UPDATE_METADATA_POLICY, libraryId,
             body = revisionBody(operation, expectedRevision).put("mode", mode.wire).put("connectionId", connectionId ?: "")
-                .put("language", language).put("region", region).put("allowEditorJobs", allowEditorJobs)))
+                .put("language", language).put("region", region).put("allowEditorJobs", allowEditorJobs)
+                .put("movieMinMinutes", movieMinMinutes).put("seriesMinMinutes", seriesMinMinutes)))
     }
 
     suspend fun identification(ref: MediaCatalogRef): MediaReadResult<MediaProviderIdentification> {

@@ -18,7 +18,7 @@ import (
 )
 
 const (
-	SchemaVersion  = 21
+	SchemaVersion  = 22
 	applicationID  = 0x46574d43 // FWMC; do not migrate an unrelated SQLite database.
 	maxConnections = 4
 	busyTimeoutMS  = 5000
@@ -234,6 +234,42 @@ func inspectSchema(ctx context.Context, reader schemaReader) (int, error) {
 	return version, nil
 }
 
+func migrateMetadataDurationColumns(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `PRAGMA table_info(library_metadata_policy)`)
+	if err != nil {
+		return err
+	}
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var cid, notNull, primary int
+		var name, columnType string
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primary); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if !columns["movie_min_minutes"] {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE library_metadata_policy ADD COLUMN movie_min_minutes INTEGER NOT NULL DEFAULT 60 CHECK(movie_min_minutes BETWEEN 1 AND 1440)`); err != nil {
+			return err
+		}
+	}
+	if !columns["series_min_minutes"] {
+		if _, err := tx.ExecContext(ctx, `ALTER TABLE library_metadata_policy ADD COLUMN series_min_minutes INTEGER NOT NULL DEFAULT 10 CHECK(series_min_minutes BETWEEN 1 AND 1440)`); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (store *Store) migrate(ctx context.Context) error {
 	// BEGIN IMMEDIATE serializes concurrent startup/migration attempts. Recheck
 	// the version under the write lock; the read-only preflight is not a lock.
@@ -351,6 +387,14 @@ func (store *Store) migrate(ctx context.Context) error {
 		if version < 21 {
 			if _, err := tx.ExecContext(ctx, schemaV21); err != nil {
 				return fmt.Errorf("upgrade media catalog to schema 21: %w", err)
+			}
+		}
+		if version < 22 {
+			if err := migrateMetadataDurationColumns(ctx, tx); err != nil {
+				return fmt.Errorf("upgrade media catalog duration policy: %w", err)
+			}
+			if _, err := tx.ExecContext(ctx, schemaV22); err != nil {
+				return fmt.Errorf("upgrade media catalog to schema 22: %w", err)
 			}
 		}
 		if _, err := tx.ExecContext(ctx, fmt.Sprintf("PRAGMA application_id = %d; PRAGMA user_version = %d", applicationID, SchemaVersion)); err != nil {

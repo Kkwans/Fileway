@@ -101,6 +101,37 @@ func TestMetadataPolicyDefaultsChineseWithoutEnablingNetwork(t *testing.T) {
 	}
 }
 
+func TestMetadataPolicyDurationThresholdsDefaultPersistAndValidate(t *testing.T) {
+	store := openTestStore(t)
+	ctx := t.Context()
+	library := createLibrary(t, store, 7, "时长过滤")
+	initial, err := store.GetLibraryMetadataPolicy(ctx, 7, library.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if initial.MovieMinMinutes != 60 || initial.SeriesMinMinutes != 10 {
+		t.Fatalf("default duration thresholds: %+v", initial)
+	}
+	saved, err := store.SetLibraryMetadataPolicy(ctx, 7, library.ID, "duration-custom", 0,
+		LibraryMetadataPolicy{Mode: MetadataLocalOnly, MovieMinMinutes: 75, SeriesMinMinutes: 15})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.GetLibraryMetadataPolicy(ctx, 7, library.ID)
+	if err != nil || loaded.MovieMinMinutes != 75 || loaded.SeriesMinMinutes != 15 || loaded.Revision != saved.Revision {
+		t.Fatalf("custom duration thresholds: %+v %v", loaded, err)
+	}
+	for index, invalid := range []LibraryMetadataPolicy{
+		{Mode: MetadataLocalOnly, MovieMinMinutes: -1},
+		{Mode: MetadataLocalOnly, MovieMinMinutes: 1441},
+		{Mode: MetadataLocalOnly, SeriesMinMinutes: 1441},
+	} {
+		if _, err := store.SetLibraryMetadataPolicy(ctx, 7, library.ID, "duration-invalid-"+string(rune('a'+index)), saved.Revision, invalid); !errors.Is(err, ErrInvalid) {
+			t.Fatalf("invalid duration thresholds accepted: %+v %v", invalid, err)
+		}
+	}
+}
+
 func TestProviderPolicyGrantAndEditorAuthorization(t *testing.T) {
 	store := openTestStore(t)
 	ctx := t.Context()
@@ -252,11 +283,12 @@ func TestMetadataPolicyV11MigratesAndSwitchesPriority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	policy := LibraryMetadataPolicy{Mode: MetadataLocalFirst, ConnectionID: conn.ID, Language: "zh-CN", Region: "CN", AllowEditorJobs: true}
-	before, err := store.SetLibraryMetadataPolicy(ctx, 7, library.ID, "v11-local-first", 0, policy)
-	if err != nil {
+	if _, err = store.db.ExecContext(ctx, `INSERT INTO library_metadata_policy(library_id,mode,connection_id,language,region,allow_editor_jobs,revision,updated_at) VALUES(?,?,?,?,?,?,?,?)`,
+		library.ID, MetadataLocalFirst, conn.ID, "zh-CN", "CN", 1, 1, 1); err != nil {
 		t.Fatal(err)
 	}
+	before := LibraryMetadataPolicy{LibraryID: library.ID, Mode: MetadataLocalFirst, ConnectionID: conn.ID, Language: "zh-CN", Region: "CN",
+		MovieMinMinutes: 60, SeriesMinMinutes: 10, AllowEditorJobs: true, Revision: 1}
 	if err := store.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -266,9 +298,10 @@ func TestMetadataPolicyV11MigratesAndSwitchesPriority(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	after, err := store.GetLibraryMetadataPolicy(ctx, 7, library.ID)
-	if err != nil || *after != *before {
+	if err != nil || *after != before {
 		t.Fatalf("v11 policy changed after migration: %+v %v", after, err)
 	}
+	policy := before
 	policy.Mode = MetadataOnlineFirst
 	online, err := store.SetLibraryMetadataPolicy(ctx, 7, library.ID, "v12-online-first", before.Revision, policy)
 	if err != nil || online.Mode != MetadataOnlineFirst || online.Revision != before.Revision+1 {

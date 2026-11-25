@@ -2,6 +2,7 @@ package fbhttp
 
 import (
 	"bytes"
+	"database/sql"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -61,6 +62,113 @@ func TestMediaIdentificationUsesDirectoryYearWithoutOverwritingFilename(t *testi
 	input := automaticMatchInput(identified, false)
 	if identified.File.Year != nil || identified.File.DirectoryYear == nil || *identified.File.DirectoryYear != 2020 || input.Year != 2020 {
 		t.Fatalf("directory year was not retained independently: file=%+v input=%+v", identified.File, input)
+	}
+}
+
+func TestMediaMatchFillFiltersByProbedDurationBeforeProviderTraffic(t *testing.T) {
+	f := newMediaScanHTTPFixture(t)
+	catalogFixtureWrite(t, f, "Short [tmdb-movie-42].mkv", "owned video")
+	catalogFixtureWrite(t, f, "Boundary [tmdb-movie-43].mkv", "owned video")
+	catalogFixtureWrite(t, f, "Unknown [tmdb-movie-44].mkv", "owned video")
+	catalogFixtureWrite(t, f, "Eligible [tmdb-movie-45].mkv", "owned video")
+	library, source := f.libraryAndSource(t)
+	scanFixtureLibrary(t, f, library, source, "duration-filter-scan")
+	owner := f.owner.ID
+	items, _ := fixtureItems(t, f, owner, library.ID, "")
+	if len(items) != 4 {
+		t.Fatalf("fixture item count: %d", len(items))
+	}
+	durations := map[string]int64{"Short": 59*60_000 + 59_999, "Boundary": 60 * 60_000, "Eligible": 120 * 60_000}
+	for _, item := range items {
+		detail := fixtureDetail(t, f, owner, library.ID, item.ID)
+		if strings.HasPrefix(detail.Item.Title, "Unknown") {
+			if err := f.store.WithTx(t.Context(), func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(t.Context(), `UPDATE identification_evidence SET evidence_json=json_remove(evidence_json,'$.durationMs','$.durationSourceVersion')
+WHERE source_file_id IN (SELECT v.source_file_id FROM variant v JOIN edition e ON e.id=v.edition_id AND e.library_id=v.library_id WHERE e.library_id=? AND e.item_id=?)`, library.ID, item.ID)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		for prefix, duration := range durations {
+			if !strings.HasPrefix(detail.Item.Title, prefix) {
+				continue
+			}
+			if err := f.store.WithTx(t.Context(), func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(t.Context(), `UPDATE identification_evidence SET evidence_json=json_set(evidence_json,'$.durationMs',?,'$.durationSourceVersion',(SELECT source_version FROM source_file WHERE id=identification_evidence.source_file_id))
+WHERE source_file_id IN (SELECT v.source_file_id FROM variant v JOIN edition e ON e.id=v.edition_id AND e.library_id=v.library_id WHERE e.library_id=? AND e.item_id=?)`, duration, library.ID, item.ID)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+	conn, err := medialibrary.ProviderConnectionID(owner, "duration-filter-provider")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vault, err := mediaprovider.NewCredentialVault(bytes.Repeat([]byte{13}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, err := medialibrary.ProviderCredentialContext(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, fingerprint, err := vault.Seal(scope, "fixture-duration-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.PutProviderConnection(t.Context(), owner, false, conn, "user", "duration-filter-provider", 0,
+		medialibrary.SealedProviderCredential{Ciphertext: sealed, Fingerprint: fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	f.h.storage.MediaProviderVault = vault
+	outbound := 0
+	f.h.storage.TMDBHTTPClient = &http.Client{Transport: matchTestTransport(func(r *http.Request) (*http.Response, error) {
+		outbound++
+		if r.URL.Path != "/3/movie/45" || r.URL.Query().Has("query") {
+			t.Errorf("filtered item reached provider: %s", r.URL)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
+			`{"id":45,"title":"Eligible","release_date":"2020-09-01","overview":"Allowed by duration"}`))}, nil
+	})}
+	if _, err := f.store.SetLibraryMetadataPolicy(t.Context(), owner, library.ID, "duration-filter-policy", 0,
+		medialibrary.LibraryMetadataPolicy{Mode: medialibrary.MetadataLocalFirst, ConnectionID: conn, MovieMinMinutes: 90, SeriesMinMinutes: 15}); err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		base := "/api/media-library/v1/libraries/" + library.ID + "/items/" + item.ID
+		identified := f.call(t, owner, http.MethodGet, base+"/identification", nil)
+		var identification mediaIdentificationResponse
+		if identified.Code != http.StatusOK || json.Unmarshal(identified.Body.Bytes(), &identification) != nil || identification.File == nil {
+			t.Fatalf("identification: %d %s", identified.Code, identified.Body)
+		}
+		body := map[string]any{"operationId": "duration-fill-" + item.ID, "itemRevision": identification.ItemRevision, "structureRevision": identification.StructureRevision}
+		response := f.call(t, owner, http.MethodPost, base+"/match-fill", body)
+		if response.Code != http.StatusOK {
+			t.Fatalf("fill: %d %s", response.Code, response.Body)
+		}
+		title := identification.File.ParsedTitle
+		switch {
+		case strings.HasPrefix(title, "Short"), strings.HasPrefix(title, "Boundary"):
+			if !strings.Contains(response.Body.String(), `"state":"skipped"`) || !strings.Contains(response.Body.String(), `"reason":"movie_below_minimum_duration"`) {
+				t.Fatalf("short movie was not filtered: %s", response.Body)
+			}
+		case strings.HasPrefix(title, "Unknown"):
+			if !strings.Contains(response.Body.String(), `"state":"needs_review"`) || !strings.Contains(response.Body.String(), `"reason":"duration_unknown"`) {
+				t.Fatalf("unknown duration was not held for review: %s", response.Body)
+			}
+		case strings.HasPrefix(title, "Eligible"):
+			if !strings.Contains(response.Body.String(), `"state":"matched"`) {
+				t.Fatalf("eligible movie was filtered: %s", response.Body)
+			}
+		default:
+			t.Fatalf("unexpected fixture title: %q", title)
+		}
+	}
+	if outbound != 1 {
+		t.Fatalf("provider request count: %d", outbound)
 	}
 }
 

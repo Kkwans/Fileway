@@ -23,6 +23,72 @@ type MetadataJobTarget struct {
 
 const metadataJobKind = "library.metadata.fill"
 
+func MetadataDurationDecision(kind string, durations []int64, policy LibraryMetadataPolicy) (state, reason string) {
+	policy = policy.withDefaults()
+	threshold := policy.MovieMinMinutes
+	if kind == "series" {
+		threshold = policy.SeriesMinMinutes
+	}
+	eligible, unknown := 0, 0
+	for _, duration := range durations {
+		if duration <= 0 {
+			unknown++
+		} else if duration >= int64(threshold)*60_000 {
+			eligible++
+		}
+	}
+	if eligible > 0 {
+		return "allowed", ""
+	}
+	if unknown > 0 || len(durations) == 0 {
+		return "needs_review", "duration_unknown"
+	}
+	if kind == "series" {
+		return "skipped", "series_below_minimum_duration"
+	}
+	return "skipped", "movie_below_minimum_duration"
+}
+
+// MetadataDurationsForItem returns only duration evidence already committed by
+// the scanner. Missing evidence is represented by zero, never estimated.
+func (store *Store) MetadataDurationsForItem(ctx context.Context, actor uint, libraryID, itemID string) (string, []int64, error) {
+	if actor == 0 || libraryID == "" || itemID == "" {
+		return "", nil, ErrInvalid
+	}
+	if _, err := activeCatalogLibrary(ctx, store.db, actor, libraryID); err != nil {
+		return "", nil, err
+	}
+	var kind string
+	if err := store.db.QueryRowContext(ctx, `SELECT kind FROM library_item WHERE library_id=? AND id=?`, libraryID, itemID).Scan(&kind); err != nil {
+		return "", nil, err
+	}
+	query := `SELECT DISTINCT CASE WHEN json_extract(ie.evidence_json,'$.durationSourceVersion')=sf.source_version THEN COALESCE(CAST(json_extract(ie.evidence_json,'$.durationMs') AS INTEGER),0) ELSE 0 END
+FROM file_item_mapping m LEFT JOIN identification_evidence ie ON ie.id=m.evidence_id LEFT JOIN source_file sf ON sf.id=m.source_file_id
+WHERE m.library_id=? AND m.item_id=? AND m.active=1 ORDER BY 1`
+	args := []any{libraryID, itemID}
+	if kind == "series" {
+		query = `SELECT DISTINCT CASE WHEN json_extract(ie.evidence_json,'$.durationSourceVersion')=sf.source_version THEN COALESCE(CAST(json_extract(ie.evidence_json,'$.durationMs') AS INTEGER),0) ELSE 0 END
+FROM item_structure s JOIN file_item_mapping m ON m.library_id=s.library_id AND m.item_id=s.item_id AND m.active=1
+LEFT JOIN identification_evidence ie ON ie.id=m.evidence_id LEFT JOIN source_file sf ON sf.id=m.source_file_id
+WHERE s.library_id=? AND s.series_id=? AND s.superseded_by IS NULL ORDER BY 1`
+		args = []any{libraryID, itemID}
+	}
+	rows, err := store.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return "", nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	durations := make([]int64, 0, 4)
+	for rows.Next() {
+		var duration int64
+		if err := rows.Scan(&duration); err != nil {
+			return "", nil, err
+		}
+		durations = append(durations, duration)
+	}
+	return kind, durations, rows.Err()
+}
+
 // Enqueue the follow-up in the scan's completion transaction. The manifest
 // names the scanned items, not a mutable query over the whole library. Series
 // are taken from mapped episodes under the completed binding only.
@@ -108,7 +174,7 @@ WHERE j.library_id=? AND m.scan_id=? AND j.owner_user_id=? AND l.owner_user_id=?
 		return job, err
 	}
 	err = store.db.QueryRowContext(ctx, `SELECT count(*) FILTER (WHERE outcome='matched'),
-count(*) FILTER (WHERE outcome IN ('needs_review','no_match')),count(*) FILTER (WHERE outcome IN ('already_matched','source_changed')),
+count(*) FILTER (WHERE outcome IN ('needs_review','no_match')),count(*) FILTER (WHERE outcome IN ('already_matched','source_changed','skipped')),
 count(*) FILTER (WHERE outcome='failed'),count(*) FILTER (WHERE outcome='pending') FROM metadata_job_target WHERE job_id=?`, job.ID).
 		Scan(&job.Matched, &job.Review, &job.Skipped, &job.Failed, &job.Pending)
 	return job, err

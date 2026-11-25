@@ -10,12 +10,13 @@ import (
 	"github.com/Kkwans/nas-file-browser/backend/files"
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/mediasource"
+	"github.com/Kkwans/nas-file-browser/backend/mediatools"
 )
 
 // LocalRulesRevision identifies the scanner's extension, naming and sidecar
 // rules. Change it whenever those rules change; a claimed job must never be
 // resumed under a different rule set while retaining its old revision label.
-const LocalRulesRevision int64 = 7
+const LocalRulesRevision int64 = 8
 
 var ErrScanRulesUnavailable = errors.New("media scan rules revision is unavailable")
 
@@ -103,6 +104,11 @@ func Run(ctx context.Context, actor uint, store *medialibrary.Store, coord *medi
 	checkpoint = job.Checkpoint
 	if job.RulesRevision != LocalRulesRevision {
 		return result, ErrScanRulesUnavailable
+	}
+	if options.ProbeDuration == nil {
+		if policy, policyErr := store.GetLibraryMetadataPolicy(ctx, actor, job.LibraryID); policyErr == nil && policy.OnlineEnabled() {
+			options.ProbeDuration = mediatools.ProbeDuration
+		}
 	}
 	// Validation precedes both resolving the account and opening the root. The
 	// returned binding supplies the authoritative owner and configuration ref.
@@ -251,7 +257,7 @@ func (s *persistentSink) Observe(ctx context.Context, observation Observation) e
 	next.Phase = "enumerate"
 	_, err := s.coord.CommitScanObservation(ctx, s.actor, s.lease, medialibrary.ScanObservation{
 		ObjectKey: observation.ObjectKey, Identity: string(observation.Identity), Locator: observation.Locator,
-		ExpectedRevision: observation.ExpectedRevision, ExpectedLocatorRevision: observation.ExpectedLocatorRevision, SourceVersion: observation.SourceVersion, SizeBytes: observation.SizeBytes, InitialTitle: observation.InitialTitle, NFOStatus: string(observation.NFOStatus), NFO: observation.NFO,
+		ExpectedRevision: observation.ExpectedRevision, ExpectedLocatorRevision: observation.ExpectedLocatorRevision, SourceVersion: observation.SourceVersion, SizeBytes: observation.SizeBytes, DurationMs: observation.DurationMs, InitialTitle: observation.InitialTitle, NFOStatus: string(observation.NFOStatus), NFO: observation.NFO,
 		DirectoryContext: observation.DirectoryContext, ParsedName: observation.ParsedName,
 	}, next)
 	if err == nil {

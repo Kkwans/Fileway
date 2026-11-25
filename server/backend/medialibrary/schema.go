@@ -1,5 +1,27 @@
 package medialibrary
 
+// Duration thresholds are library policy. A skipped target remains in the job
+// manifest so the owner can see why no provider request was made.
+const schemaV22 = `
+DROP INDEX IF EXISTS metadata_job_target_review;
+DROP INDEX IF EXISTS metadata_job_target_pending;
+ALTER TABLE metadata_job_target RENAME TO metadata_job_target_v21;
+CREATE TABLE metadata_job_target (
+    job_id TEXT NOT NULL REFERENCES metadata_job(job_id),
+    library_id TEXT NOT NULL,
+    item_id TEXT NOT NULL,
+    outcome TEXT NOT NULL DEFAULT 'pending' CHECK(outcome IN ('pending','matched','already_matched','needs_review','no_match','source_changed','failed','skipped')),
+    reason TEXT NOT NULL DEFAULT '',
+    PRIMARY KEY(job_id,item_id),
+    FOREIGN KEY(library_id,item_id) REFERENCES library_item(library_id,id)
+) STRICT;
+INSERT INTO metadata_job_target(job_id,library_id,item_id,outcome,reason)
+SELECT job_id,library_id,item_id,outcome,reason FROM metadata_job_target_v21;
+DROP TABLE metadata_job_target_v21;
+CREATE INDEX metadata_job_target_pending ON metadata_job_target(job_id,item_id) WHERE outcome='pending';
+CREATE INDEX metadata_job_target_review ON metadata_job_target(job_id,item_id) WHERE outcome IN ('needs_review','no_match');
+`
+
 // Batch language refresh freezes matched targets and provider authority independently of scans.
 const schemaV21 = `
 CREATE TABLE IF NOT EXISTS metadata_refresh_job (

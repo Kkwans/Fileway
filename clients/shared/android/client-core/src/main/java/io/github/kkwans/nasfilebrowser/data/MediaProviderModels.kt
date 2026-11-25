@@ -37,6 +37,7 @@ enum class MediaProviderPolicyMode(internal val wire: String) {
 data class MediaProviderPolicy(
     val libraryId: String, val mode: MediaProviderPolicyMode, val connectionId: String?,
     val language: String, val region: String, val allowEditorJobs: Boolean, val revision: Long,
+    val movieMinMinutes: Int = 60, val seriesMinMinutes: Int = 10,
 )
 
 /** Credential writes deliberately have no durable journal entry; refresh after an unknown outcome. */
@@ -120,12 +121,14 @@ internal fun requireProviderExternalId(value: String) {
     require(number != null && number > 0 && number.toString() == value) { "资料条目标识无效" }
 }
 
-internal fun requireProviderPolicy(mode: MediaProviderPolicyMode, connectionId: String?, language: String, region: String) {
+internal fun requireProviderPolicy(mode: MediaProviderPolicyMode, connectionId: String?, language: String, region: String,
+    movieMinMinutes: Int = 60, seriesMinMinutes: Int = 10) {
     require(mode != MediaProviderPolicyMode.UNKNOWN)
     connectionId?.let(::requireProviderConnectionId)
     require(mode == MediaProviderPolicyMode.LOCAL_ONLY || connectionId != null)
     require(language.isEmpty() || language.matches(Regex("[A-Za-z]{2,3}(-[A-Za-z0-9]{2,8}){0,2}")))
     require(region.isEmpty() || region.matches(Regex("[A-Z]{2}")))
+    require(movieMinMinutes in 1..1440 && seriesMinMinutes in 1..1440)
 }
 
 private fun JSONObject.providerText(key: String, maxBytes: Int = 4096): String =
@@ -181,8 +184,11 @@ internal fun parseProviderPolicy(row: JSONObject): MediaProviderPolicy {
     val connection = row.providerOptionalText("connectionId", 64)?.also(::requireProviderConnectionId)
     val language = row.providerText("language", 64).ifEmpty { "zh-CN" }
     val region = row.providerText("region", 2).ifEmpty { "CN" }
-    if (mode != MediaProviderPolicyMode.UNKNOWN) requireProviderPolicy(mode, connection, language, region)
-    return MediaProviderPolicy(library, mode, connection, language, region, row.providerBoolean("allowEditorJobs"), row.providerLong("revision"))
+    val movieMinMinutes = if (row.has("movieMinMinutes")) row.providerLong("movieMinMinutes", 1).toInt() else 60
+    val seriesMinMinutes = if (row.has("seriesMinMinutes")) row.providerLong("seriesMinMinutes", 1).toInt() else 10
+    require(movieMinMinutes <= 1440 && seriesMinMinutes <= 1440)
+    if (mode != MediaProviderPolicyMode.UNKNOWN) requireProviderPolicy(mode, connection, language, region, movieMinMinutes, seriesMinMinutes)
+    return MediaProviderPolicy(library, mode, connection, language, region, row.providerBoolean("allowEditorJobs"), row.providerLong("revision"), movieMinMinutes, seriesMinMinutes)
 }
 
 private fun providerKind(value: String): MediaProviderMatchKind = when (value) {

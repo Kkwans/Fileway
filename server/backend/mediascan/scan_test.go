@@ -120,6 +120,35 @@ func TestScanLocalEnumeratesBoundedPagesAndRecordsNFOErrorsPerItem(t *testing.T)
 	}
 }
 
+func TestScanLocalDurationProbeKeepsUnknownEvidenceWithoutFailingScan(t *testing.T) {
+	f := newScanFixture(t)
+	f.write(t, "short.mkv", "video")
+	f.write(t, "unknown.mkv", "video")
+	sink := &observationSink{}
+	calls := 0
+	result, err := ScanLocal(t.Context(), 7, f.binding, f.resolve, sink, Options{ProbeDuration: func(_ context.Context, file *os.File) (int64, error) {
+		calls++
+		if strings.HasSuffix(file.Name(), "short.mkv") {
+			return 59*60_000 + 59_999, nil
+		}
+		return 0, errors.New("probe unavailable")
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if calls != 2 || result.DurationFailed != 1 || len(sink.observations) != 2 {
+		t.Fatalf("duration probe result: calls=%d result=%+v observations=%d", calls, result, len(sink.observations))
+	}
+	for _, observation := range sink.observations {
+		if strings.HasSuffix(string(observation.Locator), "short.mkv") && observation.DurationMs != 59*60_000+59_999 {
+			t.Fatalf("short duration lost: %+v", observation)
+		}
+		if strings.HasSuffix(string(observation.Locator), "unknown.mkv") && observation.DurationMs != 0 {
+			t.Fatalf("failed probe fabricated duration: %+v", observation)
+		}
+	}
+}
+
 func TestScanLocalDistinguishesTypeScriptFromMPEGTransportStreams(t *testing.T) {
 	f := newScanFixture(t)
 	f.write(t, "PinHarness/index.ts", "export const value = 1;\n")

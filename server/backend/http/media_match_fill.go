@@ -111,6 +111,13 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 	if held {
 		return fillMatchResult{State: "needs_review", Reason: "manual_review_required"}, nil
 	}
+	kind, durations, err := store.MetadataDurationsForItem(ctx, d.user.ID, library.ID, itemID)
+	if err != nil {
+		return fillMatchResult{}, err
+	}
+	if state, reason := medialibrary.MetadataDurationDecision(kind, durations, *policy); state != "allowed" {
+		return fillMatchResult{State: state, Reason: reason}, nil
+	}
 	// A leaf with multiple distinct files can have contradictory filename
 	// evidence. Do not auto-confirm from the one chosen for presentation.
 	detail, err := store.GetCatalogItem(ctx, d.user.ID, library.ID, itemID)

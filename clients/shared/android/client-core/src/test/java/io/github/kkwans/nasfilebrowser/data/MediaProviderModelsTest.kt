@@ -22,6 +22,30 @@ class MediaProviderModelsTest {
     }
 
     @Test
+    fun policyDurationThresholdsUseServerValuesOrCompatibleDefaults() {
+        val legacy = parseProviderPolicy(JSONObject()
+            .put("libraryId", "lib_fixture")
+            .put("mode", "local_only")
+            .put("language", "zh-CN")
+            .put("region", "CN")
+            .put("allowEditorJobs", false)
+            .put("revision", 1))
+        assertEquals(60, legacy.movieMinMinutes)
+        assertEquals(10, legacy.seriesMinMinutes)
+        val custom = parseProviderPolicy(JSONObject()
+            .put("libraryId", "lib_fixture")
+            .put("mode", "local_only")
+            .put("language", "zh-CN")
+            .put("region", "CN")
+            .put("movieMinMinutes", 75)
+            .put("seriesMinMinutes", 15)
+            .put("allowEditorJobs", false)
+            .put("revision", 2))
+        assertEquals(75, custom.movieMinMinutes)
+        assertEquals(15, custom.seriesMinMinutes)
+    }
+
+    @Test
     fun refreshPreviewPreservesProtectedFields() {
         val preview = parseMetadataRefreshPreview(JSONObject()
             .put("currentLanguage", "en-US")

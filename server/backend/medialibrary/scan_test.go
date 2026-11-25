@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"path/filepath"
 	"testing"
+
+	"github.com/Kkwans/nas-file-browser/backend/mediametadata"
 )
 
 func testScan(t *testing.T, store *Store, binding *LibrarySource, operation string) (*ScanJob, *ScanLease) {
@@ -209,6 +211,38 @@ func TestScanRecoveryResetsTraversalAndPreservesCatalog(t *testing.T) {
 		t.Fatal(first, second, err)
 	}
 	finishEmptyReconcile(t, store, 7, *lease, 1)
+}
+
+func TestScanObservationPersistsProbedDurationEvidence(t *testing.T) {
+	store := openTestStore(t)
+	library := createLibrary(t, store, 7, "Duration evidence")
+	binding := createBoundSource(t, store, library)
+	_, lease := testScan(t, store, binding, "duration-evidence")
+	input := testObservation("duration-file", "/videos/duration.mkv")
+	parsed := mediametadata.ParseName("duration.mkv")
+	input.ParsedName = &parsed
+	input.DurationMs = 89*60_000 + 59_999
+	committed, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 1, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	evidence, err := store.GetFileIdentification(t.Context(), 7, library.ID, committed.SourceFileID, binding.ID, binding.ProofEpoch)
+	if err != nil || evidence.DurationMs != input.DurationMs {
+		t.Fatalf("duration evidence: %+v %v", evidence, err)
+	}
+	kind, durations, err := store.MetadataDurationsForItem(t.Context(), 7, library.ID, committed.ItemID)
+	if err != nil || kind != "video" || len(durations) != 1 || durations[0] != input.DurationMs {
+		t.Fatalf("item durations: kind=%q durations=%v err=%v", kind, durations, err)
+	}
+	input.ExpectedRevision, input.ExpectedLocatorRevision = committed.FileRevision, committed.LocatorRevision
+	input.SourceVersion, input.DurationMs = "v1:10:21", 0
+	if _, err := store.CommitScanObservation(t.Context(), 7, *lease, input, testCheckpoint(input, 2, 2)); err != nil {
+		t.Fatal(err)
+	}
+	_, durations, err = store.MetadataDurationsForItem(t.Context(), 7, library.ID, committed.ItemID)
+	if err != nil || len(durations) != 1 || durations[0] != 0 {
+		t.Fatalf("stale duration survived a new file version: %v %v", durations, err)
+	}
 }
 
 func TestScanMissingIsStagedUntilAtomicCompletionAndBoundToRoot(t *testing.T) {

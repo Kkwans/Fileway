@@ -142,10 +142,10 @@ func TestMediaProviderConfigHTTPNoSecretOrImplicitNetwork(t *testing.T) {
 	initial := f.call(t, f.owner.ID, http.MethodGet, policyPath, nil)
 	var policy medialibrary.LibraryMetadataPolicy
 	if initial.Code != http.StatusOK || json.Unmarshal(initial.Body.Bytes(), &policy) != nil || policy.Mode != "local_only" ||
-		policy.Language != "zh-CN" || policy.Region != "CN" || policy.Revision != 0 {
+		policy.Language != "zh-CN" || policy.Region != "CN" || policy.MovieMinMinutes != 60 || policy.SeriesMinMinutes != 10 || policy.Revision != 0 {
 		t.Fatalf("default policy: %d %s", initial.Code, initial.Body)
 	}
-	policyBody := map[string]any{"operationId": "policy", "expectedRevision": 0, "mode": "local_first_online", "connectionId": instance.ID, "language": "zh-CN", "region": "CN", "allowEditorJobs": false}
+	policyBody := map[string]any{"operationId": "policy", "expectedRevision": 0, "mode": "local_first_online", "connectionId": instance.ID, "language": "zh-CN", "region": "CN", "movieMinMinutes": 75, "seriesMinMinutes": 15, "allowEditorJobs": false}
 	if response := f.call(t, f.owner.ID, http.MethodPut, policyPath, policyBody); response.Code != http.StatusNotFound {
 		t.Fatalf("ungranted policy: %d %s", response.Code, response.Body)
 	}
@@ -155,7 +155,7 @@ func TestMediaProviderConfigHTTPNoSecretOrImplicitNetwork(t *testing.T) {
 		t.Fatalf("grant: %d %s", grant.Code, grant.Body)
 	}
 	set := f.call(t, f.owner.ID, http.MethodPut, policyPath, policyBody)
-	if set.Code != http.StatusOK || json.Unmarshal(set.Body.Bytes(), &policy) != nil || policy.Revision != 1 || policy.ConnectionID != instance.ID {
+	if set.Code != http.StatusOK || json.Unmarshal(set.Body.Bytes(), &policy) != nil || policy.Revision != 1 || policy.ConnectionID != instance.ID || policy.MovieMinMinutes != 75 || policy.SeriesMinMinutes != 15 {
 		t.Fatalf("policy: %d %s", set.Code, set.Body)
 	}
 	if _, _, err = f.store.GetProviderCredentialForUse(t.Context(), f.owner.ID, library.ID, instance.ID); err != nil {

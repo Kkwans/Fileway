@@ -267,6 +267,8 @@ type libraryMetadataPolicyBody struct {
 	ConnectionID     string `json:"connectionId"`
 	Language         string `json:"language"`
 	Region           string `json:"region"`
+	MovieMinMinutes  int    `json:"movieMinMinutes"`
+	SeriesMinMinutes int    `json:"seriesMinMinutes"`
 	AllowEditorJobs  *bool  `json:"allowEditorJobs"`
 }
 
@@ -294,7 +296,8 @@ var mediaLibraryMetadataPolicyHandler = providerConfig(func(w http.ResponseWrite
 		return providerError(w, medialibrary.ErrInvalid)
 	}
 	value, err := d.store.MediaLibrary.SetLibraryMetadataPolicy(r.Context(), d.user.ID, library.ID, body.OperationID, *body.ExpectedRevision,
-		medialibrary.LibraryMetadataPolicy{Mode: body.Mode, ConnectionID: body.ConnectionID, Language: body.Language, Region: body.Region, AllowEditorJobs: *body.AllowEditorJobs})
+		medialibrary.LibraryMetadataPolicy{Mode: body.Mode, ConnectionID: body.ConnectionID, Language: body.Language, Region: body.Region,
+			MovieMinMinutes: body.MovieMinMinutes, SeriesMinMinutes: body.SeriesMinMinutes, AllowEditorJobs: *body.AllowEditorJobs})
 	if err != nil {
 		return providerError(w, err)
 	}

@@ -31,13 +31,15 @@ type ProviderGrant struct {
 }
 
 type LibraryMetadataPolicy struct {
-	LibraryID       string `json:"libraryId"`
-	Mode            string `json:"mode"`
-	ConnectionID    string `json:"connectionId,omitempty"`
-	Language        string `json:"language"`
-	Region          string `json:"region"`
-	AllowEditorJobs bool   `json:"allowEditorJobs"`
-	Revision        int64  `json:"revision"`
+	LibraryID        string `json:"libraryId"`
+	Mode             string `json:"mode"`
+	ConnectionID     string `json:"connectionId,omitempty"`
+	Language         string `json:"language"`
+	Region           string `json:"region"`
+	MovieMinMinutes  int    `json:"movieMinMinutes"`
+	SeriesMinMinutes int    `json:"seriesMinMinutes"`
+	AllowEditorJobs  bool   `json:"allowEditorJobs"`
+	Revision         int64  `json:"revision"`
 }
 
 const (
@@ -46,6 +48,9 @@ const (
 	MetadataOnlineFirst     = "online_first"
 	DefaultMetadataLanguage = "zh-CN"
 	DefaultMetadataRegion   = "CN"
+	DefaultMovieMinMinutes  = 60
+	DefaultSeriesMinMinutes = 10
+	MaxMetadataMinMinutes   = 1440
 )
 
 func (policy LibraryMetadataPolicy) OnlineEnabled() bool {
@@ -58,6 +63,12 @@ func (policy LibraryMetadataPolicy) withDefaults() LibraryMetadataPolicy {
 	}
 	if policy.Region == "" {
 		policy.Region = DefaultMetadataRegion
+	}
+	if policy.MovieMinMinutes == 0 {
+		policy.MovieMinMinutes = DefaultMovieMinMinutes
+	}
+	if policy.SeriesMinMinutes == 0 {
+		policy.SeriesMinMinutes = DefaultSeriesMinMinutes
 	}
 	return policy
 }
@@ -531,12 +542,12 @@ func readLibraryMetadataPolicy(ctx context.Context, reader schemaReader, actor u
 	}
 	value := &LibraryMetadataPolicy{LibraryID: libraryID, Mode: MetadataLocalOnly}
 	var mode, connection, language, region sql.NullString
-	var editor, revision sql.NullInt64
-	err := reader.QueryRowContext(ctx, `SELECT p.mode,p.connection_id,p.language,p.region,p.allow_editor_jobs,p.revision
+	var movieMinutes, seriesMinutes, editor, revision sql.NullInt64
+	err := reader.QueryRowContext(ctx, `SELECT p.mode,p.connection_id,p.language,p.region,p.movie_min_minutes,p.series_min_minutes,p.allow_editor_jobs,p.revision
 FROM library l LEFT JOIN library_member m ON m.library_id=l.id AND m.user_id=? AND m.revoked_at IS NULL
 LEFT JOIN library_metadata_policy p ON p.library_id=l.id
 WHERE l.id=? AND l.archived_at IS NULL AND (l.owner_user_id=? OR m.role='editor')`, actor, libraryID, actor).
-		Scan(&mode, &connection, &language, &region, &editor, &revision)
+		Scan(&mode, &connection, &language, &region, &movieMinutes, &seriesMinutes, &editor, &revision)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -547,6 +558,7 @@ WHERE l.id=? AND l.archived_at IS NULL AND (l.owner_user_id=? OR m.role='editor'
 		value.Mode = mode.String
 	}
 	value.ConnectionID, value.Language, value.Region = connection.String, language.String, region.String
+	value.MovieMinMinutes, value.SeriesMinMinutes = int(movieMinutes.Int64), int(seriesMinutes.Int64)
 	value.AllowEditorJobs, value.Revision = editor.Int64 != 0, revision.Int64
 	*value = value.withDefaults()
 	return value, nil
@@ -572,7 +584,9 @@ func (store *Store) SetLibraryMetadataPolicy(ctx context.Context, actor uint, li
 		(policy.OnlineEnabled() && policy.ConnectionID == "") ||
 		(policy.ConnectionID != "" && !providerIDPattern.MatchString(policy.ConnectionID)) ||
 		(policy.Language != "" && !providerLanguagePattern.MatchString(policy.Language)) ||
-		(policy.Region != "" && !providerRegionPattern.MatchString(policy.Region)) {
+		(policy.Region != "" && !providerRegionPattern.MatchString(policy.Region)) ||
+		policy.MovieMinMinutes < 1 || policy.MovieMinMinutes > MaxMetadataMinMinutes ||
+		policy.SeriesMinMinutes < 1 || policy.SeriesMinMinutes > MaxMetadataMinMinutes {
 		return nil, ErrInvalid
 	}
 	policy.LibraryID, policy.Revision = libraryID, 0
@@ -606,9 +620,9 @@ func (store *Store) SetLibraryMetadataPolicy(ctx context.Context, actor uint, li
 		if policy.ConnectionID != "" {
 			connection = policy.ConnectionID
 		}
-		_, err = tx.ExecContext(ctx, `INSERT INTO library_metadata_policy(library_id,mode,connection_id,language,region,allow_editor_jobs,revision,updated_at) VALUES(?,?,?,?,?,?,?,?)
-ON CONFLICT(library_id) DO UPDATE SET mode=excluded.mode,connection_id=excluded.connection_id,language=excluded.language,region=excluded.region,allow_editor_jobs=excluded.allow_editor_jobs,revision=excluded.revision,updated_at=excluded.updated_at`,
-			libraryID, policy.Mode, connection, policy.Language, policy.Region, policy.AllowEditorJobs, policy.Revision, time.Now().UnixMilli())
+		_, err = tx.ExecContext(ctx, `INSERT INTO library_metadata_policy(library_id,mode,connection_id,language,region,movie_min_minutes,series_min_minutes,allow_editor_jobs,revision,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?)
+ON CONFLICT(library_id) DO UPDATE SET mode=excluded.mode,connection_id=excluded.connection_id,language=excluded.language,region=excluded.region,movie_min_minutes=excluded.movie_min_minutes,series_min_minutes=excluded.series_min_minutes,allow_editor_jobs=excluded.allow_editor_jobs,revision=excluded.revision,updated_at=excluded.updated_at`,
+			libraryID, policy.Mode, connection, policy.Language, policy.Region, policy.MovieMinMinutes, policy.SeriesMinMinutes, policy.AllowEditorJobs, policy.Revision, time.Now().UnixMilli())
 		if err != nil {
 			return nil, err
 		}

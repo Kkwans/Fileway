@@ -26,7 +26,14 @@ func scanFixtureLibrary(t *testing.T, f *mediaScanHTTPFixture, library mediaLibr
 	if response.Code != http.StatusAccepted || json.Unmarshal(response.Body.Bytes(), &job) != nil {
 		t.Fatalf("scan enqueue: %d %s", response.Code, response.Body)
 	}
-	return f.waitJob(t, library.ID, job.ID, "completed")
+	completed := f.waitJob(t, library.ID, job.ID, "completed")
+	if err := f.store.WithTx(t.Context(), func(tx *sql.Tx) error {
+		_, err := tx.ExecContext(t.Context(), `UPDATE identification_evidence SET evidence_json=json_set(evidence_json,'$.durationMs',7200000,'$.durationSourceVersion',(SELECT source_version FROM source_file WHERE id=identification_evidence.source_file_id)) WHERE library_id=?`, library.ID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	return completed
 }
 
 func fixtureItems(t *testing.T, f *mediaScanHTTPFixture, actor uint, libraryID, query string) ([]mediaItemSummary, string) {

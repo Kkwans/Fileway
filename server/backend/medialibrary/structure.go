@@ -546,11 +546,19 @@ func currentDirectoryForFile(ctx context.Context, tx *sql.Tx, r *scanRecord, inp
 	return current, nil
 }
 
-func recordNameEvidenceTx(ctx context.Context, tx *sql.Tx, r *scanRecord, fileID string, ref DirectoryContextRef, name *mediametadata.ParsedName, resolution mediametadata.EpisodeResolution) (string, error) {
+func recordNameEvidenceTx(ctx context.Context, tx *sql.Tx, r *scanRecord, fileID string, ref DirectoryContextRef, name *mediametadata.ParsedName, durationMs int64, sourceVersion string, resolution mediametadata.EpisodeResolution) (string, error) {
 	if name == nil {
 		return "", nil
 	}
-	nameJSON, err := json.Marshal(name)
+	evidence := struct {
+		mediametadata.ParsedName
+		DurationMs            int64  `json:"durationMs,omitempty"`
+		DurationSourceVersion string `json:"durationSourceVersion,omitempty"`
+	}{ParsedName: *name, DurationMs: durationMs, DurationSourceVersion: sourceVersion}
+	if durationMs == 0 {
+		evidence.DurationSourceVersion = ""
+	}
+	nameJSON, err := json.Marshal(evidence)
 	if err != nil {
 		return "", err
 	}
@@ -558,7 +566,8 @@ func recordNameEvidenceTx(ctx context.Context, tx *sql.Tx, r *scanRecord, fileID
 		// The original name is retained; unusually dense derived evidence is
 		// held for review instead of expanding the database without bound.
 		compact := mediametadata.ParsedName{OriginalName: name.OriginalName, Ambiguities: []string{"name_evidence_too_large"}}
-		nameJSON, err = json.Marshal(compact)
+		evidence.ParsedName = compact
+		nameJSON, err = json.Marshal(evidence)
 		if err != nil {
 			return "", err
 		}
@@ -1038,7 +1047,7 @@ func identifyScanFileTx(ctx context.Context, tx *sql.Tx, actor uint, r *scanReco
 			}
 		}
 	}
-	decision.EvidenceID, err = recordNameEvidenceTx(ctx, tx, r, fileID, input.DirectoryContext, input.ParsedName, decision.Resolution)
+	decision.EvidenceID, err = recordNameEvidenceTx(ctx, tx, r, fileID, input.DirectoryContext, input.ParsedName, input.DurationMs, input.SourceVersion, decision.Resolution)
 	if err != nil {
 		return decision, err
 	}
@@ -1270,6 +1279,7 @@ type StructureFileMapping struct {
 
 type FileIdentification struct {
 	Name       mediametadata.ParsedName
+	DurationMs int64
 	MatchState string
 	Issues     []string
 	Revision   int64
@@ -1296,6 +1306,13 @@ func (store *Store) GetFileIdentification(ctx context.Context, actor uint, libra
 	if err = json.Unmarshal([]byte(name), &value.Name); err != nil {
 		return nil, err
 	}
+	var duration struct {
+		DurationMs int64 `json:"durationMs"`
+	}
+	if err = json.Unmarshal([]byte(name), &duration); err != nil {
+		return nil, err
+	}
+	value.DurationMs = duration.DurationMs
 	if err = json.Unmarshal([]byte(issues), &value.Issues); err != nil {
 		return nil, err
 	}

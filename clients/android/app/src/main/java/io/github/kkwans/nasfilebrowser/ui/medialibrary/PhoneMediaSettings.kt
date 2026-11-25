@@ -329,6 +329,8 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
     var mode by remember(repository, libraryId) { mutableStateOf(MediaProviderPolicyMode.LOCAL_ONLY) }
     var language by remember(repository, libraryId) { mutableStateOf("zh-CN") }
     var region by remember(repository, libraryId) { mutableStateOf("CN") }
+    var movieMinutesText by remember(repository, libraryId) { mutableStateOf("60") }
+    var seriesMinutesText by remember(repository, libraryId) { mutableStateOf("10") }
     var connections by remember(repository, libraryId) { mutableStateOf<List<MediaProviderConnection>?>(null) }
     var connectionsLoading by remember(repository, libraryId) { mutableStateOf(true) }
     var connectionsError by remember(repository, libraryId) { mutableStateOf<MediaFailure?>(null) }
@@ -349,6 +351,8 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
                 is MediaReadResult.Success -> if (result.scope == repository.scope) {
                     policy = result.value; mode = result.value.mode; chosen = result.value.connectionId
                     language = result.value.language; region = result.value.region
+                    movieMinutesText = result.value.movieMinMinutes.toString()
+                    seriesMinutesText = result.value.seriesMinMinutes.toString()
                     libraryRefreshPreview = null; libraryRefreshError = null
                 }
                 is MediaReadResult.Failure -> if (result.scope == repository.scope) error = providerProblem(result.error)
@@ -368,10 +372,14 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
             }
         } finally { connectionsLoading = false }
     }
-    val valid = policy != null && mode != MediaProviderPolicyMode.UNKNOWN && (mode == MediaProviderPolicyMode.LOCAL_ONLY ||
+    val movieMinutes = movieMinutesText.toIntOrNull()
+    val seriesMinutes = seriesMinutesText.toIntOrNull()
+    val durationValid = movieMinutes != null && seriesMinutes != null && movieMinutes in 1..1440 && seriesMinutes in 1..1440
+    val valid = durationValid && policy != null && mode != MediaProviderPolicyMode.UNKNOWN && (mode == MediaProviderPolicyMode.LOCAL_ONLY ||
         !connectionsLoading && connections?.any { it.id == chosen } == true)
     val currentPolicy = policy
     val dirty = currentPolicy != null && (mode != currentPolicy.mode || language != currentPolicy.language || region != currentPolicy.region ||
+        movieMinutes != currentPolicy.movieMinMinutes || seriesMinutes != currentPolicy.seriesMinMinutes ||
         chosen.takeUnless { mode == MediaProviderPolicyMode.LOCAL_ONLY } != currentPolicy.connectionId)
     fun previewLibraryRefresh() {
         if (busy || libraryRefreshBusy || dirty || currentPolicy == null || mode == MediaProviderPolicyMode.LOCAL_ONLY) return
@@ -389,6 +397,8 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
     MediaSettingsPage("资料优先级", { if (!busy && !libraryRefreshBusy) onBack() }, footer = {
         Button(onClick = {
             val original = policy ?: return@Button
+            val movieMinimum = movieMinutes ?: return@Button
+            val seriesMinimum = seriesMinutes ?: return@Button
             val existing = pending
             val operation = existing ?: repository.newOperation()
             busy = true; error = null
@@ -396,7 +406,7 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
                 try {
                     val result = if (existing != null) repository.retryOperation(existing) else repository.updateMetadataPolicy(
                         operation, libraryId, original.revision, mode, chosen.takeUnless { mode == MediaProviderPolicyMode.LOCAL_ONLY },
-                        language, region, original.allowEditorJobs)
+                        language, region, original.allowEditorJobs, movieMinimum, seriesMinimum)
                     when (result) {
                         is MediaWriteResult.Success -> { repository.forgetResolvedOperation(operation); onSaved() }
                         is MediaWriteResult.Failure -> {
@@ -421,6 +431,22 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
             }
             listOf("CN" to "中国大陆", "TW" to "台湾", "HK" to "香港", "US" to "美国", "JP" to "日本").forEach { (value, label) ->
                 FilewaySelectionRow(label, subtitle = "发行地区", selected = region == value, enabled = !busy && pending == null, onClick = { region = value })
+            }
+        }
+        SettingsGroup("刮削时长过滤") {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("低于阈值的视频不会发送 TMDB 匹配请求；无法读取时长时进入待复核。", style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                OutlinedTextField(movieMinutesText, { value -> if (value.length <= 4 && value.all(Char::isDigit)) movieMinutesText = value },
+                    Modifier.fillMaxWidth(), singleLine = true, label = { Text("电影最低时长（分钟）") },
+                    isError = movieMinutesText.isEmpty() || (movieMinutes ?: 0) !in 1..1440,
+                    supportingText = { Text(if (movieMinutesText.isEmpty() || (movieMinutes ?: 0) !in 1..1440) "请输入 1–1440 分钟" else "默认 60 分钟") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), shape = MaterialTheme.shapes.medium)
+                OutlinedTextField(seriesMinutesText, { value -> if (value.length <= 4 && value.all(Char::isDigit)) seriesMinutesText = value },
+                    Modifier.fillMaxWidth(), singleLine = true, label = { Text("电视剧单集最低时长（分钟）") },
+                    isError = seriesMinutesText.isEmpty() || (seriesMinutes ?: 0) !in 1..1440,
+                    supportingText = { Text(if (seriesMinutesText.isEmpty() || (seriesMinutes ?: 0) !in 1..1440) "请输入 1–1440 分钟" else "默认 10 分钟") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), shape = MaterialTheme.shapes.medium)
             }
         }
         if (mode != MediaProviderPolicyMode.LOCAL_ONLY && policy != null) SettingsGroup("资料语言刷新") {
