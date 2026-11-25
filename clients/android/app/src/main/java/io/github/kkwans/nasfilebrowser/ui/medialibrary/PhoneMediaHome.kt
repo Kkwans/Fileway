@@ -238,7 +238,7 @@ internal enum class PhoneMediaPage { HOME, LIBRARIES, CATEGORIES }
             Text("${pager.currentPage + 1} / ${entries.size}", Modifier.weight(1f), style = PhoneMediaType.secondary,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = { onAction(PhoneMediaAction.SetCarouselAutoAdvance(!state.carouselAutoAdvance)) }) {
-                Text(if (state.carouselAutoAdvance) "暂停轮播" else "自动轮播")
+                Text(if (state.carouselAutoAdvance) "暂停轮播" else "自动轮播", style = PhoneMediaType.action)
             }
         }
     }

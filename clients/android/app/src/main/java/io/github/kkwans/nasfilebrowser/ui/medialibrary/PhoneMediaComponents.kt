@@ -115,13 +115,13 @@ internal object PhoneMediaType {
         ),
     ) {
         if (actionLabel != null && onAction != null) TextButton(onClick = onAction,
-            modifier = Modifier.heightIn(min = FilewayMediaSpace.Phone.touchTarget)) { Text(actionLabel) }
+            modifier = Modifier.heightIn(min = FilewayMediaSpace.Phone.touchTarget)) { Text(actionLabel, style = PhoneMediaType.action) }
     }
 }
 
 @Composable internal fun MediaProblemCard(problem: MediaProblem, onRetry: () -> Unit, modifier: Modifier = Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(problem.title, style = MaterialTheme.typography.titleMedium)
+        Text(problem.title, style = PhoneMediaType.itemTitle)
         FilewayStatusBanner(message = problem.message, kind = FilewayStatusKind.WARNING,
             actionLabel = problem.recoveryLabel, onAction = if (problem.recoveryLabel != null) onRetry else null)
     }
@@ -131,7 +131,7 @@ internal object PhoneMediaType {
     Row(modifier.fillMaxWidth().padding(24.dp).semantics { liveRegion = LiveRegionMode.Polite },
         horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
         CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-        Text(label, style = MaterialTheme.typography.bodyMedium)
+        Text(label, style = PhoneMediaType.secondary)
     }
 }
 
@@ -149,15 +149,15 @@ internal object PhoneMediaType {
                     color = MaterialTheme.colorScheme.surface.copy(alpha = .96f), shape = MaterialTheme.shapes.small) {
                     Text(listOfNotNull(rating.source, rating.metric, rating.value).joinToString(" "),
                         Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = MaterialTheme.typography.labelMedium)
+                        style = PhoneMediaType.badge)
                 }
             }
         }
-        Text(item.title, Modifier.padding(top = 8.dp).fillMaxWidth(), style = MaterialTheme.typography.titleMedium,
+        Text(item.title, Modifier.padding(top = 8.dp).fillMaxWidth(), style = PhoneMediaType.itemTitle,
             maxLines = 2, overflow = TextOverflow.Ellipsis)
-        if (item.subtitle.isNotBlank()) Text(item.subtitle, style = MaterialTheme.typography.bodySmall,
+        if (item.subtitle.isNotBlank()) Text(item.subtitle, style = PhoneMediaType.secondary,
             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        item.availability?.let { Text(it, style = MaterialTheme.typography.labelSmall,
+        item.availability?.let { Text(it, style = PhoneMediaType.badge,
             color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis) }
     }
 }
@@ -173,5 +173,5 @@ internal object PhoneMediaType {
     onAction: (PhoneMediaAction) -> Unit) {
     if (loading) MediaLoading("正在加载")
     else if (hasMore) TextButton(onClick = { onAction(PhoneMediaAction.LoadMore(section)) },
-        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("加载更多") }
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("加载更多", style = PhoneMediaType.action) }
 }
