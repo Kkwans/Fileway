@@ -40,7 +40,7 @@ internal fun PhoneMediaSearch(query: String, searched: Boolean, mode: MediaSearc
     people: List<MediaCatalogPerson>, peopleLoading: Boolean, peopleProblem: MediaProblem?, peopleHasMore: Boolean,
     files: List<MediaCatalogFileMatch>, filesLoading: Boolean, filesProblem: MediaProblem?, filesHasMore: Boolean,
     collections: List<MediaCatalogCollection>, collectionsLoading: Boolean, collectionsProblem: MediaProblem?, collectionsHasMore: Boolean,
-    canSearchFiles: Boolean, imageLoader: ImageLoader, onAction: (PhoneMediaAction) -> Unit) {
+    canSearchFiles: Boolean, canSearchCollections: Boolean, imageLoader: ImageLoader, onAction: (PhoneMediaAction) -> Unit) {
     val focus = LocalFocusManager.current
     val busy = when (mode) {
         MediaSearchMode.WORKS -> loading
@@ -97,6 +97,10 @@ internal fun PhoneMediaSearch(query: String, searched: Boolean, mode: MediaSearc
                 if (canSearchFiles) item {
                     FilterChip(mode == MediaSearchMode.FILES, { onAction(PhoneMediaAction.SearchMode(MediaSearchMode.FILES)) },
                         modifier = Modifier.heightIn(min = 48.dp), label = { Text("文件", style = PhoneMediaType.action) })
+                }
+                if (canSearchCollections) item {
+                    FilterChip(mode == MediaSearchMode.COLLECTIONS, { onAction(PhoneMediaAction.SearchMode(MediaSearchMode.COLLECTIONS)) },
+                        modifier = Modifier.heightIn(min = 48.dp), label = { Text("合集", style = PhoneMediaType.action) })
                 }
             }
             Button(onClick = ::submit, enabled = query.isNotBlank() && !busy,

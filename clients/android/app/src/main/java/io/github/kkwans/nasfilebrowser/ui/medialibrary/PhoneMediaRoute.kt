@@ -347,7 +347,7 @@ internal fun PhoneMediaRoute(
                     route.people, route.peopleLoading, route.peopleProblem, route.peopleCursor != null,
                     route.files, route.filesLoading, route.filesProblem, route.filesCursor != null,
                     route.collections, route.collectionsLoading, route.collectionsProblem, route.collectionsCursor != null,
-                    route.home?.capabilities?.get("fileSearch") == true, imageLoader, action)
+                    route.home?.capabilities?.get("fileSearch") == true, route.home?.capabilities?.get("collections") == true, imageLoader, action)
             }
         } else {
             val home = route.home
