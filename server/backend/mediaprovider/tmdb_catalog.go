@@ -12,12 +12,13 @@ import (
 )
 
 type SearchQuery struct {
-	Kind     Kind
-	Title    string
-	Year     int
-	Language string
-	Region   string // Movie release region; TV has no region search parameter.
-	Page     int
+	Kind         Kind
+	Title        string
+	Year         int
+	Language     string
+	Region       string // Movie release region; TV has no region search parameter.
+	Page         int
+	IncludeAdult bool
 }
 
 type CandidatePage struct {
@@ -40,7 +41,7 @@ func (client *TMDBClient) Search(ctx context.Context, input SearchQuery) (Candid
 	}
 	query.Set("query", input.Title)
 	query.Set("page", strconv.Itoa(input.Page))
-	query.Set("include_adult", "false")
+	query.Set("include_adult", strconv.FormatBool(input.IncludeAdult))
 	namespace := "movie"
 	yearKey := "primary_release_year"
 	if input.Kind == Series {

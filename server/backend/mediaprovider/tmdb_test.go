@@ -70,6 +70,19 @@ func TestTMDBSearchKeepsEntityTypesAndDoesNotChooseMatch(t *testing.T) {
 	}
 }
 
+func TestTMDBSearchCanExplicitlyIncludeAdultForFallback(t *testing.T) {
+	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Path != "/3/search/movie" || request.URL.Query().Get("include_adult") != "true" {
+			t.Fatal(request.URL)
+		}
+		return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":408270,"title":"湿濡的女人"}]}`), nil
+	})
+	page, err := client.Search(t.Context(), SearchQuery{Kind: Movie, Title: "湿濡的女人", Year: 2016, Language: "zh-CN", Page: 1, IncludeAdult: true})
+	if err != nil || len(page.Items) != 1 || page.Items[0].Entity.ID != 408270 {
+		t.Fatal(page, err)
+	}
+}
+
 func TestTMDBAlternativeTitlesPartIsAppended(t *testing.T) {
 	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
 		if request.URL.Path != "/3/movie/372058" || request.URL.Query().Get("append_to_response") != "alternative_titles" {

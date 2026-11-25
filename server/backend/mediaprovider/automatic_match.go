@@ -280,6 +280,29 @@ queries:
 			}
 		}
 	}
+	adultFallback := false
+	if len(directCandidates) == 0 && input.Year > 0 && input.Kind == Movie && input.DurationMs > 0 {
+		if err := authorize(ctx); err != nil {
+			return AutomaticMatch{}, err
+		}
+		page, err := client.Search(ctx, SearchQuery{Kind: Movie, Title: title, Year: input.Year,
+			Language: language, Region: input.Region, Page: 1, IncludeAdult: true})
+		if err != nil {
+			return AutomaticMatch{}, err
+		}
+		documents = append(documents, page.Items...)
+		ranked = RankCandidates(MatchHint{Kind: Movie, Title: title, Year: input.Year}, documents)
+		for _, candidate := range ranked {
+			if !matchesAnyTitle(candidate, []string{title}) {
+				continue
+			}
+			directCandidates = append(directCandidates, candidate)
+			if candidate.Year == input.Year {
+				eligible = append(eligible, candidate)
+			}
+		}
+		adultFallback = len(directCandidates) != 0
+	}
 	if len(eligible) == 0 && len(directCandidates) == 0 && input.Year > 0 && alternativeSearch && len(yearCandidates) != 0 {
 		eligible = append(eligible, yearCandidates[:min(len(yearCandidates), maxAutomaticTitleQueries)]...)
 	}
@@ -442,6 +465,9 @@ queries:
 		yearDifferenceVerified = true
 	}
 	evidence := append([]string(nil), candidate.Evidence...)
+	if adultFallback {
+		evidence = append(evidence, "adult_search_fallback")
+	}
 	if yearDifferenceVerified {
 		if !slices.Contains(evidence, "year_difference") {
 			evidence = append(evidence, "year_difference")

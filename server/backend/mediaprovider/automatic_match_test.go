@@ -627,6 +627,30 @@ func TestResolveAutomaticMatchRecoversSingleVisibleHanCharacterWithRuntime(t *te
 	}
 }
 
+func TestResolveAutomaticMatchRetriesAdultSearchOnlyAfterNoDirectCandidate(t *testing.T) {
+	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/3/search/movie":
+			if request.URL.Query().Get("query") != "湿濡的女人" || request.URL.Query().Get("primary_release_year") != "2016" {
+				t.Fatalf("unexpected title lookup %s", request.URL)
+			}
+			if request.URL.Query().Get("include_adult") == "true" {
+				return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":408270,"title":"湿濡的女人","release_date":"2016-12-17"}]}`), nil
+			}
+			return response(200, `{"page":1,"total_pages":1,"total_results":3,"results":[{"id":569175,"title":"手指湿濡的女人","release_date":"1984-04-20"},{"id":589262,"title":"女人的小道：濡湿海峡","release_date":"1980-04-12"},{"id":140812,"title":"等待湿润的女人","release_date":"1987-12-19"}]}`), nil
+		case "/3/movie/408270":
+			return response(200, `{"id":408270,"title":"湿濡的女人","original_title":"風に濡れた女","release_date":"2016-12-17","runtime":78}`), nil
+		default:
+			t.Fatalf("unexpected outbound request %s", request.URL)
+			return nil, nil
+		}
+	})
+	result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: "湿濡的女人", Year: 2016, DurationMs: 4_684_346, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+	if err != nil || result.State != AutoMatched || result.Document.Entity.ID != 408270 || !slices.Contains(result.Evidence, "adult_search_fallback") {
+		t.Fatalf("adult exact-title fallback failed: state=%s reason=%s result=%+v err=%v", result.State, result.Reason, result, err)
+	}
+}
+
 func TestResolveAutomaticMatchRetriesWithoutYearOnlyAfterEmptySearch(t *testing.T) {
 	for _, tc := range []struct {
 		name, details string
