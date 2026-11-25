@@ -213,6 +213,7 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 	var ranked []MatchCandidate
 	eligible := make([]MatchCandidate, 0)
 	unfilteredSearch := false
+	searchComplete := true
 	for _, query := range queries {
 		unfilteredSearch = false
 		if err := authorize(ctx); err != nil {
@@ -235,6 +236,7 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 			unfilteredSearch = len(page.Items) != 0
 		}
 		documents = append(documents, page.Items...)
+		searchComplete = searchComplete && page.TotalPages <= 1
 		ranked = RankCandidates(MatchHint{Kind: input.Kind, Title: title, Year: input.Year}, documents)
 		eligible = eligible[:0]
 		for _, candidate := range ranked {
@@ -250,7 +252,15 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 		return AutomaticMatch{State: AutoNoMatch, Reason: "title_not_found"}, nil
 	}
 	if input.Year <= 0 {
-		return review("year_required")
+		ranked = RankCandidates(MatchHint{Kind: input.Kind, Title: title}, documents)
+		exact := exactTitleCandidates(ranked, queries)
+		if len(exact) > 1 {
+			return review("ambiguous_candidates")
+		}
+		if len(exact) == 0 || input.Kind != Movie || input.DurationMs <= 0 || !searchComplete {
+			return review("year_required")
+		}
+		eligible = append(eligible, exact[0])
 	}
 	if len(eligible) == 0 {
 		exact := exactTitleCandidates(ranked, queries)
@@ -293,10 +303,28 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 			break
 		}
 	}
-	if matchedQuery == "" || input.Year > 0 && len(projection.Item.Fields["year"]) != 0 && projection.Item.Fields["year"][0] != strconv.Itoa(input.Year) {
+	if matchedQuery == "" {
+		if input.Year <= 0 {
+			return review("title_conflict")
+		}
 		return review("title_year_conflict")
 	}
+	if input.Year > 0 && len(projection.Item.Fields["year"]) != 0 && projection.Item.Fields["year"][0] != strconv.Itoa(input.Year) {
+		return review("title_year_conflict")
+	}
+	if input.Year <= 0 {
+		runtime := documentRuntimeMinutes(document)
+		if runtime == 0 {
+			return review("runtime_unknown")
+		}
+		if !runtimeMatches(input.DurationMs, runtime) {
+			return review("runtime_conflict")
+		}
+	}
 	evidence := append([]string(nil), candidate.Evidence...)
+	if input.Year <= 0 {
+		evidence = append(evidence, "exact_title_without_year", "runtime_match")
+	}
 	if unfilteredSearch {
 		evidence = append(evidence, "unfiltered_title_search")
 	}

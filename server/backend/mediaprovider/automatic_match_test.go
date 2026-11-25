@@ -259,6 +259,77 @@ func jsonNumber(value int64) string {
 	return string(encoded)
 }
 
+func TestResolveAutomaticMatchAllowsUniqueExactTitleWithoutYearOnlyWithRuntimeAndCompleteSearch(t *testing.T) {
+	for _, tc := range []struct {
+		name, search, details string
+		duration              int64
+		want                  AutomaticMatchState
+		reason                string
+		calls                 int
+	}{
+		{
+			name:     "unique exact title and runtime",
+			search:   `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":380,"title":"雨人","original_title":"Rain Man","release_date":"1988-12-16"}]}`,
+			details:  `{"id":380,"title":"雨人","original_title":"Rain Man","release_date":"1988-12-16","runtime":133}`,
+			duration: 133 * 60_000, want: AutoMatched, calls: 2,
+		},
+		{
+			name:   "missing duration",
+			search: `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":380,"title":"雨人","original_title":"Rain Man","release_date":"1988-12-16"}]}`,
+			want:   AutoNeedsReview, reason: "year_required", calls: 1,
+		},
+		{
+			name:     "runtime conflict",
+			search:   `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":380,"title":"雨人","original_title":"Rain Man","release_date":"1988-12-16"}]}`,
+			details:  `{"id":380,"title":"雨人","original_title":"Rain Man","release_date":"1988-12-16","runtime":133}`,
+			duration: 90 * 60_000, want: AutoNeedsReview, reason: "runtime_conflict", calls: 2,
+		},
+		{
+			name:     "same title candidates",
+			search:   `{"page":1,"total_pages":1,"total_results":2,"results":[{"id":380,"title":"雨人","release_date":"1988-12-16"},{"id":381,"title":"雨人","release_date":"2000-01-01"}]}`,
+			duration: 133 * 60_000, want: AutoNeedsReview, reason: "ambiguous_candidates", calls: 1,
+		},
+		{
+			name:     "incomplete search pages",
+			search:   `{"page":1,"total_pages":2,"total_results":21,"results":[{"id":380,"title":"雨人","release_date":"1988-12-16"}]}`,
+			duration: 133 * 60_000, want: AutoNeedsReview, reason: "year_required", calls: 1,
+		},
+		{
+			name:     "detail title changed",
+			search:   `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":380,"title":"雨人","release_date":"1988-12-16"}]}`,
+			details:  `{"id":380,"title":"雨人2","release_date":"1988-12-16","runtime":133}`,
+			duration: 133 * 60_000, want: AutoNeedsReview, reason: "title_conflict", calls: 2,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+				calls++
+				switch request.URL.Path {
+				case "/3/search/movie":
+					if request.URL.Query().Get("query") != "雨人" || request.URL.Query().Has("primary_release_year") {
+						t.Fatalf("unexpected title lookup %s", request.URL)
+					}
+					return response(200, tc.search), nil
+				case "/3/movie/380":
+					return response(200, tc.details), nil
+				default:
+					t.Fatalf("unexpected outbound request %s", request.URL)
+					return nil, nil
+				}
+			})
+			result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: "雨人", DurationMs: tc.duration, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+			if err != nil || result.State != tc.want || result.Reason != tc.reason || calls != tc.calls {
+				t.Fatalf("state=%s reason=%s calls=%d err=%v", result.State, result.Reason, calls, err)
+			}
+			if tc.want == AutoMatched && (result.Document.Entity.ID != 380 ||
+				!slices.Contains(result.Evidence, "exact_title_without_year") || !slices.Contains(result.Evidence, "runtime_match")) {
+				t.Fatalf("yearless evidence missing: %+v", result)
+			}
+		})
+	}
+}
+
 func TestResolveAutomaticMatchRetriesWithoutYearOnlyAfterEmptySearch(t *testing.T) {
 	for _, tc := range []struct {
 		name, details string
