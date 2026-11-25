@@ -5,23 +5,21 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.ui.FilewayIcon
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSectionHeader
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSectionHeaderStyle
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSpace
-import io.github.kkwans.nasfilebrowser.ui.designsystem.filewayTextStyle
 import kotlinx.coroutines.delay
 
 /** Detail roles follow the native media contract while retaining the app's system font. */
 internal object PhoneDetailType {
-    val title @Composable get() = filewayTextStyle(28, 36, FontWeight.SemiBold)
-    val section @Composable get() = filewayTextStyle(20, 28, FontWeight.Medium)
-    val body @Composable get() = filewayTextStyle(16, 24)
-    val metadata @Composable get() = filewayTextStyle(14, 20)
-    val item @Composable get() = filewayTextStyle(16, 24, FontWeight.Medium)
-    val action @Composable get() = filewayTextStyle(14, 20, FontWeight.Medium)
+    val title @Composable get() = PhoneMediaType.workTitle
+    val section @Composable get() = PhoneMediaType.sectionTitle
+    val body @Composable get() = PhoneMediaType.body
+    val metadata @Composable get() = PhoneMediaType.secondary
+    val item @Composable get() = PhoneMediaType.itemTitle
+    val action @Composable get() = PhoneMediaType.action
 }
 
 @Composable
