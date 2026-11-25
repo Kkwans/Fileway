@@ -7,6 +7,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -50,14 +52,16 @@ internal val LocalTvMediaFocusBinding = staticCompositionLocalOf<TvMediaFocusBin
     val binding = LocalTvMediaFocusBinding.current
     val interactive = LocalTvInteractive.current
     val requester = remember(id, origin) { FocusRequester() }
+    val bringIntoView = remember(id, origin) { BringIntoViewRequester() }
     val requested = binding?.let { it.targetId == id && it.targetOrigin == origin } == true
     LaunchedEffect(requested, interactive) {
         if (requested && interactive) {
             withFrameNanos { }
-            if (runCatching { requester.requestFocus() }.getOrDefault(false)) binding?.onRestored?.invoke()
+            runCatching { bringIntoView.bringIntoView() }
+            if (runCatching { requester.requestFocus() }.getOrDefault(false)) binding.onRestored.invoke()
         }
     }
-    return if (requested) focusRequester(requester) else this
+    return if (requested) focusRequester(requester).bringIntoViewRequester(bringIntoView) else this
 }
 
 internal val LocalMediaColors = staticCompositionLocalOf { FilewayMediaPalette.dark }
