@@ -189,6 +189,18 @@ func TestCompleteFilenameDoesNotInheritUnusedDirectoryAmbiguity(t *testing.T) {
 	}
 }
 
+func TestAnimeReleaseTagsDoNotPolluteTitle(t *testing.T) {
+	const filename = "[CoolComic404][Kimi no Na wa ] [ , ][ - ][MKV].mkv"
+	const directory = "[CoolComic404][Kimi no Na wa.(2016)][1080P][BDrip][CHS,JP][HEVC-10bit FLAC][MKV]"
+	parsed := ParseNameInDirectory(filename, directory)
+	if parsed.Title != "Kimi no Na wa" || len(parsed.Ambiguities) != 0 {
+		t.Fatalf("anime release tags polluted title: %+v", parsed)
+	}
+	if parsed.Directory == nil || parsed.Directory.Title != "Kimi no Na wa" || parsed.Directory.Year == nil || *parsed.Directory.Year != 2016 || len(parsed.Directory.Ambiguities) != 0 {
+		t.Fatalf("anime directory evidence was not normalized: %+v", parsed.Directory)
+	}
+}
+
 func TestAudioLayoutCleanupKeepsNumericTitle(t *testing.T) {
 	film := ParseName("Film.2018.7.1.1080p.mkv")
 	if film.Title != "Film" || strings.Contains(film.Title, "7") {
