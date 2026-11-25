@@ -187,6 +187,7 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 	eligible := make([]MatchCandidate, 0)
 	unfilteredSearch := false
 	for _, query := range queries {
+		unfilteredSearch = false
 		if err := authorize(ctx); err != nil {
 			return AutomaticMatch{}, err
 		}

@@ -186,6 +186,34 @@ func TestResolveAutomaticMatchRetriesWithoutYearOnlyAfterEmptySearch(t *testing.
 	}
 }
 
+func TestResolveAutomaticMatchDoesNotLeakFallbackEvidenceAcrossAliases(t *testing.T) {
+	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/3/search/movie":
+			query := request.URL.Query().Get("query")
+			if query == "Noise" {
+				if request.URL.Query().Get("primary_release_year") != "" {
+					return response(200, `{"page":1,"total_pages":0,"total_results":0,"results":[]}`), nil
+				}
+				return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":99,"title":"Unrelated","release_date":"2020-01-01"}]}`), nil
+			}
+			if query != "Echo" || request.URL.Query().Get("primary_release_year") != "2020" {
+				t.Fatalf("unexpected alias query %s", request.URL)
+			}
+			return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":42,"title":"Echo","release_date":"2020-01-01"}]}`), nil
+		case "/3/movie/42":
+			return response(200, `{"id":42,"title":"Echo","release_date":"2020-01-01"}`), nil
+		default:
+			t.Fatalf("unexpected request %s", request.URL.Path)
+			return nil, nil
+		}
+	})
+	result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: "Noise", Aliases: []string{"Echo"}, Year: 2020, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+	if err != nil || result.State != AutoMatched || result.Document.Entity.ID != 42 || slices.Contains(result.Evidence, "unfiltered_title_search") {
+		t.Fatalf("fallback evidence leaked across aliases: state=%s evidence=%v err=%v", result.State, result.Evidence, err)
+	}
+}
+
 func TestResolveAutomaticMatchUsesAliasAfterUnqualifiedPrimaryResults(t *testing.T) {
 	calls := 0
 	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
