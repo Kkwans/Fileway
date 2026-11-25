@@ -278,8 +278,9 @@ fun TvMediaTopBar(
             contentPadding = PaddingValues(MediaLayout.focusGutter)) {
             items(items, key = { it.id }) { item ->
                 Column {
-                    MediaQuietAction(item.label, { onSelect(item.id) }, Modifier.tvMediaReturnFocus(item.id, "navigation"),
-                        selected = item.id == selectedId)
+                    if (item.id == selectedId) Text(item.label, Modifier.heightIn(min = FilewayMediaSpace.Tv.remoteTarget)
+                        .padding(horizontal = 12.dp, vertical = 12.dp), style = MediaType.action, color = colors.accent)
+                    else MediaQuietAction(item.label, { onSelect(item.id) }, Modifier.tvMediaReturnFocus(item.id, "navigation"))
                     if (item.id == selectedId) Box(Modifier.align(Alignment.CenterHorizontally)
                         .width(28.dp).height(2.dp).background(colors.accent, RoundedCornerShape(2.dp)))
                     else Spacer(Modifier.height(2.dp))

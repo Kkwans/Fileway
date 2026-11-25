@@ -60,7 +60,10 @@ data class TvMediaShelf(
     val items: List<TvMediaCard> = emptyList(),
     val loading: Boolean = false,
     val error: String? = null,
+    val hasMore: Boolean = false,
 )
+
+data class TvMediaCategory(val id: String, val label: String)
 
 data class TvMediaHomeState(
     /** Change on instance/account change; clears only this screen's local UI state. */
@@ -74,6 +77,8 @@ data class TvMediaHomeState(
     val continueError: String? = null,
     val continueHasMore: Boolean = false,
     val shelves: List<TvMediaShelf> = emptyList(),
+    val categories: List<TvMediaCategory> = emptyList(),
+    val selectedCategory: String? = null,
     val loading: Boolean = false,
     val error: String? = null,
     val emptyTitle: String = "片库还没有内容",

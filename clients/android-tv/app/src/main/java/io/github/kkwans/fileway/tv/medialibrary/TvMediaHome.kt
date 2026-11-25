@@ -14,6 +14,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.contentDescription
@@ -41,6 +42,8 @@ fun TvMediaHome(
     onMoreContinue: (() -> Unit)? = null,
     onRetry: (() -> Unit)? = null,
     onRetryShelf: ((String) -> Unit)? = null,
+    onMoreShelf: ((String) -> Unit)? = null,
+    onCategory: ((String) -> Unit)? = null,
     onManageLibrary: (() -> Unit)? = null,
     autoRotate: Boolean = true,
     interactionPaused: Boolean = false,
@@ -64,7 +67,7 @@ fun TvMediaHome(
                     MediaSectionTitle("继续观看")
                     state.continueError?.let { MediaStatus(it, onRetryContinue, compact = true) }
                     BoxWithConstraints(Modifier.fillMaxWidth()) {
-                        val cardWidth = mediaCardWidth(maxWidth, 272.dp, 3)
+                        val cardWidth = mediaCardWidth(maxWidth, 200.dp, 4)
                         LazyRow(Modifier.focusGroup(), contentPadding = MediaLayout.rowPadding,
                             horizontalArrangement = Arrangement.spacedBy(MediaLayout.itemGap)) {
                             items(state.continuing, key = { it.id }) { entry ->
@@ -80,7 +83,11 @@ fun TvMediaHome(
                     if (state.continueLoading && state.continuing.isEmpty()) MediaLoadingStatus("正在读取观看进度…", compact = true)
                 }
             }
-            items(shelves, key = { "shelf:${it.id}" }) { shelf -> MediaShelf(shelf, imageLoader, onItem, onRetryShelf) }
+            items(shelves, key = { "shelf:${it.id}" }) { shelf ->
+                if (shelf.id == "catalog") MediaCatalogShelf(shelf, state.categories, state.selectedCategory,
+                    imageLoader, onItem, onRetryShelf?.let { { it(shelf.id) } }, onMoreShelf?.let { { it(shelf.id) } }, onCategory)
+                else MediaShelf(shelf, imageLoader, onItem, onRetryShelf)
+            }
             if (state.loading && !hasContent) item(key = "loading") { MediaLoadingStatus("正在加载片库…") }
             if (!hasContent && !state.loading && state.error == null) item(key = "empty") {
                 Column(Modifier.fillMaxWidth().padding(horizontal = MediaLayout.pageInset, vertical = 64.dp),
@@ -92,6 +99,58 @@ fun TvMediaHome(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun MediaCatalogShelf(
+    shelf: TvMediaShelf,
+    categories: List<TvMediaCategory>,
+    selectedCategory: String?,
+    imageLoader: ImageLoader,
+    onItem: (String) -> Unit,
+    onRetry: (() -> Unit)?,
+    onMore: (() -> Unit)?,
+    onCategory: ((String) -> Unit)?,
+) {
+    val colors = LocalMediaColors.current
+    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        MediaSectionTitle("我的片库")
+        if (categories.isNotEmpty() && onCategory != null) LazyRow(Modifier.fillMaxWidth().focusGroup(),
+            contentPadding = MediaLayout.rowPadding, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            items(categories, key = { it.id }) { category ->
+                val active = category.id == selectedCategory
+                Column {
+                    MediaSurface({ onCategory(category.id) }, Modifier.heightIn(min = 48.dp), selected = active,
+                        container = Color.Transparent, selectionContainer = false,
+                        contentColor = if (active) colors.accent else colors.secondary) {
+                        Text(category.label, Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
+                            style = MediaType.action, maxLines = 1)
+                    }
+                    Box(Modifier.align(Alignment.CenterHorizontally).width(if (active) 24.dp else 0.dp).height(2.dp)
+                        .background(if (active) colors.accent else Color.Transparent))
+                }
+            }
+        }
+        shelf.error?.let { MediaStatus(it, onRetry, compact = true) }
+        if (shelf.items.isEmpty() && shelf.loading) MediaLoadingStatus("正在加载片库…", compact = true)
+        if (shelf.items.isEmpty() && !shelf.loading && shelf.error == null) {
+            Text("这个分类还没有可见内容。", Modifier.padding(horizontal = MediaLayout.pageInset),
+                style = MediaType.body, color = colors.secondary)
+        }
+        if (shelf.items.isNotEmpty()) BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val width = mediaCardWidth(maxWidth, 128.dp, 6)
+            val columns = ((maxWidth - MediaLayout.pageInset * 2 + MediaLayout.itemGap) / (width + MediaLayout.itemGap))
+                .toInt().coerceAtLeast(1)
+            shelf.items.chunked(columns).forEach { row ->
+                Row(Modifier.fillMaxWidth().padding(horizontal = MediaLayout.pageInset).focusGroup(),
+                    horizontalArrangement = Arrangement.spacedBy(MediaLayout.itemGap)) {
+                    row.forEach { item -> MediaPoster(item, imageLoader, { onItem(item.id) }, width = width) }
+                }
+            }
+        }
+        if (shelf.hasMore && onMore != null) MediaAction(if (shelf.loading) "正在加载…" else "加载更多影视",
+            onMore, Modifier.padding(horizontal = MediaLayout.pageInset), enabled = !shelf.loading)
     }
 }
 

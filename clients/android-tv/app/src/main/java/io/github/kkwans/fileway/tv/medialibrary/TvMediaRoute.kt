@@ -273,7 +273,6 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                     } else {
                     val featured = route.home?.hero?.items.orEmpty()
                     val entries = route.catalog.map { tvCard(it, art) }
-                    val title = when (route.filter) { "movie" -> "电影"; "series" -> "剧集"; "video" -> "视频"; else -> "全部影视" }
                     val homeError = route.homeError ?: when (route.home?.state) {
                         MediaCatalogHomeState.SOURCE_OFFLINE -> "来源暂时离线，仍可查看已收录的资料。"
                         MediaCatalogHomeState.RESTRICTED -> "当前账号没有可见的影视内容。"
@@ -291,7 +290,12 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             },
                             continueLoading = watching.loading, continueError = watching.error, continueHasMore = watching.hasMore,
                             shelves = if (route.supported && route.home?.state != MediaCatalogHomeState.NO_LIBRARIES)
-                                listOf(TvMediaShelf("catalog", title, entries, route.catalogLoading, route.catalogError)) else emptyList(),
+                                listOf(TvMediaShelf("catalog", "我的片库", entries, route.catalogLoading, route.catalogError,
+                                    hasMore = route.catalogCursor != null)) else emptyList(),
+                            categories = if (route.supported && route.home?.state != MediaCatalogHomeState.NO_LIBRARIES)
+                                listOf(TvMediaCategory("all", "全部"), TvMediaCategory("movie", "电影"),
+                                    TvMediaCategory("series", "剧集"), TvMediaCategory("video", "视频")) else emptyList(),
+                            selectedCategory = route.filter,
                             loading = route.checking, error = homeError,
                             emptyTitle = if (route.home?.state == MediaCatalogHomeState.NO_LIBRARIES) "还没有媒体库" else "片库还没有内容",
                             emptyMessage = "请在手机端添加来源并完成扫描。"),
@@ -304,32 +308,24 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             onRetryContinue = watch::retry, onMoreContinue = { watch.load(reset = false) }, onPlay = { id ->
                                 (route.catalog + featured).firstOrNull { tvMediaKey(it.ref) == id }?.let { route.openSources(it.ref) }
                             }, onRetry = route::refreshHome, onRetryShelf = { route.retryCatalog() },
+                            onMoreShelf = { route.loadCatalog(false) }, onCategory = { filter = it; route.selectFilter(it) },
                             autoRotate = false, interactionPaused = !interactive, scrollState = homeScroll,
                             navigation = {
-                                val navigation = listOf(TvMediaNavigationItem("files", "文件")) +
-                                    if (route.supported && route.home?.state != MediaCatalogHomeState.NO_LIBRARIES)
-                                        listOf(TvMediaNavigationItem("all", "全部"), TvMediaNavigationItem("movie", "电影"),
-                                            TvMediaNavigationItem("series", "剧集"), TvMediaNavigationItem("video", "视频")) +
-                                            if (route.home?.capabilities?.get("collections") == true)
-                                                listOf(TvMediaNavigationItem("collections", "合集")) else emptyList()
-                                    else emptyList()
-                                TvMediaTopBar(navigation, route.filter, { id ->
+                                val navigation = listOf(TvMediaNavigationItem("media", "影视"), TvMediaNavigationItem("files", "文件")) +
+                                    if (route.home?.capabilities?.get("collections") == true)
+                                        listOf(TvMediaNavigationItem("collections", "合集")) else emptyList()
+                                TvMediaTopBar(navigation, "media", { id ->
                                     when (id) {
                                         "files" -> onExit()
                                         "collections" -> {
                                             route.editSearch(""); route.chooseSearchMode(TvMediaSearchMode.COLLECTIONS)
                                             searching = true; homeAnchor = "search"; homeOrigin = "navigation"
                                         }
-                                        else -> { filter = id; route.selectFilter(id) }
                                     }
                                 }, onSearch = if (route.home?.capabilities?.get("search") == true) ({
                                     route.chooseSearchMode(TvMediaSearchMode.WORKS)
                                     searching = true; homeAnchor = "search"; homeOrigin = "navigation"
                                 }) else null)
-                                if (route.catalogCursor != null) Row(Modifier.fillMaxWidth().padding(horizontal = 40.dp)) {
-                                    MediaAction(if (route.catalogLoading) "正在加载…" else "加载更多影视",
-                                        { route.loadCatalog(false) }, enabled = !route.catalogLoading)
-                                }
                             })
                     }
                     }
