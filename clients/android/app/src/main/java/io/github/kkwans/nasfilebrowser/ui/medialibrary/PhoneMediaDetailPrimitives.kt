@@ -7,21 +7,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import io.github.kkwans.nasfilebrowser.ui.FilewayIcon
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSectionHeader
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSectionHeaderStyle
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSpace
+import io.github.kkwans.nasfilebrowser.ui.designsystem.filewayTextStyle
 import kotlinx.coroutines.delay
 
 /** Detail roles follow the native media contract while retaining the app's system font. */
 internal object PhoneDetailType {
-    val title @Composable get() = MaterialTheme.typography.displaySmall
-    val section @Composable get() = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Medium)
-    val body @Composable get() = MaterialTheme.typography.bodyLarge.copy(fontSize = 16.sp, lineHeight = 24.sp)
-    val metadata @Composable get() = MaterialTheme.typography.bodyMedium.copy(fontSize = 14.sp, lineHeight = 20.sp)
-    val item @Composable get() = body.copy(fontWeight = FontWeight.Medium)
-    val action @Composable get() = metadata.copy(fontWeight = FontWeight.Medium)
+    val title @Composable get() = filewayTextStyle(28, 36, FontWeight.SemiBold)
+    val section @Composable get() = filewayTextStyle(20, 28, FontWeight.Medium)
+    val body @Composable get() = filewayTextStyle(16, 24)
+    val metadata @Composable get() = filewayTextStyle(14, 20)
+    val item @Composable get() = filewayTextStyle(16, 24, FontWeight.Medium)
+    val action @Composable get() = filewayTextStyle(14, 20, FontWeight.Medium)
 }
 
 @Composable

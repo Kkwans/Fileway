@@ -24,6 +24,9 @@ import io.github.kkwans.nasfilebrowser.data.MediaLibraryRepository
 import io.github.kkwans.nasfilebrowser.data.PreviewLease
 import io.github.kkwans.nasfilebrowser.ui.FilewayIcon
 import io.github.kkwans.nasfilebrowser.ui.FilewayIconButton
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSectionHeader
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSectionHeaderStyle
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSpace
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusBanner
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusKind
 import kotlinx.coroutines.delay
@@ -90,10 +93,17 @@ internal val LocalMediaArtworkBinding = staticCompositionLocalOf<MediaArtworkBin
 
 @Composable internal fun MediaHeading(title: String, modifier: Modifier = Modifier,
     actionLabel: String? = null, onAction: (() -> Unit)? = null) {
-    Row(modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
-        Text(title, Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+    FilewayMediaSectionHeader(
+        title = title,
+        modifier = modifier,
+        style = FilewayMediaSectionHeaderStyle(
+            titleStyle = PhoneDetailType.section,
+            titleColor = MaterialTheme.colorScheme.onBackground,
+            minHeight = FilewayMediaSpace.Phone.touchTarget,
+        ),
+    ) {
         if (actionLabel != null && onAction != null) TextButton(onClick = onAction,
-            modifier = Modifier.heightIn(min = 48.dp)) { Text(actionLabel) }
+            modifier = Modifier.heightIn(min = FilewayMediaSpace.Phone.touchTarget)) { Text(actionLabel) }
     }
 }
 
