@@ -117,7 +117,7 @@ var technicalNameRules = []technicalRule{
 	{"frame_rate", regexp.MustCompile(`(?i)\b[0-9]{2,3}fps\b`)},
 	{"version", regexp.MustCompile(`(?i)\bV[0-9]+\b`)},
 	{"language", regexp.MustCompile(`(?i)Mandarin&English|English&Mandarin|CHS[ ._-]?ENG|\b(?:English|Mandarin|CHS|JP|CN|USA|JPN|GER|CEE)\b`)},
-	{"subtitle", regexp.MustCompile(`国英双语|中英双字|中英字幕|中英特效|特效字幕|国语中字|粤语中字|日语中字|法语中字|英语中字|国日粤三语|泰国粤三语|中日双字|简繁双语|简繁字幕|双语中字|中文字幕|内嵌特效中简|特效`)},
+	{"subtitle", regexp.MustCompile(`国英双语|中英双字|中英字幕|中英特效|特效字幕|国语中字|粤语中字|日语中字|韩语中字|韓語中字|法语中字|英语中字|国日粤三语|泰国粤三语|中日双字|简繁双语|简繁字幕|双语中字|中文字幕|内嵌特效中简|特效`)},
 	{"release_noise", regexp.MustCompile(`(?i)\b[0-9]{1,3}(?:st|nd|rd|th)[ ._\-]+anniversary\b|无水印`)},
 	{"release_group", regexp.MustCompile(`(?i)(?:\b(?:MNHD-FRDS|RARBG|HDBWEB|DreamHD|ParkHD|BBQDDQ|CTRLTV|FRDS|MTeam|WiKi|PTer|HDC|HDS|D-Z0N3|DiaosMan|SSDSSE|NukeHD|SONYHD|882FX|taobaobt|Mp4Ba(?:Fans)?|FFans|KOOK|UUMp4|D2Mp4|99Mp4|4KHDR|52movieba|TAG|CHD|MiniFHD)\b|人人影视|BT世界网|抠脚)`)},
 	{"market_tag", regexp.MustCompile(`(?i)\[(?:泰国|港版|日本|美国|韩国|剧情|喜剧|动作|爱情|科幻|悬疑|犯罪)(?:[ ._-]+(?:泰国|港版|日本|美国|韩国|剧情|喜剧|动作|爱情|科幻|悬疑|犯罪))*\]`)},

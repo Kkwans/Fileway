@@ -246,6 +246,7 @@ func TestParseNameCleansReleaseAndSubtitleNoise(t *testing.T) {
 		{"福利电影989pa com-盲井 无删减版 Blind Shaft 2003 HD1080P 无水印.mkv", "盲井 Blind Shaft", 2003},
 		{"魅力社989pa com-盲山 完整版 Blind Mountain 2007 HD1080P.mkv", "盲山 Blind Mountain", 2007},
 		{"黄海(蓝光 ) The Yellow Sea 2010.mkv", "黄海 The Yellow Sea", 2010},
+		{"老男孩 2003 韩语中字.mkv", "老男孩", 2003},
 	} {
 		parsed := ParseName(tc.filename)
 		if parsed.Title != tc.title || parsed.Year == nil || *parsed.Year != tc.year || len(parsed.Ambiguities) != 0 {
