@@ -9,6 +9,7 @@ import android.view.Display
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.focus.FocusRequester
@@ -59,6 +60,14 @@ internal fun TvSettingsScreen(model: TvModel, onBack: () -> Unit) {
     val interactive=LocalTvInteractive.current
     var section by remember { mutableStateOf(TvSettingsSection.INTERFACE) }
     var cacheInput by remember { mutableStateOf((cache.limitBytes/1048576).toString()) }
+    val cacheLimitMib = cacheInput.toLongOrNull()
+    val cacheLimitValid = cacheLimitMib != null && cacheLimitMib in TvVideoCache.MIN_MIB..TvVideoCache.MAX_MIB
+    val cacheLimitError = when {
+        cacheInput.isBlank() -> "请输入缓存容量"
+        cacheLimitMib == null -> "请输入有效数字"
+        !cacheLimitValid -> "容量需在 ${TvVideoCache.MIN_MIB}–${TvVideoCache.MAX_MIB} MB 之间"
+        else -> null
+    }
     val body=remember { FocusRequester() }
     val navigation=remember { TvSettingsSection.entries.associateWith { FocusRequester() } }
     val scope=rememberCoroutineScope()
@@ -154,8 +163,8 @@ internal fun TvSettingsScreen(model: TvModel, onBack: () -> Unit) {
                         TvButton("浅色",{model.setDark(false)},selected=!state.dark)
                     } }
                     item { TvSectionTitle("文件布局") }
-                    item { Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                        (2..6).forEach { columns -> TvButton("${columns}列",{model.setColumns(columns)},Modifier.weight(1f),selected=state.gridColumns==columns) }
+                    item { LazyRow(Modifier.fillMaxWidth().focusGroup(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items((2..6).toList()) { columns -> TvButton("${columns}列",{model.setColumns(columns)},selected=state.gridColumns==columns) }
                     } }
                     item { Row(horizontalArrangement=Arrangement.spacedBy(8.dp),verticalAlignment=Alignment.CenterVertically) {
                         Text("遥控器详情长按 ${state.detailsHoldMillis / 1000.0} 秒",Modifier.weight(1f),style=MaterialTheme.typography.bodyLarge)
@@ -193,10 +202,10 @@ internal fun TvSettingsScreen(model: TvModel, onBack: () -> Unit) {
                 TvSettingsSection.CACHE -> {
                     item { TvSectionTitle("视频预缓冲") }
                     item { Text("已使用 ${tvSize(cache.usedBytes)} / ${tvSize(cache.limitBytes)}",style=MaterialTheme.typography.bodyLarge) }
-                    item { Row(horizontalArrangement=Arrangement.spacedBy(6.dp)) {
-                        listOf(500,1024,2048,4096).forEach { mib -> TvButton(if(mib<1024)"500 MB" else "${mib/1024} GB",{
+                    item { LazyRow(Modifier.fillMaxWidth().focusGroup(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        items(listOf(500,1024,2048,4096)) { mib -> TvButton(if(mib<1024)"500 MB" else "${mib/1024} GB",{
                             cacheOperation { model.media.cache.setLimitConfirmed(mib.toLong()) }
-                        },Modifier.weight(1f),selected=cache.limitBytes==mib*1048576L) }
+                        },selected=cache.limitBytes==mib*1048576L) }
                     } }
                     cache.retention?.let { retention ->
                         item { TvSectionTitle("保留时间") }
@@ -212,9 +221,12 @@ internal fun TvSettingsScreen(model: TvModel, onBack: () -> Unit) {
                         }
                     }
                     item { TvField("自定义容量（MB）",cacheInput,{cacheInput=it},options=KeyboardOptions(keyboardType=KeyboardType.Number)) }
-                    item { TvButton("应用容量",{cacheInput.toLongOrNull()?.takeIf { it in TvVideoCache.MIN_MIB..TvVideoCache.MAX_MIB }?.let { mib ->
+                    cacheLimitError?.let { message -> item {
+                        Text(message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                    } }
+                    item { TvButton("应用容量",{cacheLimitMib?.let { mib ->
                         cacheOperation { model.media.cache.setLimitConfirmed(mib) }
-                    }},enabled=cacheInput.toLongOrNull()?.let { it in TvVideoCache.MIN_MIB..TvVideoCache.MAX_MIB }==true) }
+                    }},enabled=cacheLimitValid) }
                     item {
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             TvButton("清理视频缓存", { clearConfirm = true }, enabled = !cache.clearing)
