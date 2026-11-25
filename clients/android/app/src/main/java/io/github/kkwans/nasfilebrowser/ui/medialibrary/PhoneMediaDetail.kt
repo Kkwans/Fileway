@@ -22,6 +22,8 @@ import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.data.MediaTechnicalFormatter
 import io.github.kkwans.nasfilebrowser.ui.FilewayIcon
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMenuItem
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaTechnicalPanel
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaTechnicalPanelStyle
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import io.github.kkwans.fileway.design.R as Art
@@ -74,22 +76,19 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
                     val badges = MediaTechnicalFormatter.badges(technical)
                     val lines = MediaTechnicalFormatter.lines(technical)
                     if (badges.isNotEmpty() || lines.isNotEmpty()) item(key = "technical") {
-                        Column(Modifier.padding(horizontal = inset), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            PhoneDetailHeading("技术信息")
-                            if (badges.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                badges.forEach { label ->
-                                    Surface(shape = MaterialTheme.shapes.small,
-                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .38f)) {
-                                        Text(label, Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                            style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    }
-                                }
-                            }
-                            lines.forEach { line ->
-                                Text(line, style = PhoneDetailType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                        }
+                        FilewayMediaTechnicalPanel(
+                            title = "技术信息", badges = badges, lines = lines,
+                            modifier = Modifier.padding(horizontal = inset),
+                            style = FilewayMediaTechnicalPanelStyle(
+                                titleStyle = PhoneDetailType.section,
+                                badgeStyle = PhoneDetailType.metadata,
+                                lineStyle = PhoneDetailType.body,
+                                titleColor = MaterialTheme.colorScheme.onBackground,
+                                badgeColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                badgeBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .38f),
+                                lineColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                        )
                     }
                 }
                 if (state.canChangeUserState) item(key = "user-state") {

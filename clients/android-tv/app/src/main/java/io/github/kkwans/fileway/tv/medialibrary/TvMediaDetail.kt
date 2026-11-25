@@ -32,6 +32,8 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.Text
 import coil3.ImageLoader
 import io.github.kkwans.nasfilebrowser.data.MediaTechnicalFormatter
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaTechnicalPanel
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaTechnicalPanelStyle
 import io.github.kkwans.fileway.design.R as Art
 import io.github.kkwans.fileway.tv.LocalTvInteractive
 import io.github.kkwans.fileway.tv.TvRemoteDialogKeys
@@ -163,17 +165,22 @@ fun TvMediaDetail(
             val badges = MediaTechnicalFormatter.badges(technical)
             val lines = MediaTechnicalFormatter.lines(technical)
             if (badges.isNotEmpty() || lines.isNotEmpty()) item(key = "technical") {
-                Column(Modifier.padding(horizontal = MediaLayout.pageInset), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    MediaSectionTitle("技术信息")
-                    if (badges.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        badges.forEach { label ->
-                            Text(label, Modifier.clip(MediaLayout.shape).background(colors.raised)
-                                .padding(horizontal = 16.dp, vertical = 10.dp), style = MediaType.secondary, color = colors.secondary)
-                        }
-                    }
-                    lines.forEach { line -> Text(line, style = MediaType.body, color = colors.secondary) }
-                }
+                FilewayMediaTechnicalPanel(
+                    title = "技术信息", badges = badges, lines = lines,
+                    modifier = Modifier.padding(horizontal = MediaLayout.pageInset),
+                    style = FilewayMediaTechnicalPanelStyle(
+                        titleStyle = MediaType.sectionTitle,
+                        badgeStyle = MediaType.badge,
+                        lineStyle = MediaType.body,
+                        titleColor = colors.text,
+                        badgeColor = colors.secondary,
+                        badgeBackground = colors.raised,
+                        lineColor = colors.secondary,
+                        badgeGap = MediaLayout.itemGap,
+                        badgeHorizontalPadding = 16.dp,
+                        badgeVerticalPadding = 10.dp,
+                    ),
+                )
             }
         }
         if (state.seasons.isNotEmpty() || state.episodes.isNotEmpty() || state.episodesLoading || state.episodesError != null) item(key = "episodes") {
