@@ -23,6 +23,7 @@ type mediaIdentificationFile struct {
 	ProviderIDs     []mediametadata.NameProviderID `json:"providerIds,omitempty"`
 	SeasonEpisodes  []mediametadata.SeasonEpisode  `json:"seasonEpisodes,omitempty"`
 	Absolute        []int                          `json:"absoluteEpisodes,omitempty"`
+	Parts           []int                          `json:"parts,omitempty"`
 	DateHint        string                         `json:"dateHint,omitempty"`
 	State           string                         `json:"state"`
 	Issues          []string                       `json:"issues,omitempty"`
@@ -129,7 +130,7 @@ func identifyCatalogItem(ctx context.Context, d *data, library *medialibrary.Lib
 			name := evidence.Name
 			file := &mediaIdentificationFile{
 				Filename: name.OriginalName, ParsedTitle: name.Title, Year: name.Year, TypeHint: name.TypeHint,
-				ProviderIDs: name.ProviderIDs, SeasonEpisodes: name.SeasonEpisodes, Absolute: name.AbsoluteEpisodes,
+				ProviderIDs: name.ProviderIDs, SeasonEpisodes: name.SeasonEpisodes, Absolute: name.AbsoluteEpisodes, Parts: name.Parts,
 				DateHint: name.DateHint, State: evidence.MatchState, Issues: evidence.Issues,
 				Ambiguities: name.Ambiguities, Revision: evidence.Revision, Technical: evidence.Technical,
 			}

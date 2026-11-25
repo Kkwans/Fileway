@@ -641,7 +641,8 @@ func (v *catalogView) projectCard(ctx context.Context, library *medialibrary.Lib
 			}
 			if err == nil && evidence.MatchState == "needs_review" {
 				for _, issue := range evidence.Name.Ambiguities {
-					if issue != "missing_title" && issue != "combined_episode_file" {
+					if issue != "missing_title" && issue != "combined_episode_file" &&
+						!(issue == "part_requires_confirmation" && len(evidence.Name.Parts) > 0) {
 						card.MatchState = "needs_review"
 						break
 					}

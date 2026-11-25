@@ -227,6 +227,7 @@ func automaticMatchInput(item mediaIdentificationResponse, allowTitleMatch bool)
 	}
 	if file := item.File; file != nil {
 		input.Title = strings.TrimSpace(file.ParsedTitle)
+		input.Parts = append([]int(nil), file.Parts...)
 		input.Ambiguities = append(input.Ambiguities, file.Ambiguities...)
 		if file.TypeHint == "episode" {
 			input.Ambiguities = append(input.Ambiguities, "episode_requires_parent")

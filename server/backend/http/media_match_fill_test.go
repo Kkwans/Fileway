@@ -127,6 +127,42 @@ func TestMediaIdentificationUsesDirectoryYearWithoutOverwritingFilename(t *testi
 	}
 }
 
+func TestAutomaticMatchInputCarriesNumericMultipartEvidence(t *testing.T) {
+	year := 1997
+	item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{
+		ParsedTitle: "Chang", Year: &year, Parts: []int{1}, Ambiguities: []string{"part_requires_confirmation"},
+	}}
+	input := automaticMatchInput(item, true)
+	if len(input.Parts) != 1 || input.Parts[0] != 1 || len(input.Ambiguities) != 1 || input.Ambiguities[0] != "part_requires_confirmation" {
+		t.Fatalf("numeric multipart evidence lost: %+v", input)
+	}
+}
+
+func TestMediaIdentificationKeepsMultipartEvidenceWithoutBlockingIdentity(t *testing.T) {
+	f := newMediaScanHTTPFixture(t)
+	catalogFixtureWrite(t, f, "Chang 1997 Dvdrip Xvid Ac3.5.1Ch Cd1-Waf.avi", "owned video")
+	library, source := f.libraryAndSource(t)
+	scanFixtureLibrary(t, f, library, source, "multipart-identity-scan")
+	items, _ := fixtureItems(t, f, f.owner.ID, library.ID, "")
+	if len(items) != 1 {
+		t.Fatalf("fixture item count: %d", len(items))
+	}
+	base := "/api/media-library/v1/libraries/" + library.ID + "/items/" + items[0].ID
+	response := f.call(t, f.owner.ID, http.MethodGet, base+"/identification", nil)
+	var identified mediaIdentificationResponse
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &identified) != nil || identified.File == nil {
+		t.Fatalf("identification: %d %s", response.Code, response.Body)
+	}
+	if identified.MatchState != "unmatched" || len(identified.File.Parts) != 1 || identified.File.Parts[0] != 1 ||
+		len(identified.File.Ambiguities) != 1 || identified.File.Ambiguities[0] != "part_requires_confirmation" {
+		t.Fatalf("multipart identity evidence was not retained: item=%+v file=%+v", identified, identified.File)
+	}
+	input := automaticMatchInput(identified, true)
+	if len(input.Parts) != 1 || input.Parts[0] != 1 {
+		t.Fatalf("identification lost numeric part: %+v", input)
+	}
+}
+
 func TestMediaMatchFillFiltersByProbedDurationBeforeProviderTraffic(t *testing.T) {
 	f := newMediaScanHTTPFixture(t)
 	catalogFixtureWrite(t, f, "Short [tmdb-movie-42].mkv", "owned video")

@@ -30,6 +30,7 @@ type AutomaticMatchInput struct {
 	FallbackTitle   string
 	FallbackYear    int
 	DurationMs      int64
+	Parts           []int
 	Region          string
 	Identifiers     []WorkIdentifier
 	Ambiguities     []string
@@ -70,7 +71,13 @@ func (client *TMDBClient) ResolveAutomaticMatch(ctx context.Context, input Autom
 		return review("incomplete_evidence")
 	}
 	for _, ambiguity := range input.Ambiguities {
-		if ambiguity != "missing_title" {
+		switch ambiguity {
+		case "missing_title":
+		case "part_requires_confirmation":
+			if input.Kind != Movie || len(input.Parts) == 0 {
+				return review("ambiguous_evidence")
+			}
+		default:
 			return review("ambiguous_evidence")
 		}
 	}
@@ -134,7 +141,13 @@ func (client *TMDBClient) ResolveAutomaticMatch(ctx context.Context, input Autom
 				result.Evidence = append(result.Evidence, "embedded_title_match")
 			}
 		}
+		if result.State == AutoMatched && len(input.Parts) > 0 {
+			result.Evidence = append(result.Evidence, "multipart_identity_match")
+		}
 		if result.State == AutoNoMatch || result.Reason == "title_year_conflict" {
+			if len(input.Parts) != 0 {
+				return result, nil
+			}
 			if recovered, handled, err := client.resolveIncompleteMovieTitle(ctx, input, language, authorize); err != nil {
 				return AutomaticMatch{}, err
 			} else if handled {
@@ -207,6 +220,9 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 	if title == "" {
 		return review("title_required")
 	}
+	if len(input.Parts) > 0 && input.Year <= 0 {
+		return review("multipart_identity_requires_year")
+	}
 	queries := []string{title}
 	for _, alias := range input.Aliases {
 		alias = strings.TrimSpace(alias)
@@ -215,16 +231,16 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 		}
 	}
 	fetchParts := []Part{Credits, ExternalIDs}
-	alternativeSearch := alternativeTitleSearchTitle(title)
+	alternativeSearch := alternativeTitleSearchTitle(title) || len(input.Parts) > 0 && romanizedTitle(title)
 	for _, query := range queries {
-		if alternativeTitleSearchTitle(query) {
+		if alternativeTitleSearchTitle(query) || len(input.Parts) > 0 && romanizedTitle(query) {
 			fetchParts = append(fetchParts, AlternativeTitles)
 			break
 		}
 	}
 	var documents []Document
 	var ranked []MatchCandidate
-	var yearCandidates, directCandidates []MatchCandidate
+	var yearCandidates, directCandidates, adultYearCandidates []MatchCandidate
 	eligible := make([]MatchCandidate, 0)
 	unfilteredSearch := false
 	searchComplete := true
@@ -293,15 +309,22 @@ queries:
 		documents = append(documents, page.Items...)
 		ranked = RankCandidates(MatchHint{Kind: Movie, Title: title, Year: input.Year}, documents)
 		for _, candidate := range ranked {
-			if !matchesAnyTitle(candidate, []string{title}) {
+			direct := matchesAnyTitle(candidate, []string{title})
+			if candidate.Year != input.Year {
 				continue
 			}
-			directCandidates = append(directCandidates, candidate)
-			if candidate.Year == input.Year {
+			if direct {
+				directCandidates = append(directCandidates, candidate)
 				eligible = append(eligible, candidate)
+			} else if alternativeSearch {
+				adultYearCandidates = append(adultYearCandidates, candidate)
 			}
 		}
 		adultFallback = len(directCandidates) != 0
+		if len(eligible) == 0 && len(directCandidates) == 0 && alternativeSearch && len(adultYearCandidates) != 0 {
+			eligible = append(eligible, adultYearCandidates[:min(len(adultYearCandidates), maxAutomaticTitleQueries)]...)
+			adultFallback = true
+		}
 	}
 	if len(eligible) == 0 && len(directCandidates) == 0 && input.Year > 0 && alternativeSearch && len(yearCandidates) != 0 {
 		eligible = append(eligible, yearCandidates[:min(len(yearCandidates), maxAutomaticTitleQueries)]...)
@@ -344,7 +367,7 @@ queries:
 	runtimeDisambiguated := false
 	var closestRuntimeDifference int64
 	if len(eligible) > 1 {
-		if input.DurationMs <= 0 {
+		if input.DurationMs <= 0 && len(input.Parts) == 0 {
 			return review("ambiguous_candidates")
 		}
 		type compatibleCandidate struct {
@@ -376,14 +399,22 @@ queries:
 			if year := projected.Item.Fields["year"]; input.Year > 0 && len(year) != 0 && year[0] != strconv.Itoa(input.Year) {
 				continue
 			}
-			runtime := documentRuntimeMinutes(detail)
-			if runtime == 0 {
-				continue
+			var difference int64
+			if len(input.Parts) == 0 {
+				runtime := documentRuntimeMinutes(detail)
+				if runtime == 0 {
+					continue
+				}
+				difference = runtimeDifferenceMs(input.DurationMs, runtime)
 			}
 			compatible = append(compatible, compatibleCandidate{candidate: candidate, document: detail, projection: projected,
-				difference: runtimeDifferenceMs(input.DurationMs, runtime)})
+				difference: difference})
 		}
-		if len(compatible) > 1 {
+		if len(input.Parts) > 0 {
+			if len(compatible) > 1 {
+				return review("ambiguous_candidates")
+			}
+		} else if len(compatible) > 1 {
 			best := compatible[0]
 			tied := false
 			for _, candidate := range compatible[1:] {
@@ -400,11 +431,14 @@ queries:
 			compatible = []compatibleCandidate{best}
 		}
 		if len(compatible) == 0 {
+			if len(input.Parts) > 0 {
+				return review("title_year_conflict")
+			}
 			return review("runtime_unknown")
 		}
 		candidate = compatible[0].candidate
 		document, projection = compatible[0].document, compatible[0].projection
-		runtimeDisambiguated = true
+		runtimeDisambiguated = len(input.Parts) == 0
 		closestRuntimeDifference = compatible[0].difference
 	} else {
 		if len(eligible) != 1 {
@@ -459,7 +493,7 @@ queries:
 			yearDifference = -yearDifference
 		}
 		runtime := documentRuntimeMinutes(document)
-		if providerYear == 0 || yearDifference != 1 || input.DurationMs <= 0 || runtime == 0 || !runtimeMatches(input.DurationMs, runtime) {
+		if providerYear == 0 || yearDifference != 1 || len(input.Parts) > 0 || input.DurationMs <= 0 || runtime == 0 || !runtimeMatches(input.DurationMs, runtime) {
 			return review("title_year_conflict")
 		}
 		yearDifferenceVerified = true
@@ -557,8 +591,12 @@ func alternativeTitleMatches(document Document, query string) bool {
 }
 
 func alternativeTitleSearchTitle(title string) bool {
-	words := strings.Fields(title)
-	if len(words) < 2 {
+	return len(strings.Fields(title)) >= 2 && romanizedTitle(title)
+}
+
+func romanizedTitle(title string) bool {
+	title = strings.TrimSpace(title)
+	if title == "" {
 		return false
 	}
 	for _, r := range title {

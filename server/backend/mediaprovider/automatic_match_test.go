@@ -151,6 +151,101 @@ func TestResolveAutomaticMatchTitleEvidenceIsConservative(t *testing.T) {
 	}
 }
 
+func TestResolveAutomaticMatchAllowsUniqueNumericMultipartMovieIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		parts  []int
+		want   AutomaticMatchState
+		reason string
+		calls  int
+	}{
+		{"numeric disc marker", []int{1}, AutoMatched, "", 2},
+		{"unnumbered part label", nil, AutoNeedsReview, "ambiguous_evidence", 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+				calls++
+				switch request.URL.Path {
+				case "/3/search/movie":
+					return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":226875,"title":"娼","original_title":"Chang","release_date":"1997-09-13"}]}`), nil
+				case "/3/movie/226875":
+					return response(200, `{"id":226875,"title":"娼","original_title":"Chang","release_date":"1997-09-13","runtime":105}`), nil
+				default:
+					t.Fatalf("unexpected outbound request %s", request.URL.Path)
+					return nil, nil
+				}
+			})
+			result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{
+				Kind: Movie, Title: "Chang", Year: 1997, DurationMs: 51 * 60_000,
+				Ambiguities: []string{"part_requires_confirmation"}, Parts: tc.parts, AllowTitleMatch: true,
+			}, "zh-CN", func(context.Context) error { return nil })
+			if err != nil || result.State != tc.want || result.Reason != tc.reason || calls != tc.calls {
+				t.Fatalf("state=%s reason=%s calls=%d err=%v", result.State, result.Reason, calls, err)
+			}
+			if tc.want == AutoMatched && (result.Document.Entity.ID != 226875 || !slices.Contains(result.Evidence, "multipart_identity_match")) {
+				t.Fatalf("multipart identity evidence missing: %+v", result)
+			}
+		})
+	}
+}
+
+func TestResolveAutomaticMatchDoesNotUsePartialRuntimeToChooseMultipartCandidate(t *testing.T) {
+	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/3/search/movie":
+			return response(200, `{"page":1,"total_pages":1,"total_results":2,"results":[{"id":42,"title":"回声","release_date":"2020-09-01"},{"id":43,"title":"回声","release_date":"2020-09-01"}]}`), nil
+		case "/3/movie/42", "/3/movie/43":
+			id := "42"
+			if request.URL.Path == "/3/movie/43" {
+				id = "43"
+			}
+			return response(200, `{"id":`+id+`,"title":"回声","release_date":"2020-09-01","runtime":105}`), nil
+		default:
+			t.Fatalf("unexpected outbound request %s", request.URL.Path)
+			return nil, nil
+		}
+	})
+	result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{
+		Kind: Movie, Title: "回声", Year: 2020, DurationMs: 51 * 60_000,
+		Ambiguities: []string{"part_requires_confirmation"}, Parts: []int{1}, AllowTitleMatch: true,
+	}, "zh-CN", func(context.Context) error { return nil })
+	if err != nil || result.State != AutoNeedsReview || result.Reason != "ambiguous_candidates" {
+		t.Fatalf("partial runtime selected a multipart candidate: state=%s reason=%s err=%v", result.State, result.Reason, err)
+	}
+}
+
+func TestResolveAutomaticMatchAdultFallbackVerifiesRomanizedAlternativeTitle(t *testing.T) {
+	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/3/search/movie":
+			if request.URL.Query().Get("include_adult") != "true" {
+				return response(200, `{"page":1,"total_pages":1,"total_results":0,"results":[]}`), nil
+			}
+			return response(200, `{"page":1,"total_pages":1,"total_results":2,"results":[{"id":42,"title":"娼","original_title":"창","release_date":"1997-09-13"},{"id":43,"title":"Other","original_title":"Other","release_date":"1997-09-13"}]}`), nil
+		case "/3/movie/42":
+			return response(200, `{"id":42,"title":"娼","original_title":"창","release_date":"1997-09-13","runtime":106,"alternative_titles":{"titles":[{"title":"Chang","type":""}]}}`), nil
+		case "/3/movie/43":
+			return response(200, `{"id":43,"title":"Other","original_title":"Other","release_date":"1997-09-13","runtime":90}`), nil
+		default:
+			t.Fatalf("unexpected outbound request %s", request.URL)
+			return nil, nil
+		}
+	})
+	result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{
+		Kind: Movie, Title: "Chang", Year: 1997, DurationMs: 51 * 60_000,
+		Ambiguities: []string{"part_requires_confirmation"}, Parts: []int{1}, AllowTitleMatch: true,
+	}, "zh-CN", func(context.Context) error { return nil })
+	if err != nil || result.State != AutoMatched || result.Document.Entity.ID != 42 {
+		t.Fatalf("adult alternative title was not verified: state=%s reason=%s err=%v", result.State, result.Reason, err)
+	}
+	for _, evidence := range []string{"adult_search_fallback", "alternative_title_match", "multipart_identity_match"} {
+		if !slices.Contains(result.Evidence, evidence) {
+			t.Fatalf("missing %s evidence: %+v", evidence, result.Evidence)
+		}
+	}
+}
+
 func TestResolveAutomaticMatchRecoversMissingHanCharactersWithYearAndRuntime(t *testing.T) {
 	for _, tc := range []struct {
 		name, damaged, query, otherQuery, title string
