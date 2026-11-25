@@ -49,8 +49,10 @@ import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.R
 
@@ -134,12 +136,14 @@ fun FilewaySelectionRow(
     subtitle: String? = null,
     selected: Boolean,
     enabled: Boolean = true,
+    minHeight: Dp = FilewaySpace.target,
+    titleStyle: TextStyle = MaterialTheme.typography.bodyMedium,
     onClick: () -> Unit,
 ) {
     val colors = MaterialTheme.colorScheme
     val emphasis = if (enabled) 1f else .38f
     Row(
-        Modifier.fillMaxWidth().heightIn(min = FilewaySpace.target)
+        Modifier.fillMaxWidth().heightIn(min = minHeight)
             .clip(MaterialTheme.shapes.medium)
             .background(if (selected) colors.primaryContainer else colors.surface)
             .selectable(selected = selected, enabled = enabled, role = Role.RadioButton, onClick = onClick)
@@ -148,7 +152,7 @@ fun FilewaySelectionRow(
         horizontalArrangement = Arrangement.spacedBy(FilewaySpace.content),
     ) {
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(FilewaySpace.tiny)) {
-            Text(title, style = MaterialTheme.typography.bodyMedium, color = colors.onSurface.copy(alpha = emphasis))
+            Text(title, style = titleStyle, color = colors.onSurface.copy(alpha = emphasis))
             if (!subtitle.isNullOrBlank()) {
                 Text(subtitle, style = FilewayTheme.text.metadata, color = colors.onSurfaceVariant.copy(alpha = emphasis))
             }

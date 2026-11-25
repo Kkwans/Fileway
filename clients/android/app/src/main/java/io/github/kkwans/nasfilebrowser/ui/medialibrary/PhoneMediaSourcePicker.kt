@@ -31,8 +31,10 @@ internal data class PhoneMediaSourceSelection(val itemId: String, val selectedId
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         MediaHeading("片源与版本", modifier = Modifier.padding(horizontal = FilewaySpace.page),
             actionLabel = "关闭", onAction = onDismiss)
-        Text("选择片源后不会自动播放", style = MaterialTheme.typography.bodySmall,
+        Text("选择片源后不会自动播放", style = PhoneMediaType.secondary,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = FilewaySpace.page, vertical = FilewaySpace.small))
+        if (state.title.isNotBlank()) Text(state.title, style = PhoneMediaType.workTitle,
             modifier = Modifier.padding(horizontal = FilewaySpace.page, vertical = FilewaySpace.small))
         LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).selectableGroup(),
             contentPadding = PaddingValues(start = FilewaySpace.page, top = FilewaySpace.small,
@@ -50,27 +52,31 @@ internal data class PhoneMediaSourceSelection(val itemId: String, val selectedId
                 item(key = "edition/$editionId") { MediaHeading(sources.first().edition) }
                 items(sources, key = { "source/${it.id}" }) { source ->
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        FilewaySelectionRow(title = source.name,
-                            subtitle = listOfNotNull("当前播放".takeIf { source.current }, source.library, source.specifications, source.audio,
-                                source.unavailableReason).filter { it.isNotBlank() }.joinToString("\n"),
+                        FilewaySelectionRow(title = source.specifications.ifBlank { source.library },
+                            subtitle = listOfNotNull(source.library.takeIf { source.specifications.isNotBlank() && it.isNotBlank() },
+                                source.name, source.audio, "当前播放".takeIf { source.current }, source.unavailableReason).filter { it.isNotBlank() }.joinToString("\n"),
                             selected = source.id == state.selectedId, enabled = source.available && !state.busy,
-                            onClick = { onAction(PhoneMediaAction.SelectSource(source.id, state.revision)) })
+                            onClick = { onAction(PhoneMediaAction.SelectSource(source.id, state.revision)) },
+                            minHeight = 88.dp, titleStyle = PhoneMediaType.itemTitle)
                         if (!source.available && source.recoveryLabel != null) TextButton(
                             onClick = { onAction(PhoneMediaAction.RecoverSource(source.id)) }, enabled = !state.busy,
-                            modifier = Modifier.heightIn(min = 48.dp)) { Text(source.recoveryLabel) }
+                            modifier = Modifier.heightIn(min = 48.dp)) { Text(source.recoveryLabel, style = PhoneMediaType.action) }
                     }
                 }
             }
             if (state.hasMore && !state.loading) item(key = "more") {
                 TextButton(onClick = { onAction(PhoneMediaAction.LoadMore("sources")) },
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("加载更多") }
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("加载更多", style = PhoneMediaType.action) }
             }
         }
         Button(onClick = { state.selectedId?.let { onAction(PhoneMediaAction.ConfirmSource(it, state.revision)) } },
             enabled = state.selectedId != null && !state.busy && !state.loading,
             modifier = Modifier.fillMaxWidth().padding(horizontal = FilewaySpace.page, vertical = FilewaySpace.small)
                 .heightIn(min = 56.dp), shape = MaterialTheme.shapes.medium) {
-            Text("使用所选片源")
+            Text("使用所选片源", style = PhoneMediaType.action)
         }
+        Text("不同剪辑分别保留续播位置", style = PhoneMediaType.secondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = FilewaySpace.page, vertical = FilewaySpace.small))
     }
 }

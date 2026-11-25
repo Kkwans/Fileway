@@ -59,7 +59,7 @@ internal data class MediaSourceOption(val id: String, val editionId: String, val
     val name: String, val library: String, val specifications: String, val audio: String? = null,
     val available: Boolean, val unavailableReason: String? = null, val recoveryLabel: String? = null,
     val current: Boolean = false)
-internal data class PhoneMediaSourcesState(val itemId: String, val revision: String,
+internal data class PhoneMediaSourcesState(val itemId: String, val title: String, val revision: String,
     val entries: List<MediaSourceOption>, val selectedId: String? = null, val loading: Boolean = false,
     val busy: Boolean = false, val problem: MediaProblem? = null, val hasMore: Boolean = false)
 
