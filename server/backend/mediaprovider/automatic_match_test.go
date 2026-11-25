@@ -290,9 +290,9 @@ func TestResolveAutomaticMatchAllowsUniqueExactTitleWithoutYearOnlyWithRuntimeAn
 			duration: 133 * 60_000, want: AutoNeedsReview, reason: "ambiguous_candidates", calls: 1,
 		},
 		{
-			name:     "incomplete search pages",
-			search:   `{"page":1,"total_pages":2,"total_results":21,"results":[{"id":380,"title":"雨人","release_date":"1988-12-16"}]}`,
-			duration: 133 * 60_000, want: AutoNeedsReview, reason: "year_required", calls: 1,
+			name:     "more than three pages",
+			search:   `{"page":1,"total_pages":4,"total_results":80,"results":[{"id":380,"title":"雨人","release_date":"1988-12-16"}]}`,
+			duration: 133 * 60_000, want: AutoNeedsReview, reason: "year_required", calls: 3,
 		},
 		{
 			name:     "detail title changed",
@@ -309,6 +309,10 @@ func TestResolveAutomaticMatchAllowsUniqueExactTitleWithoutYearOnlyWithRuntimeAn
 				case "/3/search/movie":
 					if request.URL.Query().Get("query") != "雨人" || request.URL.Query().Has("primary_release_year") {
 						t.Fatalf("unexpected title lookup %s", request.URL)
+					}
+					if tc.name == "more than three pages" && request.URL.Query().Get("page") != "1" {
+						page := request.URL.Query().Get("page")
+						return response(200, `{"page":`+page+`,"total_pages":4,"total_results":80,"results":[]}`), nil
 					}
 					return response(200, tc.search), nil
 				case "/3/movie/380":
@@ -364,6 +368,49 @@ func TestResolveAutomaticMatchAllowsNumberedSequelSubtitleWithoutYearOnlyWithRun
 			if tc.want == AutoMatched && (result.Document.Entity.ID != 18360 ||
 				!slices.Contains(result.Evidence, "numbered_title_without_year") || !slices.Contains(result.Evidence, "runtime_match")) {
 				t.Fatalf("numbered sequel evidence missing: %+v", result)
+			}
+		})
+	}
+}
+
+func TestResolveAutomaticMatchYearlessExactTitleSearchesBoundedLaterPages(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		totalPages int
+		want       AutomaticMatchState
+		reason     string
+		calls      int
+	}{
+		{"candidate completed on page two", 2, AutoMatched, "", 3},
+		{"more than three pages remains review", 4, AutoNeedsReview, "year_required", 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+				calls++
+				switch request.URL.Path {
+				case "/3/search/movie":
+					if request.URL.Query().Get("query") != "雨人" || request.URL.Query().Has("primary_release_year") {
+						t.Fatalf("unexpected title lookup %s", request.URL)
+					}
+					page := request.URL.Query().Get("page")
+					if page == "1" {
+						return response(200, `{"page":1,"total_pages":`+jsonNumber(int64(tc.totalPages))+`,"total_results":34,"results":[{"id":380,"title":"雨人","release_date":"1988-12-16"}]}`), nil
+					}
+					return response(200, `{"page":`+page+`,"total_pages":`+jsonNumber(int64(tc.totalPages))+`,"total_results":34,"results":[{"id":11975,"title":"造雨人","release_date":"1997-11-18"}]}`), nil
+				case "/3/movie/380":
+					return response(200, `{"id":380,"title":"雨人","release_date":"1988-12-16","runtime":133}`), nil
+				default:
+					t.Fatalf("unexpected outbound request %s", request.URL)
+					return nil, nil
+				}
+			})
+			result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: "雨人", DurationMs: 133 * 60_000, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+			if err != nil || result.State != tc.want || result.Reason != tc.reason || calls != tc.calls {
+				t.Fatalf("state=%s reason=%s calls=%d err=%v", result.State, result.Reason, calls, err)
+			}
+			if tc.want == AutoMatched && (result.Document.Entity.ID != 380 || !slices.Contains(result.Evidence, "runtime_match")) {
+				t.Fatalf("later-page candidate missing: %+v", result)
 			}
 		})
 	}

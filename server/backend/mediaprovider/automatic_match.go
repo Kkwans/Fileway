@@ -9,7 +9,10 @@ import (
 	"unicode"
 )
 
-const maxAutomaticTitleQueries = 6
+const (
+	maxAutomaticTitleQueries = 6
+	maxAutomaticTitlePages   = 3
+)
 
 // WorkIdentifier is a declaration from an authorized input. An empty Kind
 // can contradict a typed declaration but cannot establish a work identity.
@@ -215,38 +218,48 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 	eligible := make([]MatchCandidate, 0)
 	unfilteredSearch := false
 	searchComplete := true
+queries:
 	for _, query := range queries {
-		unfilteredSearch = false
-		if err := authorize(ctx); err != nil {
-			return AutomaticMatch{}, err
+		pageLimit := 1
+		if input.Year <= 0 {
+			pageLimit = maxAutomaticTitlePages
 		}
-		page, err := client.Search(ctx, SearchQuery{Kind: input.Kind, Title: query, Year: input.Year,
-			Language: language, Region: input.Region, Page: 1})
-		if err != nil {
-			return AutomaticMatch{}, err
-		}
-		if len(page.Items) == 0 && input.Year > 0 {
+		for pageNumber := 1; pageNumber <= pageLimit; pageNumber++ {
+			unfilteredSearch = false
 			if err := authorize(ctx); err != nil {
 				return AutomaticMatch{}, err
 			}
-			page, err = client.Search(ctx, SearchQuery{Kind: input.Kind, Title: query,
-				Language: language, Region: input.Region, Page: 1})
+			page, err := client.Search(ctx, SearchQuery{Kind: input.Kind, Title: query, Year: input.Year,
+				Language: language, Region: input.Region, Page: pageNumber})
 			if err != nil {
 				return AutomaticMatch{}, err
 			}
-			unfilteredSearch = len(page.Items) != 0
-		}
-		documents = append(documents, page.Items...)
-		searchComplete = searchComplete && page.TotalPages <= 1
-		ranked = RankCandidates(MatchHint{Kind: input.Kind, Title: title, Year: input.Year}, documents)
-		eligible = eligible[:0]
-		for _, candidate := range ranked {
-			if matchesAnyTitle(candidate, queries) && input.Year > 0 && candidate.Year == input.Year {
-				eligible = append(eligible, candidate)
+			if len(page.Items) == 0 && input.Year > 0 {
+				if err := authorize(ctx); err != nil {
+					return AutomaticMatch{}, err
+				}
+				page, err = client.Search(ctx, SearchQuery{Kind: input.Kind, Title: query,
+					Language: language, Region: input.Region, Page: 1})
+				if err != nil {
+					return AutomaticMatch{}, err
+				}
+				unfilteredSearch = len(page.Items) != 0
 			}
-		}
-		if len(eligible) != 0 {
-			break
+			documents = append(documents, page.Items...)
+			searchComplete = searchComplete && page.TotalPages <= maxAutomaticTitlePages
+			ranked = RankCandidates(MatchHint{Kind: input.Kind, Title: title, Year: input.Year}, documents)
+			eligible = eligible[:0]
+			for _, candidate := range ranked {
+				if matchesAnyTitle(candidate, queries) && input.Year > 0 && candidate.Year == input.Year {
+					eligible = append(eligible, candidate)
+				}
+			}
+			if len(eligible) != 0 {
+				break queries
+			}
+			if input.Year > 0 || pageNumber >= page.TotalPages {
+				break
+			}
 		}
 	}
 	if len(documents) == 0 {
