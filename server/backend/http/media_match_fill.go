@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -261,12 +262,14 @@ func automaticMatchInput(item mediaIdentificationResponse, allowTitleMatch bool)
 	}
 	aliases := mediametadata.TitleAliases(input.Title)
 	for _, existing := range input.Aliases {
-		found := false
-		for _, alias := range aliases {
-			found = found || alias == existing
+		split := mediametadata.TitleAliases(existing)
+		if len(split) == 0 {
+			split = []string{existing}
 		}
-		if !found {
-			aliases = append(aliases, existing)
+		for _, alias := range split {
+			if !slices.Contains(aliases, alias) {
+				aliases = append(aliases, alias)
+			}
 		}
 	}
 	input.Aliases = aliases

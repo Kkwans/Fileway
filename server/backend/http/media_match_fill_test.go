@@ -61,6 +61,17 @@ func TestAutomaticMatchInputAddsMixedLanguageAliases(t *testing.T) {
 	}
 }
 
+func TestAutomaticMatchInputSplitsMixedDirectoryAliases(t *testing.T) {
+	year := 2022
+	item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{
+		ParsedTitle: "Return to Dust", Year: &year, DirectoryTitle: "隐入尘烟 Return to Dust",
+	}}
+	input := automaticMatchInput(item, true)
+	if len(input.Aliases) != 2 || input.Aliases[0] != "隐入尘烟" || input.Aliases[1] != "Return to Dust" {
+		t.Fatalf("mixed directory aliases were not split: %+v", input)
+	}
+}
+
 func TestMediaIdentificationUsesDirectoryYearWithoutOverwritingFilename(t *testing.T) {
 	f := newMediaScanHTTPFixture(t)
 	catalogFixtureWrite(t, f, "Echo (2020) 1080p/film.mkv", "owned video")
