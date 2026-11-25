@@ -62,6 +62,9 @@ internal class TvMediaRouteState(
     var detail by mutableStateOf<MediaCatalogDetail.Complete?>(null); private set
     var detailLoading by mutableStateOf(false); private set
     var detailError by mutableStateOf<String?>(null); private set
+    var userStateBusy by mutableStateOf(false); private set
+    var userStateError by mutableStateOf<String?>(null); private set
+    val userStatePending: Boolean get() = pendingUserState != null
     var credits by mutableStateOf<List<MediaCredit>>(emptyList()); private set
     var creditsCursor by mutableStateOf<String?>(null); private set
     var creditsLoading by mutableStateOf(false); private set
@@ -103,8 +106,10 @@ internal class TvMediaRouteState(
     private var sourcesJob: Job? = null
     private var sourceRecoveryJob: Job? = null
     private var pendingSourceRecovery: MediaOperation? = null
+    private var pendingUserState: MediaOperation? = null
+    private var userStateJob: Job? = null
 
-    fun close() { listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, collectionsJob, collectionWorksJob, personWorksJob, detailJob, creditsJob, seasonsJob, episodesJob, sourcesJob).forEach { it?.cancel() } }
+    fun close() { listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, collectionsJob, collectionWorksJob, personWorksJob, detailJob, creditsJob, seasonsJob, episodesJob, sourcesJob, sourceRecoveryJob, userStateJob).forEach { it?.cancel() } }
 
     fun start(savedFilter: String) {
         filter = savedFilter.takeIf { it in setOf("all", "movie", "series", "video") } ?: "all"
@@ -397,7 +402,7 @@ internal class TvMediaRouteState(
 
     fun openDetail(item: MediaCatalogRef, savedSeason: String?) {
         if (ref == item && (detail != null || detailLoading)) return
-        detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits()
+        detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits(); resetUserStateWrite()
         ref = item; desiredSeason = savedSeason; detail = null; detailCursor = null; detailError = null
         seasons = emptyList(); seasonsCursor = null; selectedSeason = null; episodes = emptyList(); episodesCursor = null
         seasonsLoading = false; seasonsError = null; episodesLoading = false; episodesError = null; jumpedEpisodeId = null
@@ -405,7 +410,7 @@ internal class TvMediaRouteState(
     }
 
     fun closeDetail() {
-        detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits()
+        detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits(); resetUserStateWrite()
         ref = null; detail = null; detailCursor = null; selectedSeason = null
         detailLoading = false; seasonsLoading = false; episodesLoading = false
     }
@@ -456,6 +461,10 @@ internal class TvMediaRouteState(
                 is MediaReadResult.Success -> if (result.scope == repository.scope) when (val value = result.value) {
                     is MediaCatalogDetail.Complete -> {
                         detail = value; detailCursor = null
+                        if (value.card?.userState != null) {
+                            pendingUserState = repository.pendingUserStateOperation(item)
+                            if (pendingUserState != null) userStateError = "观看状态尚待确认，请确认原操作，避免重复提交。"
+                        }
                         if (value.detail.item.kind == MediaItemKind.SERIES) loadSeasons(true)
                     }
                     is MediaCatalogDetail.Partial -> { detailCursor = value.nextCursor; detailError = "详情尚未加载完成，请继续读取。" }
@@ -475,6 +484,77 @@ internal class TvMediaRouteState(
                 }
             }
             coroutineContext.ensureActive(); detailLoading = false
+        }
+    }
+
+    private fun resetUserStateWrite() {
+        userStateJob?.cancel()
+        userStateBusy = false
+        pendingUserState = null
+        userStateError = null
+    }
+
+    fun changeUserState(id: String, revision: Long?, favorite: Boolean? = null, watched: Boolean? = null) {
+        val item = ref?.takeIf { tvMediaKey(it) == id } ?: return
+        val card = detail?.card ?: return
+        if (userStateBusy || pendingUserState != null || revision == null || card.userState?.revision != revision) return
+        if (favorite != null && !card.actions.can(MediaCatalogAction.FAVORITE) ||
+            watched != null && !card.actions.can(MediaCatalogAction.MARK_WATCHED)) return
+        val operation = repository.newOperation()
+        submitUserState(item, operation) { repository.updateUserState(operation, item, revision, favorite, watched) }
+    }
+
+    fun retryUserState() {
+        val item = ref ?: return
+        val pending = pendingUserState
+        if (pending == null) {
+            userStateError = null
+            loadDetail()
+        } else submitUserState(item, pending) { repository.retryOperation(pending) }
+    }
+
+    private fun submitUserState(item: MediaCatalogRef, operation: MediaOperation, submit: suspend () -> MediaWriteResult<Any>) {
+        if (userStateBusy) return
+        userStateBusy = true
+        userStateError = null
+        userStateJob = scope.launch {
+            try {
+                when (val result = submit()) {
+                    is MediaWriteResult.Success -> {
+                        pendingUserState = null
+                        when (val fresh = repository.getUserState(item)) {
+                            is MediaReadResult.Success -> detail?.let { loaded ->
+                                detail = loaded.copy(card = loaded.card?.copy(userState = fresh.value))
+                            }
+                            is MediaReadResult.Failure -> {
+                                if (fresh.error.invalidatesTvData()) {
+                                    detail = null
+                                    detailError = "影视详情已变化，请重新加载。"
+                                }
+                                userStateError = "操作已保存，暂时无法刷新观看状态。"
+                            }
+                        }
+                        repository.forgetResolvedOperation(operation)
+                    }
+                    is MediaWriteResult.Failure -> {
+                        val unknown = result.error.mutationMayHaveCommitted
+                        pendingUserState = operation.takeIf { unknown }
+                        userStateError = if (unknown) "结果尚待确认，请使用原操作确认，避免重复提交。"
+                        else tvMediaFailure(result.error)
+                        if (!unknown) {
+                            repository.forgetResolvedOperation(operation)
+                            if (result.error.invalidatesTvData()) loadDetail()
+                        }
+                    }
+                }
+            } catch (failure: Exception) {
+                if (failure is CancellationException) throw failure
+                pendingUserState = repository.pendingUserStateOperation(item)
+                userStateError = if (pendingUserState != null) "结果尚待确认，请使用原操作确认，避免重复提交。"
+                else "未能更新观看状态，请刷新详情后重试。"
+            } finally {
+                if (ref == item) userStateBusy = false
+            }
         }
     }
 

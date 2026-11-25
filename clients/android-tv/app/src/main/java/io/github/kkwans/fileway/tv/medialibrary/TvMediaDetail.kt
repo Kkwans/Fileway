@@ -56,6 +56,7 @@ fun TvMediaDetail(
     onJumpEpisode: ((Int) -> Unit)? = null,
     onRelated: ((String) -> Unit)? = null,
     onRetry: (() -> Unit)? = null,
+    onRetryUserState: (() -> Unit)? = null,
     onRetryEpisodes: (() -> Unit)? = null,
     scrollState: LazyListState = rememberLazyListState(),
 ) {
@@ -136,11 +137,11 @@ fun TvMediaDetail(
                         }
                         if (onToggleFavorite != null) key("favorite") {
                             MediaQuietAction(if (state.favorite) "已收藏" else "收藏", onToggleFavorite,
-                                selected = state.favorite, icon = Art.drawable.fileway_ic_bookmark)
+                                selected = state.favorite, enabled = !state.userStateBusy, icon = Art.drawable.fileway_ic_bookmark)
                         }
                         if (onToggleWatched != null) key("watched") {
                             MediaQuietAction(if (state.watched) "已看" else "标记已看", onToggleWatched,
-                                selected = state.watched, icon = Art.drawable.fileway_ic_visibility)
+                                selected = state.watched, enabled = !state.userStateBusy, icon = Art.drawable.fileway_ic_visibility)
                         }
                         if (onPlayFromStart != null && state.item.canPlay) key("restart") {
                             MediaQuietAction("从头播放", onPlayFromStart, icon = Art.drawable.fileway_ic_restore)
@@ -151,6 +152,8 @@ fun TvMediaDetail(
                             style = MediaType.secondary, color = colors.secondary)
                     }
                     if (state.error != null) MediaStatus(state.error, onRetry, compact = true)
+                    if (state.userStateBusy) MediaLoadingStatus("正在更新观看状态…", compact = true)
+                    if (state.userStateError != null) MediaStatus(state.userStateError, onRetryUserState, compact = true)
                     if (state.loading) MediaLoadingStatus("正在更新影片资料…", compact = true)
                 }
             }

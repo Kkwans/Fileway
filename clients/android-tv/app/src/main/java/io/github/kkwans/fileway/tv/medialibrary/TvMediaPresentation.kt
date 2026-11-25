@@ -111,6 +111,8 @@ data class TvMediaDetailState(
     val playLabel: String = "播放",
     val favorite: Boolean = false,
     val watched: Boolean = false,
+    val userStateBusy: Boolean = false,
+    val userStateError: String? = null,
     val sourceCount: Int = 0,
     val sourceSummary: String? = null,
     val people: List<TvMediaPerson> = emptyList(),

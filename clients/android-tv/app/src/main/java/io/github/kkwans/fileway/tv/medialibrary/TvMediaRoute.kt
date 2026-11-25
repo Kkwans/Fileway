@@ -359,6 +359,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                     }
                     val reference = if (libraryId != null) repository.catalogRef(libraryId, itemId) else null
                     val playable = card?.actions?.can(MediaCatalogAction.PLAY) == true
+                    val userState = card?.userState
                     Column(Modifier.fillMaxSize()) {
                         if (creditsPage) {
                             TvMediaCredits(card?.title ?: detail?.item?.title.orEmpty(), route.credits.map { credit ->
@@ -392,11 +393,19 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                                 availabilityLabel = tvAvailability(episode.card.availability),
                                 canPlay = episode.card.actions.can(MediaCatalogAction.PLAY)) },
                             episodesLoading = route.episodesLoading, episodesError = route.episodesError,
+                            favorite = userState?.favorite == true, watched = userState?.manualWatched == true,
+                            userStateBusy = route.userStateBusy, userStateError = route.userStateError,
                             loading = route.detailLoading, error = route.detailError), imageLoader, onBack = { back() },
                             modifier = Modifier.weight(1f),
                             onPlay = if (playable && reference != null) ({ openSources(reference) }) else null,
                             onPlayFromStart = if (playable && reference != null) ({ openSources(reference, fromStart = true) }) else null,
                             onSources = if (playable && reference != null) ({ openSources(reference) }) else null,
+                            onToggleFavorite = if (reference != null && !route.userStatePending && card?.actions?.can(MediaCatalogAction.FAVORITE) == true) ({
+                                route.changeUserState(tvMediaKey(reference), userState?.revision, favorite = userState?.favorite != true)
+                            }) else null,
+                            onToggleWatched = if (reference != null && !route.userStatePending && card?.actions?.can(MediaCatalogAction.MARK_WATCHED) == true) ({
+                                route.changeUserState(tvMediaKey(reference), userState?.revision, watched = userState?.manualWatched != true)
+                            }) else null,
                             onPerson = { personId ->
                                 val name = detail?.credits?.items?.firstOrNull { it.personId == personId }?.name.orEmpty()
                                 openDetailPerson(personId, name)
@@ -406,7 +415,8 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             onEpisode = { id -> route.episodes.firstOrNull { tvMediaKey(it.ref) == id }?.let { openSources(it.ref) } },
                             onMoreEpisodes = if (route.episodesCursor != null && !route.episodesLoading) ({ route.loadEpisodes(false) }) else null,
                             onJumpEpisode = { route.jumpToEpisode(it) },
-                            onRetry = route::loadDetail, onRetryEpisodes = { route.loadEpisodes(true) }, scrollState = detailScroll)
+                            onRetry = route::loadDetail, onRetryUserState = route::retryUserState,
+                            onRetryEpisodes = { route.loadEpisodes(true) }, scrollState = detailScroll)
                         }
                     }
                 }
