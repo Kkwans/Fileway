@@ -72,25 +72,6 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
                 if (state.canSelectSources) item(key = "sources") {
                     DetailSourceRow(state, onAction, Modifier.padding(horizontal = inset))
                 }
-                state.technical?.let { technical ->
-                    val badges = MediaTechnicalFormatter.badges(technical)
-                    val lines = MediaTechnicalFormatter.lines(technical)
-                    if (badges.isNotEmpty() || lines.isNotEmpty()) item(key = "technical") {
-                        FilewayMediaTechnicalPanel(
-                            title = "技术信息", badges = badges, lines = lines,
-                            modifier = Modifier.padding(horizontal = inset),
-                            style = FilewayMediaTechnicalPanelStyle(
-                                titleStyle = PhoneDetailType.section,
-                                badgeStyle = PhoneDetailType.metadata,
-                                lineStyle = PhoneDetailType.body,
-                                titleColor = MaterialTheme.colorScheme.onBackground,
-                                badgeColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                badgeBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .38f),
-                                lineColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                            ),
-                        )
-                    }
-                }
                 if (state.canChangeUserState) item(key = "user-state") {
                     Column(Modifier.padding(horizontal = inset), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -211,6 +192,25 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
                                 onAction(PhoneMediaAction.OpenPerson(credit.personId))
                             } }
                         }
+                    }
+                }
+                state.technical?.let { technical ->
+                    val badges = MediaTechnicalFormatter.badges(technical)
+                    val lines = MediaTechnicalFormatter.lines(technical)
+                    if (badges.isNotEmpty() || lines.isNotEmpty()) item(key = "technical") {
+                        FilewayMediaTechnicalPanel(
+                            title = "技术信息", badges = badges, lines = lines,
+                            modifier = Modifier.padding(horizontal = inset),
+                            style = FilewayMediaTechnicalPanelStyle(
+                                titleStyle = PhoneDetailType.section,
+                                badgeStyle = PhoneDetailType.metadata,
+                                lineStyle = PhoneDetailType.body,
+                                titleColor = MaterialTheme.colorScheme.onBackground,
+                                badgeColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                badgeBackground = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .38f),
+                                lineColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            ),
+                        )
                     }
                 }
             }

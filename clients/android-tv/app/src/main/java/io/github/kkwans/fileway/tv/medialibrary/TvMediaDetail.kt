@@ -161,28 +161,6 @@ fun TvMediaDetail(
                 }
             }
         }
-        state.technical?.let { technical ->
-            val badges = MediaTechnicalFormatter.badges(technical)
-            val lines = MediaTechnicalFormatter.lines(technical)
-            if (badges.isNotEmpty() || lines.isNotEmpty()) item(key = "technical") {
-                FilewayMediaTechnicalPanel(
-                    title = "技术信息", badges = badges, lines = lines,
-                    modifier = Modifier.padding(horizontal = MediaLayout.pageInset),
-                    style = FilewayMediaTechnicalPanelStyle(
-                        titleStyle = MediaType.sectionTitle,
-                        badgeStyle = MediaType.badge,
-                        lineStyle = MediaType.body,
-                        titleColor = colors.text,
-                        badgeColor = colors.secondary,
-                        badgeBackground = colors.raised,
-                        lineColor = colors.secondary,
-                        badgeGap = MediaLayout.itemGap,
-                        badgeHorizontalPadding = 16.dp,
-                        badgeVerticalPadding = 10.dp,
-                    ),
-                )
-            }
-        }
         if (state.seasons.isNotEmpty() || state.episodes.isNotEmpty() || state.episodesLoading || state.episodesError != null) item(key = "episodes") {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = MediaLayout.pageInset),
@@ -241,6 +219,28 @@ fun TvMediaDetail(
         }
         if (state.related.isNotEmpty() && onRelated != null) item(key = "related") {
             MediaShelf(TvMediaShelf("related", "相关作品", state.related), imageLoader, onRelated)
+        }
+        state.technical?.let { technical ->
+            val badges = MediaTechnicalFormatter.badges(technical)
+            val lines = MediaTechnicalFormatter.lines(technical)
+            if (badges.isNotEmpty() || lines.isNotEmpty()) item(key = "technical") {
+                FilewayMediaTechnicalPanel(
+                    title = "技术信息", badges = badges, lines = lines,
+                    modifier = Modifier.padding(horizontal = MediaLayout.pageInset),
+                    style = FilewayMediaTechnicalPanelStyle(
+                        titleStyle = MediaType.sectionTitle,
+                        badgeStyle = MediaType.badge,
+                        lineStyle = MediaType.body,
+                        titleColor = colors.text,
+                        badgeColor = colors.secondary,
+                        badgeBackground = colors.raised,
+                        lineColor = colors.secondary,
+                        badgeGap = MediaLayout.itemGap,
+                        badgeHorizontalPadding = 16.dp,
+                        badgeVerticalPadding = 10.dp,
+                    ),
+                )
+            }
         }
     }
     if (jumpOpen && onJumpEpisode != null) TvEpisodeJumpDialog(
