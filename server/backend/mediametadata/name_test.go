@@ -109,6 +109,15 @@ func TestRealReleaseNoiseDoesNotPolluteExactTitle(t *testing.T) {
 	}
 }
 
+func TestMultipartAudioReleaseNoiseDoesNotPolluteTitle(t *testing.T) {
+	parsed := ParseName("Chang 1997 Dvdrip Xvid Ac3.5.1Ch Cd1-Waf.avi")
+	validateNameEvidence(t, "Chang 1997 Dvdrip Xvid Ac3.5.1Ch Cd1-Waf.avi", parsed)
+	if parsed.Title != "Chang" || parsed.Year == nil || *parsed.Year != 1997 ||
+		len(parsed.Parts) != 1 || parsed.Parts[0] != 1 || !slices.Contains(parsed.Ambiguities, "part_requires_confirmation") {
+		t.Fatalf("multipart audio release parsed incorrectly: %#v", parsed)
+	}
+}
+
 func TestReleaseYearSurvivesRealWorldSuffixNoise(t *testing.T) {
 	cases := []struct {
 		filename string

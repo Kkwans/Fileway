@@ -164,7 +164,7 @@ func mediaMatchCandidatesHandler(slots chan struct{}, starts <-chan time.Time) h
 			return vault.Open(credentialContext, sealed)
 		})
 		page, err := client.Search(r.Context(), mediaprovider.SearchQuery{
-			Kind: kind, Title: title, Year: input.Year, Page: input.Page, Language: policy.Language, Region: policy.Region,
+			Kind: kind, Title: title, Year: year, Page: input.Page, Language: policy.Language, Region: policy.Region,
 		})
 		if err := check(r.Context()); err != nil {
 			return catalogError(w, err)

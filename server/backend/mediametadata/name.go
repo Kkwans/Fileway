@@ -114,6 +114,7 @@ var technicalNameRules = []technicalRule{
 	{"video_codec", regexp.MustCompile(`(?i)x26[45]|h[ .]?26[45]|hevc|avc|av1|xvid`)},
 	{"dynamic_range", regexp.MustCompile(`(?i)dolby[ ._\-]+vision|hdr10\+|hdr10|hdr|hlg|DoVi|dv|\bSDR\b`)},
 	{"source", regexp.MustCompile(`(?i)web[ ._\-]?dl|webrip|blu[ ._\-]?ray|bdrip|brrip|remux|hdtv|dvdrip|\bDVD\b|DSNP|iTunes|\b(?:FRA|TC|EC|DC)\b|\bBD(?:[ ._-]*[1-9])?\b|蓝光(?:版)?`)},
+	{"audio_channels", regexp.MustCompile(`(?i)\b(?:ac3|dts|aac|ddp|e[ ._\-]?ac3)[ ._\-]*[0-9]+(?:[ ._][0-9]+)?[ ._\-]*ch\b`)},
 	{"audio_layout", regexp.MustCompile(`(?i)[0-9][ ._.][01]`)},
 	{"audio_codec", regexp.MustCompile(`(?i)dts[ ._\-]?hd[ ._\-]?ma|truehd|ddp|dd|e[ ._\-]?ac3|ac3|aac|dts|atmos|flac|opus|pcm`)},
 	{"bit_depth", regexp.MustCompile(`(?i)(?:8|10|12)[ ._\-]?bit`)},
@@ -124,7 +125,7 @@ var technicalNameRules = []technicalRule{
 	{"language", regexp.MustCompile(`(?i)Mandarin&English|English&Mandarin|CHS[ ._-]?ENG|\b(?:English|Mandarin|CHS|JP|CN|USA|JPN|GER|CEE)\b`)},
 	{"subtitle", regexp.MustCompile(`国英双语|中英双字|中英字幕|中英特效|特效字幕|国语中字|粤语中字|日语中字|韩语中字|韓語中字|法语中字|英语中字|国日粤三语|泰国粤三语|中日双字|简繁双语|简繁字幕|双语中字|中文字幕|内嵌特效中简|特效|中字`)},
 	{"release_noise", regexp.MustCompile(`(?i)\b[0-9]{1,3}(?:st|nd|rd|th)[ ._\-]+anniversary\b|无水印`)},
-	{"release_group", regexp.MustCompile(`(?i)(?:\b(?:MNHD-FRDS|RARBG|HDBWEB|DreamHD|ParkHD|BBQDDQ|CTRLTV|FRDS|MTeam|WiKi|PTer|HDC|HDS|D-Z0N3|DiaosMan|SSDSSE|NukeHD|SONYHD|882FX|taobaobt|Mp4Ba(?:Fans)?|FFans|KOOK|UUMp4|D2Mp4|99Mp4|4KHDR|52movieba|TAG|CHD|MiniFHD|CoolComic404)\b|人人影视|BT世界网|抠脚)`)},
+	{"release_group", regexp.MustCompile(`(?i)(?:\b(?:MNHD-FRDS|RARBG|HDBWEB|DreamHD|ParkHD|BBQDDQ|CTRLTV|FRDS|MTeam|WiKi|PTer|HDC|HDS|D-Z0N3|DiaosMan|SSDSSE|NukeHD|SONYHD|882FX|taobaobt|Mp4Ba(?:Fans)?|FFans|KOOK|UUMp4|D2Mp4|99Mp4|4KHDR|52movieba|TAG|CHD|MiniFHD|CoolComic404|Waf)\b|人人影视|BT世界网|抠脚)`)},
 	{"market_tag", regexp.MustCompile(`(?i)\[(?:泰国|港版|日本|美国|韩国|剧情|喜剧|动作|爱情|科幻|悬疑|犯罪)(?:[ ._-]+(?:泰国|港版|日本|美国|韩国|剧情|喜剧|动作|爱情|科幻|悬疑|犯罪))*\]`)},
 	{"promotional_prefix", regexp.MustCompile(`(?i)^(?:(?:福利电影|魅力社)[0-9A-Za-z ._\-]*com[ ._\-]+|(?:【[^】]*(?:无水印|请访问|www[ ._]|https?://)[^】]*】|\[[^\]]*(?:www[ ._]|https?://)[^\]]*\])+)`)},
 	{"site_prefix", regexp.MustCompile(`(?i)^(?:【[^】]*(?:www[ ._]|https?://)[^】]*】|\[[^\]]*(?:www[ ._]|https?://)[^\]]*\])`)},
@@ -173,8 +174,8 @@ func ParseName(filename string) ParsedName {
 	p.parseEpisodes(xEpisodePattern)
 	p.parseChineseEpisodes()
 	p.parseAbsoluteEpisodes()
-	p.parseEditionsAndParts()
 	p.parseTechnicalHints()
+	p.parseEditionsAndParts()
 	p.parseYears()
 	p.result.Title = p.title()
 	if p.result.Title == "" {
@@ -566,6 +567,7 @@ func (p *nameParser) parseEditionsAndParts() {
 			continue
 		}
 		raw := strings.ToUpper(p.stem[match[2]:match[3]])
+		marker := strings.ToLower(p.stem[match[0]:match[1]])
 		number, err := strconv.Atoi(raw)
 		if err != nil {
 			number = map[string]int{"I": 1, "II": 2, "III": 3, "IV": 4, "V": 5, "VI": 6, "VII": 7, "VIII": 8, "IX": 9, "X": 10}[raw]
@@ -575,7 +577,8 @@ func (p *nameParser) parseEditionsAndParts() {
 			continue
 		}
 		p.result.Parts = appendUniqueInt(p.result.Parts, number)
-		p.record("part", match[0], match[1], strconv.Itoa(number), false)
+		remove := len(p.result.TechnicalHints) != 0 && (strings.HasPrefix(marker, "cd") || strings.HasPrefix(marker, "disc"))
+		p.record("part", match[0], match[1], strconv.Itoa(number), remove)
 		p.ambiguous("part_requires_confirmation")
 	}
 	for _, match := range chinesePartPattern.FindAllStringIndex(p.stem, -1) {
