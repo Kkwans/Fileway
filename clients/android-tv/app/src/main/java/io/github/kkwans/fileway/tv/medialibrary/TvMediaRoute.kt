@@ -92,6 +92,9 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
         var watchMenu by remember { mutableStateOf<MediaCatalogContinue?>(null) }
         var searching by rememberSaveable { mutableStateOf(false) }
         var personPage by remember(route) { mutableStateOf<MediaCatalogPersonRef?>(null) }
+        var personReturnItem by remember(route) { mutableStateOf<String?>(null) }
+        var personReturnLibrary by remember(route) { mutableStateOf<String?>(null) }
+        var personReturnSeason by remember(route) { mutableStateOf<String?>(null) }
         var collectionPage by remember(route) { mutableStateOf<MediaCatalogCollectionRef?>(null) }
         val libraryId = library
         val itemId = item
@@ -159,7 +162,12 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
             val target = resolveTvCatalogSearchFocusTarget(lastAnchor, lastOrigin,
                 route.people.map { "person:${it.ref.libraryId}/${it.ref.personId}" })
             route.closePerson(); personPage = null
-            restore(target.id, target.origin)
+            if (personReturnItem != null && personReturnLibrary != null) {
+                val returnItem = personReturnItem
+                item = personReturnItem; library = personReturnLibrary; season = personReturnSeason
+                personReturnItem = null; personReturnLibrary = null; personReturnSeason = null
+                restore(returnItem.orEmpty(), "detail-back")
+            } else restore(target.id, target.origin)
         }
         fun closeCollectionPage() {
             val target = resolveTvCatalogSearchFocusTarget(lastAnchor, lastOrigin,
@@ -350,7 +358,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                                 overview = detail?.fields?.get("plot")?.values?.firstOrNull(),
                                 ratings = ratings.ifEmpty { listOfNotNull(tvRating(card.primaryRating)) })
                             else TvMediaCard("$libraryId/$itemId", detail?.item?.title ?: "影视详情"),
-                            people = detail?.credits?.items.orEmpty().map { TvMediaPerson(it.id, it.name, it.role.ifBlank { it.kind }) },
+                            people = detail?.credits?.items.orEmpty().map { TvMediaPerson(it.personId, it.name, it.role.ifBlank { it.kind }) },
                             collections = detail?.collections?.items.orEmpty().map { collection ->
                                 listOfNotNull(collection.name, collection.number?.let { "编号 $it" }).joinToString(" · ")
                             },
@@ -367,6 +375,13 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             onPlay = if (playable && reference != null) ({ openSources(reference) }) else null,
                             onPlayFromStart = if (playable && reference != null) ({ openSources(reference, fromStart = true) }) else null,
                             onSources = if (playable && reference != null) ({ openSources(reference) }) else null,
+                            onPerson = { personId -> libraryId?.let { targetLibrary ->
+                                val name = detail?.credits?.items?.firstOrNull { it.personId == personId }?.name.orEmpty()
+                                personReturnItem = itemId; personReturnLibrary = targetLibrary; personReturnSeason = season
+                                val ref = MediaCatalogPersonRef(targetLibrary, personId)
+                                personPage = ref; route.openPerson(ref, name); searching = true
+                                item = null; library = null; season = null
+                            } },
                             onSeason = { route.selectSeason(it) },
                             onEpisode = { id -> route.episodes.firstOrNull { tvMediaKey(it.ref) == id }?.let { openSources(it.ref) } },
                             onMoreEpisodes = if (route.episodesCursor != null && !route.episodesLoading) ({ route.loadEpisodes(false) }) else null,

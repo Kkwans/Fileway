@@ -70,12 +70,6 @@ fun TvMediaDetail(
                         }
                         if (state.item.metadataLabel.isNotBlank()) Text(state.item.metadataLabel,
                             style = MediaType.body, color = colors.text)
-                        if (state.collections.isNotEmpty()) {
-                            Text("合集", style = MediaType.sectionTitle, color = colors.text)
-                            state.collections.forEach { label ->
-                                Text(label, style = MediaType.body, color = colors.secondary)
-                            }
-                        }
                     }
                     val ratings = state.item.ratings.filter { it.valueLabel.isNotBlank() }
                     if (ratings.isNotEmpty()) Column(Modifier.padding(horizontal = MediaLayout.pageInset)
@@ -179,6 +173,13 @@ fun TvMediaDetail(
                         }
                     }
                 }
+            }
+        }
+        if (state.collections.isNotEmpty()) item(key = "collections") {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                MediaSectionTitle("合集")
+                state.collections.forEach { label -> Text(label, Modifier.padding(horizontal = MediaLayout.pageInset),
+                    style = MediaType.body, color = colors.secondary) }
             }
         }
         if (state.related.isNotEmpty() && onRelated != null) item(key = "related") {
