@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path"
+	"strconv"
 	"strings"
 	"time"
 
@@ -316,6 +318,33 @@ func (store *Store) CommitScanContext(ctx context.Context, actor uint, lease Sca
 				current.SeriesProblem = "conflict"
 			}
 		}
+		if current.SeriesID == "" && input.TVShow.NFO == nil && input.TVShow.Status == "missing" {
+			directory := path.Base(strings.TrimRight(string(input.Locator), "/"))
+			evidence := mediametadata.ParseDirectoryName(directory)
+			if evidence.CompleteEpisodeCount != nil && evidence.Year != nil && evidence.Title != "" && len(evidence.Ambiguities) == 0 {
+				seriesID, err := resolveLocalDirectorySeriesTx(ctx, tx, actor, r.Binding, current, evidence)
+				if err != nil {
+					return err
+				}
+				if seriesID != "" {
+					current.SeriesID = seriesID
+					seasonID, _, err := ensureSeasonTx(ctx, tx, actor, r.Binding, seriesID, 1)
+					if err != nil {
+						return err
+					}
+					if current.LocalSeasonID != "" && current.LocalSeasonID != seasonID {
+						current.SeriesProblem = "conflict"
+						current.SeriesID, current.SeasonID = "", ""
+						current.SeasonNumber = sql.NullInt64{}
+					} else {
+						current.LocalSeasonID = seasonID
+						current.SeasonID = seasonID
+						current.SeasonNumber = sql.NullInt64{Int64: 1, Valid: true}
+						current.SeriesProblem, current.SeasonProblem = "", ""
+					}
+				}
+			}
+		}
 		if input.Season.NFO != nil {
 			current.SeasonKey = bytes.Clone(input.Season.NFO.SourceKey)
 			current.SeasonDigest = bytes.Clone(input.Season.NFO.Digest)
@@ -335,7 +364,7 @@ func (store *Store) CommitScanContext(ctx context.Context, actor uint, lease Sca
 			} else {
 				current.SeasonProblem = ""
 			}
-		} else if input.Season.Status != "missing" || current.LocalSeasonID != "" {
+		} else if input.Season.Status != "missing" || current.LocalSeasonID != "" && current.SeasonID == "" {
 			current.SeasonID = ""
 			current.SeasonNumber = sql.NullInt64{}
 			current.SeasonProblem = "unavailable"
@@ -400,6 +429,63 @@ func resolveDirectorySeriesTx(ctx context.Context, tx *sql.Tx, actor uint, bindi
 		return "", nil
 	}
 	if _, err = tx.ExecContext(ctx, `UPDATE item_structure SET series_id=item_id,match_state='local_confirmed',issue_code='' WHERE library_id=? AND item_id=?`, binding.LibraryID, current.LocalSeriesID); err != nil {
+		return "", err
+	}
+	return current.LocalSeriesID, nil
+}
+
+func resolveLocalDirectorySeriesTx(ctx context.Context, tx *sql.Tx, actor uint, binding SourceBindingRef, current *directoryContext, evidence mediametadata.DirectoryNameEvidence) (string, error) {
+	title, err := catalogTitle(evidence.Title)
+	if err != nil {
+		current.SeriesProblem = "conflict"
+		return "", nil
+	}
+	var revision int64
+	if current.LocalSeriesID == "" {
+		created, err := createCatalogItemTx(ctx, tx, actor, binding.LibraryID, NewCatalogItem{Kind: "series", Title: title, initialSource: "filename", initialBinding: &binding})
+		if err != nil {
+			return "", err
+		}
+		current.LocalSeriesID = created.ID
+		revision = created.Revision
+	} else {
+		var kind, existing string
+		if err := tx.QueryRowContext(ctx, `SELECT kind,title FROM library_item WHERE library_id=? AND id=?`, binding.LibraryID, current.LocalSeriesID).Scan(&kind, &existing); err != nil {
+			return "", err
+		}
+		if kind != "series" || existing != title {
+			current.SeriesProblem = "conflict"
+			return "", nil
+		}
+		if err := tx.QueryRowContext(ctx, `SELECT revision FROM library_item WHERE library_id=? AND id=?`, binding.LibraryID, current.LocalSeriesID).Scan(&revision); err != nil {
+			return "", err
+		}
+	}
+	if evidence.Year != nil {
+		value := strconv.Itoa(*evidence.Year)
+		var encoded string
+		err := tx.QueryRowContext(ctx, `SELECT value_json FROM item_field WHERE library_id=? AND item_id=? AND field='year'`, binding.LibraryID, current.LocalSeriesID).Scan(&encoded)
+		if err == nil {
+			var values []string
+			if json.Unmarshal([]byte(encoded), &values) != nil || len(values) != 1 || values[0] != value {
+				current.SeriesProblem = "conflict"
+				return "", nil
+			}
+		} else if errors.Is(err, sql.ErrNoRows) {
+			if err := putMetadataField(ctx, tx, binding.LibraryID, current.LocalSeriesID, metadataFieldState{
+				Name: "year", Values: []string{value}, Source: "filename", SourceKey: []byte(evidence.OriginalName),
+				BindingID: binding.BindingID, BindingEpoch: binding.ProofEpoch, Revision: revision + 1,
+			}); err != nil {
+				return "", err
+			}
+			if err := updateMetadataItem(ctx, tx, binding.LibraryID, current.LocalSeriesID, revision); err != nil {
+				return "", err
+			}
+		} else {
+			return "", err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE item_structure SET series_id=item_id,match_state='local_confirmed',issue_code='' WHERE library_id=? AND item_id=?`, binding.LibraryID, current.LocalSeriesID); err != nil {
 		return "", err
 	}
 	return current.LocalSeriesID, nil

@@ -196,6 +196,49 @@ func TestScanContextAtomicReplayAndRevisionFence(t *testing.T) {
 	}
 }
 
+func TestCompleteLocalSeasonDirectoryCreatesSeriesAndMapsEpisode(t *testing.T) {
+	store := openTestStore(t)
+	library := createLibrary(t, store, 7, "Fixture")
+	binding := createBoundSource(t, store, library)
+	_, lease := testScan(t, store, binding, "local-season")
+	directory := "韩剧【信号】(2016) 16集全 1080P韩语中字 李帝勋 ／ 赵震雄 ／ 金惠秀"
+	locator := "/videos/" + directory
+	root, err := store.CommitScanContext(t.Context(), 7, *lease, DirectoryContextObservation{
+		Locator: []byte("/videos/"), TVShow: DirectorySidecar{Status: "missing"}, Season: DirectorySidecar{Status: "missing"},
+	}, ScanCheckpoint{Version: 1, Sequence: 1, Phase: "enumerate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref, err := store.CommitScanContext(t.Context(), 7, *lease, DirectoryContextObservation{
+		Locator: []byte(locator), Parent: *root, TVShow: DirectorySidecar{Status: "missing"}, Season: DirectorySidecar{Status: "missing"},
+	}, ScanCheckpoint{Version: 1, Sequence: 2, Phase: "enumerate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := readDirectoryContext(store.db.QueryRowContext(t.Context(), `SELECT `+directoryContextColumns+` FROM directory_context WHERE id=?`, ref.ID))
+	if err != nil || current.SeriesID == "" || current.SeasonID == "" || !current.SeasonNumber.Valid || current.SeasonNumber.Int64 != 1 {
+		t.Fatalf("local series context missing: %+v err=%v", current, err)
+	}
+	filename := "信号.E01【微信公众号：浪漫的西红柿】可以加115交流群.mkv"
+	name := mediametadata.ParseNameInDirectory(filename, directory)
+	file := testObservation("native", locator+"/"+filename)
+	file.NFOStatus = "missing"
+	file.InitialTitle = name.Title
+	file.DirectoryContext = *ref
+	file.ParsedName = &name
+	commit, err := store.CommitScanObservation(t.Context(), 7, *lease, file, testCheckpoint(file, 3, 1))
+	if err != nil || commit == nil || commit.ItemID == "" {
+		t.Fatalf("episode was not mapped: commit=%+v err=%v", commit, err)
+	}
+	var kind, parent string
+	if err := store.db.QueryRow(`SELECT kind,COALESCE(parent_id,'') FROM library_item WHERE library_id=? AND id=?`, library.ID, commit.ItemID).Scan(&kind, &parent); err != nil || kind != "episode" || parent != current.SeasonID {
+		t.Fatalf("mapped item shape: kind=%s parent=%s err=%v", kind, parent, err)
+	}
+	if tableCount(t, store, "library_item") != 3 {
+		t.Fatalf("expected series, season and episode only: %d", tableCount(t, store, "library_item"))
+	}
+}
+
 func TestBindingEpochFenceDoesNotReviveOldMapping(t *testing.T) {
 	store, library, first, lease, file, variant := playbackFixture(t)
 	ctx := t.Context()

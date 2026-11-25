@@ -2,6 +2,7 @@ package mediametadata
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"reflect"
 	"slices"
@@ -305,6 +306,50 @@ func TestNameParserResourceBoundsAndPurity(t *testing.T) {
 	}
 	if !reflect.DeepEqual(parsed, ParseName(input)) {
 		t.Fatal("parse depends on mutable state")
+	}
+}
+
+func TestCompleteLocalSeasonDirectoryMapsAbsoluteEpisodeNumbers(t *testing.T) {
+	directory := "韩剧【信号】(2016) 16集全 1080P韩语中字 李帝勋 ／ 赵震雄 ／ 金惠秀"
+	parsed := ParseNameInDirectory("信号.E01【微信公众号：浪漫的西红柿】可以加115交流群.mkv", directory)
+	if parsed.Title != "信号" || parsed.Directory == nil || parsed.Directory.Title != "信号" || parsed.Directory.Year == nil || *parsed.Directory.Year != 2016 {
+		t.Fatalf("series directory evidence missing: %#v", parsed)
+	}
+	if len(parsed.SeasonEpisodes) != 1 || parsed.SeasonEpisodes[0] != (SeasonEpisode{Season: 1, Episode: 1}) || len(parsed.AbsoluteEpisodes) != 0 {
+		t.Fatalf("complete local season not mapped: %#v", parsed)
+	}
+	for _, issue := range parsed.Ambiguities {
+		if issue == "absolute_episode_requires_mapping" || issue == "directory_ambiguous_evidence" {
+			t.Fatalf("resolved local season retained ambiguity: %v", parsed.Ambiguities)
+		}
+	}
+	for episode := 1; episode <= 16; episode++ {
+		parsed := ParseNameInDirectory(fmt.Sprintf("信号.E%02d【微信公众号：浪漫的西红柿】可以加115交流群.mkv", episode), directory)
+		if len(parsed.SeasonEpisodes) != 1 || parsed.SeasonEpisodes[0] != (SeasonEpisode{Season: 1, Episode: episode}) || len(parsed.AbsoluteEpisodes) != 0 {
+			t.Fatalf("episode %d was not mapped: %#v", episode, parsed)
+		}
+	}
+}
+
+func TestCompleteLocalSeasonDirectoryRejectsOutOfRangeOrUndeclaredEpisodes(t *testing.T) {
+	directory := "韩剧【信号】(2016) 16集全 1080P韩语中字"
+	for _, tc := range []struct {
+		filename, directory string
+		absolute            bool
+	}{
+		{"信号.E17.mkv", directory, true},
+		{"信号.E01.mkv", "韩剧【信号】(2016) 1080P韩语中字", true},
+		{"信号.E01.mkv", "韩剧【信号】(2016) 16集全 12集全", true},
+		{"信号.S02E01.mkv", directory, false},
+	} {
+		parsed := ParseNameInDirectory(tc.filename, tc.directory)
+		if tc.absolute {
+			if len(parsed.AbsoluteEpisodes) != 1 || len(parsed.SeasonEpisodes) != 0 {
+				t.Fatalf("unsafe absolute conversion: %#v", parsed)
+			}
+		} else if len(parsed.SeasonEpisodes) != 1 || parsed.SeasonEpisodes[0].Season != 2 {
+			t.Fatalf("explicit season overwritten: %#v", parsed)
+		}
 	}
 }
 

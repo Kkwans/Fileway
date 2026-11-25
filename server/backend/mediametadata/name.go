@@ -39,10 +39,11 @@ type ParsedName struct {
 }
 
 type DirectoryNameEvidence struct {
-	OriginalName string   `json:"originalName"`
-	Title        string   `json:"title"`
-	Year         *int     `json:"year,omitempty"`
-	Ambiguities  []string `json:"ambiguities,omitempty"`
+	OriginalName         string   `json:"originalName"`
+	Title                string   `json:"title"`
+	Year                 *int     `json:"year,omitempty"`
+	CompleteEpisodeCount *int     `json:"completeEpisodeCount,omitempty"`
+	Ambiguities          []string `json:"ambiguities,omitempty"`
 }
 
 type NameProviderID struct {
@@ -90,6 +91,8 @@ var (
 	bracketYearPattern     = regexp.MustCompile(`[\[(（【]((?:18|19|20|21)[0-9]{2})[\])）】]`)
 	yearPattern            = regexp.MustCompile(`(?:18|19|20|21)[0-9]{2}`)
 	directoryYearRange     = regexp.MustCompile(`(?:18|19|20|21)[0-9]{2}[ ._]*[-–][ ._]*(?:18|19|20|21)[0-9]{2}`)
+	completeSeasonPattern  = regexp.MustCompile(`(?i)([0-9]{1,3})[ ._]*集全`)
+	seriesDirectoryPattern = regexp.MustCompile(`^(?:韩剧|剧集|电视剧)[【\[]([^】\]]+)[】\]]`)
 	animeTitlePattern      = regexp.MustCompile(`(?i)^\[CoolComic404\]\[([^\]]+)\]`)
 	partPattern            = regexp.MustCompile(`(?i)(?:cd|disc|part)[ ._\-]*([0-9]{1,2}|VIII|VII|VI|IV|III|II|IX|X|V|I)`)
 	chinesePartPattern     = regexp.MustCompile(`[上中下][部集篇]`)
@@ -125,7 +128,8 @@ var technicalNameRules = []technicalRule{
 	{"market_tag", regexp.MustCompile(`(?i)\[(?:泰国|港版|日本|美国|韩国|剧情|喜剧|动作|爱情|科幻|悬疑|犯罪)(?:[ ._-]+(?:泰国|港版|日本|美国|韩国|剧情|喜剧|动作|爱情|科幻|悬疑|犯罪))*\]`)},
 	{"promotional_prefix", regexp.MustCompile(`(?i)^(?:(?:福利电影|魅力社)[0-9A-Za-z ._\-]*com[ ._\-]+|(?:【[^】]*(?:无水印|请访问|www[ ._]|https?://)[^】]*】|\[[^\]]*(?:www[ ._]|https?://)[^\]]*\])+)`)},
 	{"site_prefix", regexp.MustCompile(`(?i)^(?:【[^】]*(?:www[ ._]|https?://)[^】]*】|\[[^\]]*(?:www[ ._]|https?://)[^\]]*\])`)},
-	{"site_tag", regexp.MustCompile(`(?i)(?:【[^】]*(?:www[ ._]|https?://)[^】]*】|\[[^\]]*(?:www[ ._]|https?://)[^\]]*\])`)},
+	{"site_tag", regexp.MustCompile(`(?i)(?:【[^】]*(?:www[ ._]|https?://|微信公众号)[^】]*】|\[[^\]]*(?:www[ ._]|https?://)[^\]]*\])`)},
+	{"promo_suffix", regexp.MustCompile(`(?i)可以加(?:115|qq|微信)[ ._]*交流群`)},
 }
 
 // ParseName parses a single filename, not a filesystem path or URL. It uses
@@ -203,14 +207,17 @@ func ParseName(filename string) ParsedName {
 	return p.result
 }
 
-// ParseNameInDirectory keeps the immediate parent name as separate evidence.
-// Directory values never overwrite filename values or resolve a conflict.
-func ParseNameInDirectory(filename, directory string) ParsedName {
-	result := ParseName(filename)
+// ParseDirectoryName extracts only explicit directory evidence. A declared
+// complete episode count is structural context, not proof of a provider work.
+func ParseDirectoryName(directory string) DirectoryNameEvidence {
 	if directory == "" || directory == "." || directory == ".." || strings.ContainsAny(directory, `/\\`) {
-		return result
+		return DirectoryNameEvidence{OriginalName: directory, Ambiguities: []string{"invalid_directory"}}
 	}
 	parsed := ParseName(directory)
+	title := parsed.Title
+	if match := seriesDirectoryPattern.FindStringSubmatch(directory); len(match) == 2 {
+		title = cleanNameTitle(match[1])
+	}
 	year := parsed.Year
 	if directoryYearRange.MatchString(directory) {
 		year = nil
@@ -233,16 +240,53 @@ func ParseNameInDirectory(filename, directory string) ParsedName {
 			}
 		}
 	}
-	result.Directory = &DirectoryNameEvidence{OriginalName: directory, Title: parsed.Title, Year: year,
+	var complete *int
+	if !seasonEpisodePattern.MatchString(directory) && !xEpisodePattern.MatchString(directory) && !chineseEpisodePattern.MatchString(directory) {
+		for _, match := range completeSeasonPattern.FindAllStringSubmatchIndex(directory, -1) {
+			if !leftTokenBound(directory, match[0]) || !rightTokenBound(directory, match[1]) {
+				continue
+			}
+			count, _ := strconv.Atoi(directory[match[2]:match[3]])
+			if count >= 1 && count <= MaxEpisodeHints {
+				if complete != nil && *complete != count {
+					parsed.Ambiguities = append(parsed.Ambiguities, "directory_conflicting_episode_counts")
+					complete = nil
+					break
+				}
+				complete = &count
+			}
+		}
+	}
+	return DirectoryNameEvidence{OriginalName: directory, Title: title, Year: year, CompleteEpisodeCount: complete,
 		Ambiguities: append([]string(nil), parsed.Ambiguities...)}
-	if result.Year != nil && year != nil && *result.Year != *year {
+}
+
+// ParseNameInDirectory keeps the immediate parent name as separate evidence.
+// Directory values never overwrite filename values or resolve a conflict.
+func ParseNameInDirectory(filename, directory string) ParsedName {
+	result := ParseName(filename)
+	if directory == "" || directory == "." || directory == ".." || strings.ContainsAny(directory, `/\\`) {
+		return result
+	}
+	parsed := ParseDirectoryName(directory)
+	result.Directory = &parsed
+	if result.Year != nil && parsed.Year != nil && *result.Year != *parsed.Year {
 		result.Ambiguities = append(result.Ambiguities, "directory_year_conflict")
 	}
-	if result.Title == "" && slices.Contains(result.Ambiguities, "promotional_filename") && parsed.Title != "" && year != nil && len(parsed.Ambiguities) == 0 {
+	if result.Title == "" && slices.Contains(result.Ambiguities, "promotional_filename") && parsed.Title != "" && parsed.Year != nil && len(parsed.Ambiguities) == 0 {
 		result.Ambiguities = slices.DeleteFunc(result.Ambiguities, func(issue string) bool { return issue == "promotional_filename" })
 	}
 	if len(parsed.Ambiguities) != 0 && result.Year == nil {
 		result.Ambiguities = append(result.Ambiguities, "directory_ambiguous_evidence")
+	}
+	if parsed.CompleteEpisodeCount != nil && len(result.AbsoluteEpisodes) == 1 && len(result.SeasonEpisodes) == 0 &&
+		result.AbsoluteEpisodes[0] >= 1 && result.AbsoluteEpisodes[0] <= *parsed.CompleteEpisodeCount &&
+		cleanNameTitle(result.Title) == cleanNameTitle(parsed.Title) && !slices.Contains(result.Ambiguities, "numbering_scheme_conflict") {
+		episode := result.AbsoluteEpisodes[0]
+		result.SeasonEpisodes = []SeasonEpisode{{Season: 1, Episode: episode}}
+		result.AbsoluteEpisodes = nil
+		result.TypeHint = "episode"
+		result.Ambiguities = slices.DeleteFunc(result.Ambiguities, func(issue string) bool { return issue == "absolute_episode_requires_mapping" })
 	}
 	sort.Strings(result.Ambiguities)
 	return result
