@@ -51,7 +51,7 @@ func parseIncompleteTitlePattern(title string) incompleteTitlePattern {
 		}
 	}
 	flush()
-	if len(tokens) < 3 || len(tokens) > 24 || visible < 2 || missing == 0 || missing > visible {
+	if len(tokens) < 2 || len(tokens) > 24 || visible < 1 || missing == 0 || missing > visible {
 		return incompleteTitlePattern{}
 	}
 	slices.SortStableFunc(runs, func(a, b string) int { return cmp.Compare(len(b), len(a)) })
