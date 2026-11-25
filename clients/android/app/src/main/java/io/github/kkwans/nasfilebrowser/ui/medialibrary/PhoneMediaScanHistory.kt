@@ -211,8 +211,8 @@ private fun ScanHistoryPage(title: String, onBack: () -> Unit, refresh: () -> Un
 @Composable
 private fun ScanProgressText(title: String, details: String) {
     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Text(title, style = MaterialTheme.typography.titleMedium)
-        Text(details, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(title, style = PhoneMediaType.itemTitle)
+        Text(details, style = PhoneMediaType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 

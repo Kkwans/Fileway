@@ -549,7 +549,7 @@ import kotlin.coroutines.coroutineContext
                         item(key = "default-policy") {
                             SettingsGroup("资料") {
                                 Text("仅本地资料。创建后可在“资料优先级”中选择 TMDB 连接并修改。", Modifier.padding(16.dp),
-                                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    style = PhoneMediaType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
                     }
@@ -559,11 +559,11 @@ import kotlin.coroutines.coroutineContext
                                 if (draftLibraryId == library.id) item(key = "setup-progress") {
                                     SettingsGroup("创建进度") {
                                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            Text("已添加 ${setupCompleted.size}/${setupTotal} 个文件夹", style = MaterialTheme.typography.titleSmall)
-                                            setupCompleted.forEach { Text("已添加 · ${it.path}", style = MaterialTheme.typography.bodySmall) }
-                                            draftFolders.forEach { Text("待添加 · ${it.path}", style = MaterialTheme.typography.bodySmall,
+                                            Text("已添加 ${setupCompleted.size}/${setupTotal} 个文件夹", style = PhoneMediaType.itemTitle)
+                                            setupCompleted.forEach { Text("已添加 · ${it.path}", style = PhoneMediaType.secondary) }
+                                            draftFolders.forEach { Text("待添加 · ${it.path}", style = PhoneMediaType.secondary,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                            if (setupScanRequested) Text("全部添加后将按已保存的资料策略开始扫描。", style = MaterialTheme.typography.bodySmall)
+                                            if (setupScanRequested) Text("全部添加后将按已保存的资料策略开始扫描。", style = PhoneMediaType.secondary)
                                             if (setupPaused && pendingId == null) TextButton(onClick = {
                                                 setupPaused = false; error = null; refreshPage()
                                             }, enabled = !busy && !loading, modifier = Modifier.heightIn(min = 48.dp)) {
@@ -593,7 +593,7 @@ import kotlin.coroutines.coroutineContext
                                 }
                                 if (!loading && support?.available != true) item(key = "scan-unavailable") {
                                     Column {
-                                        Text(if (support == null) "无法确认扫描服务状态，请重新检查。" else "扫描服务暂不可用，添加来源后可稍后再试。", style = MaterialTheme.typography.bodySmall,
+                                        Text(if (support == null) "无法确认扫描服务状态，请重新检查。" else "扫描服务暂不可用，添加来源后可稍后再试。", style = PhoneMediaType.secondary,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                                         TextButton(onClick = { refreshPage() }, enabled = !loading && !busy) { Text("重新检查扫描服务") }
                                     }
@@ -616,8 +616,8 @@ import kotlin.coroutines.coroutineContext
                                         Row(Modifier.padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
                                             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                             Column(Modifier.weight(1f)) {
-                                            Text(source.displayRoot ?: "服务器目录", style = MaterialTheme.typography.titleMedium)
-                                            Text(sourceAccessLabel(source.access), style = MaterialTheme.typography.bodySmall)
+                                            Text(source.displayRoot ?: "服务器目录", style = PhoneMediaType.itemTitle)
+                                            Text(sourceAccessLabel(source.access), style = PhoneMediaType.secondary)
                                             }
                                             TextButton(onClick = {
                                                 val rules = support?.localRulesRevision ?: return@TextButton
@@ -644,7 +644,7 @@ import kotlin.coroutines.coroutineContext
                                     }, modifier = Modifier.fillMaxWidth()) { Text("加载更多来源") }
                                 }
                                 scan?.takeIf { it.libraryId == library.id }?.let { value -> item(key = "scan") {
-                                    Text("${scanStatusLabel(value.status)} · 已处理 ${value.processed} 项", style = MaterialTheme.typography.bodyMedium)
+                                    Text("${scanStatusLabel(value.status)} · 已处理 ${value.processed} 项", style = PhoneMediaType.body)
                                         TextButton(onClick = { historyScanId = value.id; screen = "history" }) { Text("查看进度") }
                                         when (value.status) {
                                             MediaScanStatus.QUEUED, MediaScanStatus.RUNNING ->
@@ -662,8 +662,8 @@ import kotlin.coroutines.coroutineContext
                                     Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
                                         Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
                                             Column(Modifier.weight(1f)) {
-                                                Text(sources.firstOrNull { it.id == value.bindingId }?.displayRoot ?: "媒体文件夹", style = MaterialTheme.typography.titleSmall)
-                                                Text("${scanStatusLabel(value.status)} · 已处理 ${value.processed} 项", style = MaterialTheme.typography.bodySmall)
+                                                Text(sources.firstOrNull { it.id == value.bindingId }?.displayRoot ?: "媒体文件夹", style = PhoneMediaType.itemTitle)
+                                                Text("${scanStatusLabel(value.status)} · 已处理 ${value.processed} 项", style = PhoneMediaType.secondary)
                                             }
                                             TextButton(onClick = { historyScanId = value.id; screen = "history" }) { Text("进度") }
                                             when (value.status) {
@@ -711,14 +711,14 @@ import kotlin.coroutines.coroutineContext
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (!creating) {
                                 Text(if (alreadyAdded) "已添加 · ${currentDirectory.name}" else "当前文件夹 · ${currentDirectory.name}",
-                                    style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    style = PhoneMediaType.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                             if (creating) {
-                                Text("创建时会添加所选文件夹；仅创建不会启动扫描。", style = MaterialTheme.typography.bodySmall,
+                                Text("创建时会添加所选文件夹；仅创建不会启动扫描。", style = PhoneMediaType.secondary,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 if (draftFolders.isEmpty() || draftFolders.size > 60) Text(
                                     if (draftFolders.isEmpty()) "选择文件夹后可以创建并扫描。" else "一次最多扫描 60 个文件夹，可以先创建媒体库。",
-                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 FilewayButton(onClick = { createLibrary(andScan = true) },
                                     enabled = canCreate && draftFolders.size in 1..60,
                                     modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
