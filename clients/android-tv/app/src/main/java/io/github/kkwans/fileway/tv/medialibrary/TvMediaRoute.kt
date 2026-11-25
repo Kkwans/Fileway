@@ -95,6 +95,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
         var personReturnItem by remember(route) { mutableStateOf<String?>(null) }
         var personReturnLibrary by remember(route) { mutableStateOf<String?>(null) }
         var personReturnSeason by remember(route) { mutableStateOf<String?>(null) }
+        var creditsPage by remember(route) { mutableStateOf(false) }
         var collectionPage by remember(route) { mutableStateOf<MediaCatalogCollectionRef?>(null) }
         val libraryId = library
         val itemId = item
@@ -151,6 +152,14 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
             startFromBeginning = fromStart
             route.openSources(ref)
         }
+        fun openDetailPerson(personId: String, name: String) {
+            libraryId?.let { targetLibrary ->
+                personReturnItem = itemId; personReturnLibrary = targetLibrary; personReturnSeason = season
+                val ref = MediaCatalogPersonRef(targetLibrary, personId)
+                personPage = ref; route.openPerson(ref, name); searching = true; creditsPage = false
+                item = null; library = null; season = null
+            }
+        }
         fun playContinue(entry: MediaCatalogContinue, fromStart: Boolean) {
             if (watching.items.none { it === entry } || watching.removing == entry.id) return
             watchMenu = null
@@ -182,6 +191,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
         }
         fun back() {
             when {
+                creditsPage -> { creditsPage = false; route.closeCredits(); restore(itemId, "detail-back") }
                 route.sourceRef != null -> closeSources()
                 item != null -> {
                     item = null; library = null; season = null
@@ -348,6 +358,16 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                     val reference = if (libraryId != null) repository.catalogRef(libraryId, itemId) else null
                     val playable = card?.actions?.can(MediaCatalogAction.PLAY) == true
                     Column(Modifier.fillMaxSize()) {
+                        if (creditsPage) {
+                            TvMediaCredits(card?.title ?: detail?.item?.title.orEmpty(), route.credits.map { credit ->
+                                TvMediaPerson(credit.personId, credit.name, credit.role.ifBlank { credit.roles.joinToString(" · ") })
+                            }, route.creditsLoading, route.creditsError, route.creditsCursor != null, imageLoader,
+                                onBack = ::back, onPerson = { personId ->
+                                    val name = route.credits.firstOrNull { it.personId == personId }?.name.orEmpty()
+                                    openDetailPerson(personId, name)
+                                }, onRetry = { route.loadCredits(true) }, onMore = { route.loadCredits(false) },
+                                modifier = Modifier.weight(1f))
+                        } else {
                         if (route.seasonsError != null) MediaStatus(route.seasonsError!!, { route.loadSeasons(true) }, compact = true)
                         if (route.seasonsCursor != null) Row(Modifier.fillMaxWidth().padding(horizontal = 40.dp)) {
                             MediaAction(if (route.seasonsLoading) "正在加载季…" else "加载更多季",
@@ -375,17 +395,16 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             onPlay = if (playable && reference != null) ({ openSources(reference) }) else null,
                             onPlayFromStart = if (playable && reference != null) ({ openSources(reference, fromStart = true) }) else null,
                             onSources = if (playable && reference != null) ({ openSources(reference) }) else null,
-                            onPerson = { personId -> libraryId?.let { targetLibrary ->
+                            onPerson = { personId ->
                                 val name = detail?.credits?.items?.firstOrNull { it.personId == personId }?.name.orEmpty()
-                                personReturnItem = itemId; personReturnLibrary = targetLibrary; personReturnSeason = season
-                                val ref = MediaCatalogPersonRef(targetLibrary, personId)
-                                personPage = ref; route.openPerson(ref, name); searching = true
-                                item = null; library = null; season = null
-                            } },
+                                openDetailPerson(personId, name)
+                            },
+                            onAllPeople = { creditsPage = true; route.openCredits() },
                             onSeason = { route.selectSeason(it) },
                             onEpisode = { id -> route.episodes.firstOrNull { tvMediaKey(it.ref) == id }?.let { openSources(it.ref) } },
                             onMoreEpisodes = if (route.episodesCursor != null && !route.episodesLoading) ({ route.loadEpisodes(false) }) else null,
                             onRetry = route::loadDetail, onRetryEpisodes = { route.loadEpisodes(true) }, scrollState = detailScroll)
+                        }
                     }
                 }
                 watchMenu?.takeIf { entry -> interactive && watching.items.any { it === entry } }?.let { entry ->

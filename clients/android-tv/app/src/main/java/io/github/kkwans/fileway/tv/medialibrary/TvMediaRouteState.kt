@@ -62,6 +62,10 @@ internal class TvMediaRouteState(
     var detail by mutableStateOf<MediaCatalogDetail.Complete?>(null); private set
     var detailLoading by mutableStateOf(false); private set
     var detailError by mutableStateOf<String?>(null); private set
+    var credits by mutableStateOf<List<MediaCredit>>(emptyList()); private set
+    var creditsCursor by mutableStateOf<String?>(null); private set
+    var creditsLoading by mutableStateOf(false); private set
+    var creditsError by mutableStateOf<String?>(null); private set
     var seasons by mutableStateOf<List<MediaCatalogSeason>>(emptyList()); private set
     var seasonsLoading by mutableStateOf(false); private set
     var seasonsCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
@@ -92,13 +96,14 @@ internal class TvMediaRouteState(
     private var collectionWorksJob: Job? = null
     private var personWorksJob: Job? = null
     private var detailJob: Job? = null
+    private var creditsJob: Job? = null
     private var seasonsJob: Job? = null
     private var episodesJob: Job? = null
     private var sourcesJob: Job? = null
     private var sourceRecoveryJob: Job? = null
     private var pendingSourceRecovery: MediaOperation? = null
 
-    fun close() { listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, collectionsJob, collectionWorksJob, personWorksJob, detailJob, seasonsJob, episodesJob, sourcesJob).forEach { it?.cancel() } }
+    fun close() { listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, collectionsJob, collectionWorksJob, personWorksJob, detailJob, creditsJob, seasonsJob, episodesJob, sourcesJob).forEach { it?.cancel() } }
 
     fun start(savedFilter: String) {
         filter = savedFilter.takeIf { it in setOf("all", "movie", "series", "video") } ?: "all"
@@ -391,7 +396,7 @@ internal class TvMediaRouteState(
 
     fun openDetail(item: MediaCatalogRef, savedSeason: String?) {
         if (ref == item && (detail != null || detailLoading)) return
-        detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources()
+        detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits()
         ref = item; desiredSeason = savedSeason; detail = null; detailCursor = null; detailError = null
         seasons = emptyList(); seasonsCursor = null; selectedSeason = null; episodes = emptyList(); episodesCursor = null
         seasonsLoading = false; seasonsError = null; episodesLoading = false; episodesError = null
@@ -399,9 +404,46 @@ internal class TvMediaRouteState(
     }
 
     fun closeDetail() {
-        detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources()
+        detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits()
         ref = null; detail = null; detailCursor = null; selectedSeason = null
         detailLoading = false; seasonsLoading = false; episodesLoading = false
+    }
+
+    fun openCredits() {
+        creditsJob?.cancel()
+        creditsLoading = false
+        credits = detail?.detail?.credits?.items.orEmpty().distinctBy { it.personId }
+        creditsCursor = detail?.detail?.credits?.nextCursor
+        creditsError = null
+        if (creditsCursor != null) loadCredits(false)
+    }
+
+    fun closeCredits() {
+        creditsJob?.cancel()
+        credits = emptyList(); creditsCursor = null; creditsError = null; creditsLoading = false
+    }
+
+    fun loadCredits(reset: Boolean) {
+        val item = ref ?: return
+        val revision = detail?.detail?.item?.revision ?: return
+        if (!reset && (creditsLoading || creditsCursor == null)) return
+        creditsJob?.cancel(); val cursor = if (reset) null else creditsCursor
+        if (reset) { credits = emptyList(); creditsCursor = null }
+        creditsLoading = true; creditsError = null
+        creditsJob = scope.launch {
+            when (val result = repository.listItemCredits(item.libraryId, item.itemId, revision, limit = 50, cursor = cursor)) {
+                is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                    val page = result.value
+                    credits = (if (reset) page.items else credits + page.items).distinctBy { it.personId }
+                    creditsCursor = page.nextCursor
+                }
+                is MediaReadResult.Failure -> if (result.scope == repository.scope) {
+                    if (result.error.invalidatesTvData()) { credits = emptyList(); creditsCursor = null }
+                    creditsError = tvMediaFailure(result.error)
+                }
+            }
+            coroutineContext.ensureActive(); creditsLoading = false
+        }
     }
 
     fun loadDetail() {

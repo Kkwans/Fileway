@@ -6,6 +6,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.*
@@ -13,6 +17,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
@@ -185,6 +191,74 @@ fun TvMediaDetail(
         if (state.related.isNotEmpty() && onRelated != null) item(key = "related") {
             MediaShelf(TvMediaShelf("related", "相关作品", state.related), imageLoader, onRelated)
         }
+    }
+}
+
+@Composable
+fun TvMediaCredits(
+    title: String,
+    people: List<TvMediaPerson>,
+    loading: Boolean,
+    error: String?,
+    hasMore: Boolean,
+    imageLoader: ImageLoader,
+    onBack: () -> Unit,
+    onPerson: (String) -> Unit,
+    onRetry: () -> Unit,
+    onMore: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val colors = LocalMediaColors.current
+    val closeFocus = remember { FocusRequester() }
+    LaunchedEffect(Unit) { withFrameNanos { closeFocus.requestFocus() } }
+    Column(modifier.fillMaxSize().background(colors.canvas)) {
+        Row(Modifier.fillMaxWidth().padding(start = MediaLayout.pageInset, end = MediaLayout.pageInset,
+            top = 28.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            MediaIconAction("返回", onBack, Art.drawable.fileway_ic_arrow_back, Modifier.focusRequester(closeFocus))
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("演职人员", style = MediaType.pageTitle, color = colors.text)
+                Text(title, style = MediaType.secondary, color = colors.secondary, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis)
+            }
+        }
+        LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 160.dp),
+            contentPadding = PaddingValues(start = MediaLayout.pageInset, end = MediaLayout.pageInset,
+                bottom = 48.dp), horizontalArrangement = Arrangement.spacedBy(MediaLayout.itemGap),
+            verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            items(people, key = { it.id }) { person -> TvCreditCard(person, imageLoader, { onPerson(person.id) }, Modifier.fillMaxWidth()) }
+            if (loading) item(key = "loading", span = { GridItemSpan(maxLineSpan) }) {
+                Text("正在加载演职人员…", style = MediaType.body, color = colors.secondary)
+            }
+            if (error != null) item(key = "error", span = { GridItemSpan(maxLineSpan) }) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(error, style = MediaType.body, color = colors.secondary)
+                    MediaAction("重试", onRetry, icon = Art.drawable.fileway_ic_refresh)
+                }
+            }
+            if (hasMore) item(key = "more", span = { GridItemSpan(maxLineSpan) }) {
+                MediaAction(if (loading) "正在加载…" else "加载更多演职人员", onMore, enabled = !loading)
+            }
+            if (people.isEmpty() && !loading && error == null) item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
+                Text("暂无演职员资料", style = MediaType.body, color = colors.secondary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun TvCreditCard(person: TvMediaPerson, imageLoader: ImageLoader, onClick: () -> Unit, modifier: Modifier) {
+    val colors = LocalMediaColors.current
+    val focus = LocalTvMediaFocusBinding.current
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        MediaSurface({ focus?.onOpen?.invoke(person.id, "person"); onClick() },
+            Modifier.fillMaxWidth().aspectRatio(1f).semantics { contentDescription = "${person.name} ${person.roleLabel}" }) {
+            MediaArtwork(person.portrait, imageLoader, Modifier.fillMaxSize(), Art.drawable.fileway_ic_person)
+        }
+        Text(person.name, style = MediaType.itemTitle, color = colors.text, minLines = 1, maxLines = 2,
+            overflow = TextOverflow.Ellipsis)
+        Text(person.roleLabel, style = MediaType.secondary, color = colors.secondary, maxLines = 2,
+            overflow = TextOverflow.Ellipsis)
     }
 }
 
