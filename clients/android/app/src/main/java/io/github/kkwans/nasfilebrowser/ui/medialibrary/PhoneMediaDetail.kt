@@ -348,7 +348,7 @@ private fun RatingColumn(rating: MediaRating) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(listOfNotNull(rating.source, rating.metric).filter(String::isNotBlank).joinToString(" · "),
                 Modifier.alignByBaseline(), style = PhoneDetailType.action)
-            Text(rating.value, Modifier.alignByBaseline(), style = MaterialTheme.typography.headlineMedium,
+            Text(rating.value, Modifier.alignByBaseline(), style = PhoneMediaType.workTitle,
                 color = FilewayTheme.status.warning)
         }
         listOfNotNull(rating.count, rating.scope).filter(String::isNotBlank).forEach {
@@ -379,32 +379,35 @@ private fun CreditCard(credit: MediaCredit, loader: ImageLoader, onClick: () -> 
 @Composable
 internal fun PhoneMediaCredits(title: String, credits: List<MediaCredit>, loading: Boolean, problem: MediaProblem?,
     hasMore: Boolean, imageLoader: ImageLoader, onBack: () -> Unit, onAction: (PhoneMediaAction) -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
-        FilewayTopAppBar("演职人员", leadingIcon = Art.drawable.fileway_ic_arrow_back, leadingDescription = "返回", onLeadingClick = onBack)
-        LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 136.dp),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            item(key = "title", span = { GridItemSpan(maxLineSpan) }) {
-                Column(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text(title, style = PhoneDetailType.section)
-                    Text("已加载 ${credits.size} 位演职人员", style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    BoxWithConstraints(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        val pageInset = phoneMediaGridSpec(maxWidth).pageInset
+        Column(Modifier.fillMaxSize()) {
+            FilewayTopAppBar("演职人员", leadingIcon = Art.drawable.fileway_ic_arrow_back, leadingDescription = "返回", onLeadingClick = onBack)
+            LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 136.dp), modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentPadding = PaddingValues(start = pageInset, end = pageInset, bottom = 32.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                item(key = "title", span = { GridItemSpan(maxLineSpan) }) {
+                    Column(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(title, style = PhoneMediaType.pageTitle)
+                        Text("已加载 ${credits.size} 位演职人员", style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
-            }
-            items(credits, key = { "credit/${it.personId}/${it.role}" }) { credit ->
-                CreditCard(credit, imageLoader, { onAction(PhoneMediaAction.OpenPerson(credit.personId)) }, Modifier.fillMaxWidth())
-            }
-            if (loading) item(key = "loading", span = { GridItemSpan(maxLineSpan) }) {
-                PhoneDetailLoading("正在加载演职人员")
-            }
-            if (problem != null) item(key = "problem", span = { GridItemSpan(maxLineSpan) }) {
-                MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("credits")) })
-            }
-            if (hasMore) item(key = "more", span = { GridItemSpan(maxLineSpan) }) {
-                TextButton({ onAction(PhoneMediaAction.LoadMore("credits")) }, Modifier.fillMaxWidth().heightIn(min = 48.dp),
-                    shape = MaterialTheme.shapes.medium) { Text("加载更多", style = PhoneDetailType.action) }
-            }
-            if (credits.isEmpty() && !loading && problem == null) item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
-                Text("暂无演职员资料", style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                items(credits, key = { "credit/${it.personId}/${it.role}" }) { credit ->
+                    CreditCard(credit, imageLoader, { onAction(PhoneMediaAction.OpenPerson(credit.personId)) }, Modifier.fillMaxWidth())
+                }
+                if (loading) item(key = "loading", span = { GridItemSpan(maxLineSpan) }) {
+                    PhoneDetailLoading("正在加载演职人员")
+                }
+                if (problem != null) item(key = "problem", span = { GridItemSpan(maxLineSpan) }) {
+                    MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("credits")) })
+                }
+                if (hasMore) item(key = "more", span = { GridItemSpan(maxLineSpan) }) {
+                    TextButton({ onAction(PhoneMediaAction.LoadMore("credits")) }, Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                        shape = MaterialTheme.shapes.medium) { Text("加载更多", style = PhoneDetailType.action) }
+                }
+                if (credits.isEmpty() && !loading && problem == null) item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
+                    Text("暂无演职员资料", style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
         }
     }
