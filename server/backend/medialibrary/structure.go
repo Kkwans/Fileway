@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -29,10 +30,17 @@ type DirectorySidecar struct {
 }
 
 type DirectoryContextObservation struct {
-	Locator []byte
-	Parent  DirectoryContextRef
-	TVShow  DirectorySidecar
-	Season  DirectorySidecar
+	Locator  []byte
+	Parent   DirectoryContextRef
+	TVShow   DirectorySidecar
+	Season   DirectorySidecar
+	Episodes *DirectoryEpisodeEvidence
+}
+
+type DirectoryEpisodeEvidence struct {
+	Title   string
+	Year    *int
+	Numbers []int
 }
 
 type directoryContext struct {
@@ -318,10 +326,27 @@ func (store *Store) CommitScanContext(ctx context.Context, actor uint, lease Sca
 				current.SeriesProblem = "conflict"
 			}
 		}
-		if current.SeriesID == "" && input.TVShow.NFO == nil && input.TVShow.Status == "missing" {
+		if current.SeriesID == "" && input.TVShow.NFO == nil && input.TVShow.Status == "missing" && input.Episodes != nil && len(input.Episodes.Numbers) >= 2 {
 			directory := path.Base(strings.TrimRight(string(input.Locator), "/"))
 			evidence := mediametadata.ParseDirectoryName(directory)
-			if evidence.CompleteEpisodeCount != nil && evidence.Year != nil && evidence.Title != "" && len(evidence.Ambiguities) == 0 {
+			if evidence.Title == "" {
+				evidence.Title = input.Episodes.Title
+			}
+			if evidence.Year == nil {
+				evidence.Year = input.Episodes.Year
+			}
+			seen := make(map[int]struct{}, len(input.Episodes.Numbers))
+			valid := evidence.Title != "" && evidence.Year != nil && len(input.Episodes.Numbers) <= mediametadata.MaxEpisodeHints
+			for _, number := range input.Episodes.Numbers {
+				if number < 1 || number > 9999 {
+					valid = false
+				}
+				if _, exists := seen[number]; exists {
+					valid = false
+				}
+				seen[number] = struct{}{}
+			}
+			if valid {
 				seriesID, err := resolveLocalDirectorySeriesTx(ctx, tx, actor, r.Binding, current, evidence)
 				if err != nil {
 					return err
@@ -808,6 +833,18 @@ WHERE x.library_id=? AND x.item_id=? AND x.provider=? AND x.entity_kind='tvshow'
 	return false, nil
 }
 
+func localEpisodeName(name mediametadata.ParsedName, current *directoryContext) mediametadata.ParsedName {
+	if current == nil || current.TVStatus != "missing" || current.LocalSeriesID == "" || !current.SeasonNumber.Valid ||
+		len(name.AbsoluteEpisodes) != 1 || len(name.SeasonEpisodes) != 0 {
+		return name
+	}
+	name.SeasonEpisodes = []mediametadata.SeasonEpisode{{Season: int(current.SeasonNumber.Int64), Episode: name.AbsoluteEpisodes[0]}}
+	name.AbsoluteEpisodes = nil
+	name.TypeHint = "episode"
+	name.Ambiguities = slices.DeleteFunc(name.Ambiguities, func(issue string) bool { return issue == "absolute_episode_requires_mapping" })
+	return name
+}
+
 func episodeIDsConflictTx(ctx context.Context, tx *sql.Tx, binding SourceBindingRef, itemID string, item mediametadata.Item) (bool, error) {
 	if explicitIDConflict(item.ExternalIDs) {
 		return true, nil
@@ -1007,7 +1044,7 @@ func identifyScanFileTx(ctx context.Context, tx *sql.Tx, actor uint, r *scanReco
 		if input.NFO != nil {
 			doc = &input.NFO.Document
 		}
-		decision.Resolution = mediametadata.ResolveEpisode(*input.ParsedName, doc, season)
+		decision.Resolution = mediametadata.ResolveEpisode(localEpisodeName(*input.ParsedName, current), doc, season)
 		switch current.SeasonProblem {
 		case "conflict":
 			reviewResolution(&decision.Resolution, "season_context_conflict")

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"slices"
+	"strconv"
 	"testing"
 )
 
@@ -160,7 +161,7 @@ func TestResolveAutomaticMatchRecoversMissingHanCharactersWithYearAndRuntime(t *
 	}{
 		{"I Am Sam", "w是s姆", "是", "姆", "我是山姆", 10950, 132, 7938645, AutoMatched, ""},
 		{"The Piano Teacher", "钢q教s", "钢", "教", "钢琴教师", 1791, 131, 7863274, AutoMatched, ""},
-		{"runtime conflict", "w是s姆", "是", "姆", "我是山姆", 10950, 132, 90 * 60_000, AutoNeedsReview, "runtime_conflict"},
+		{"runtime difference remains evidence", "w是s姆", "是", "姆", "我是山姆", 10950, 132, 90 * 60_000, AutoMatched, ""},
 		{"visible character conflict", "w是s姆", "是", "姆", "我是山猫", 10950, 132, 7938645, AutoNoMatch, "title_not_found"},
 		{"sequel suffix is not ignored", "w是s姆", "是", "姆", "我是山姆2", 10950, 132, 7938645, AutoNoMatch, "title_not_found"},
 	} {
@@ -189,7 +190,9 @@ func TestResolveAutomaticMatchRecoversMissingHanCharactersWithYearAndRuntime(t *
 			}
 			if tc.want == AutoMatched {
 				if result.Document.Entity.ID != tc.id || !slices.Contains(result.Evidence, "incomplete_title_shape") ||
-					!slices.Contains(result.Evidence, "runtime_match") || !slices.Contains(result.Evidence, "unique_candidate") {
+					!slices.Contains(result.Evidence, "closest_runtime") ||
+					!slices.Contains(result.Evidence, "runtime_match") && !slices.Contains(result.Evidence, "runtime_difference") ||
+					!slices.Contains(result.Evidence, "unique_candidate") {
 					t.Fatalf("recovery evidence missing: %+v", result)
 				}
 			}
@@ -279,15 +282,16 @@ func TestResolveAutomaticMatchAllowsUniqueExactTitleWithoutYearOnlyWithRuntimeAn
 			want:   AutoNeedsReview, reason: "year_required", calls: 1,
 		},
 		{
-			name:     "runtime conflict",
+			name:     "runtime difference remains evidence",
 			search:   `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":380,"title":"雨人","original_title":"Rain Man","release_date":"1988-12-16"}]}`,
 			details:  `{"id":380,"title":"雨人","original_title":"Rain Man","release_date":"1988-12-16","runtime":133}`,
-			duration: 90 * 60_000, want: AutoNeedsReview, reason: "runtime_conflict", calls: 2,
+			duration: 90 * 60_000, want: AutoMatched, calls: 2,
 		},
 		{
 			name:     "same title candidates",
 			search:   `{"page":1,"total_pages":1,"total_results":2,"results":[{"id":380,"title":"雨人","release_date":"1988-12-16"},{"id":381,"title":"雨人","release_date":"2000-01-01"}]}`,
-			duration: 133 * 60_000, want: AutoNeedsReview, reason: "ambiguous_candidates", calls: 1,
+			details:  `{"id":380,"title":"雨人","release_date":"1988-12-16","runtime":133}`,
+			duration: 133 * 60_000, want: AutoNeedsReview, reason: "ambiguous_candidates", calls: 3,
 		},
 		{
 			name:     "more than three pages",
@@ -317,6 +321,8 @@ func TestResolveAutomaticMatchAllowsUniqueExactTitleWithoutYearOnlyWithRuntimeAn
 					return response(200, tc.search), nil
 				case "/3/movie/380":
 					return response(200, tc.details), nil
+				case "/3/movie/381":
+					return response(200, `{"id":381,"title":"雨人","release_date":"2000-01-01","runtime":133}`), nil
 				default:
 					t.Fatalf("unexpected outbound request %s", request.URL)
 					return nil, nil
@@ -327,7 +333,8 @@ func TestResolveAutomaticMatchAllowsUniqueExactTitleWithoutYearOnlyWithRuntimeAn
 				t.Fatalf("state=%s reason=%s calls=%d err=%v", result.State, result.Reason, calls, err)
 			}
 			if tc.want == AutoMatched && (result.Document.Entity.ID != 380 ||
-				!slices.Contains(result.Evidence, "exact_title_without_year") || !slices.Contains(result.Evidence, "runtime_match")) {
+				!slices.Contains(result.Evidence, "exact_title_without_year") ||
+				!slices.Contains(result.Evidence, "runtime_match") && !slices.Contains(result.Evidence, "runtime_difference")) {
 				t.Fatalf("yearless evidence missing: %+v", result)
 			}
 		})
@@ -344,7 +351,7 @@ func TestResolveAutomaticMatchAllowsNumberedSequelSubtitleWithoutYearOnlyWithRun
 		{"numbered subtitle", "博物馆奇妙夜2", "博物馆奇妙夜2：史密森尼之战", 105 * 60_000, AutoMatched, ""},
 		{"different sequel number", "博物馆奇妙夜2", "博物馆奇妙夜20：史密森尼之战", 105 * 60_000, AutoNeedsReview, "year_required"},
 		{"unrelated making of", "银河护卫队3", "Marvel Studios Assembled: The Making of the Guardians of the Galaxy Vol. 3", 150 * 60_000, AutoNeedsReview, "year_required"},
-		{"runtime conflict", "博物馆奇妙夜3", "博物馆奇妙夜3：墓葬秘密", 90 * 60_000, AutoNeedsReview, "runtime_conflict"},
+		{"runtime difference remains evidence", "博物馆奇妙夜3", "博物馆奇妙夜3：墓葬秘密", 90 * 60_000, AutoMatched, ""},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			client := fixtureClient(func(request *http.Request) (*http.Response, error) {
@@ -366,7 +373,8 @@ func TestResolveAutomaticMatchAllowsNumberedSequelSubtitleWithoutYearOnlyWithRun
 				t.Fatalf("state=%s reason=%s err=%v", result.State, result.Reason, err)
 			}
 			if tc.want == AutoMatched && (result.Document.Entity.ID != 18360 ||
-				!slices.Contains(result.Evidence, "numbered_title_without_year") || !slices.Contains(result.Evidence, "runtime_match")) {
+				!slices.Contains(result.Evidence, "numbered_title_without_year") ||
+				!slices.Contains(result.Evidence, "runtime_match") && !slices.Contains(result.Evidence, "runtime_difference")) {
 				t.Fatalf("numbered sequel evidence missing: %+v", result)
 			}
 		})
@@ -411,6 +419,69 @@ func TestResolveAutomaticMatchYearlessExactTitleSearchesBoundedLaterPages(t *tes
 			}
 			if tc.want == AutoMatched && (result.Document.Entity.ID != 380 || !slices.Contains(result.Evidence, "runtime_match")) {
 				t.Fatalf("later-page candidate missing: %+v", result)
+			}
+		})
+	}
+}
+
+func TestResolveAutomaticMatchDisambiguatesExactCandidatesByRuntime(t *testing.T) {
+	for _, tc := range []struct {
+		name, title string
+		year        int
+		runtimes    []int
+		duration    int64
+		want        AutomaticMatchState
+		reason      string
+		calls       int
+	}{
+		{"unique runtime without year", "隐藏的面孔", 0, []int{0, 115}, 6_921_387, AutoMatched, "", 3},
+		{"same runtime remains ambiguous", "隐藏的面孔", 0, []int{115, 115}, 6_921_387, AutoNeedsReview, "ambiguous_candidates", 3},
+		{"closest known runtime wins", "隐藏的面孔", 0, []int{90, 92}, 6_921_387, AutoMatched, "", 3},
+		{"all runtimes unknown", "隐藏的面孔", 0, []int{0, 0}, 6_921_387, AutoNeedsReview, "runtime_unknown", 3},
+		{"missing file duration", "隐藏的面孔", 0, []int{0, 115}, 0, AutoNeedsReview, "year_required", 1},
+		{"same year candidates choose closest runtime", "泰迪熊", 2012, []int{92, 107}, 6_735_231, AutoMatched, "", 3},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+				calls++
+				switch request.URL.Path {
+				case "/3/search/movie":
+					year := ""
+					if tc.year != 0 {
+						year = strconv.Itoa(tc.year)
+					}
+					if request.URL.Query().Get("query") != tc.title || request.URL.Query().Get("primary_release_year") != year {
+						t.Fatalf("unexpected candidate lookup %s", request.URL)
+					}
+					date := "2024-11-20"
+					if tc.year != 0 {
+						date = "2012-06-29"
+					}
+					return response(200, `{"page":1,"total_pages":1,"total_results":2,"results":[{"id":42,"title":"`+tc.title+`","release_date":"`+date+`"},{"id":43,"title":"`+tc.title+`","release_date":"`+date+`"}]}`), nil
+				case "/3/movie/42", "/3/movie/43":
+					id := int64(42)
+					date := "2024-11-20"
+					if request.URL.Path == "/3/movie/43" {
+						id = 43
+						date = "2007-09-19"
+					}
+					if tc.year != 0 {
+						date = "2012-06-29"
+					}
+					return response(200, `{"id":`+jsonNumber(id)+`,"title":"`+tc.title+`","release_date":"`+date+`","runtime":`+jsonNumber(int64(tc.runtimes[id-42]))+`}`), nil
+				default:
+					t.Fatalf("unexpected outbound request %s", request.URL)
+					return nil, nil
+				}
+			})
+			result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: tc.title, Year: tc.year, DurationMs: tc.duration, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+			if err != nil || result.State != tc.want || result.Reason != tc.reason || calls != tc.calls {
+				t.Fatalf("state=%s reason=%s calls=%d err=%v", result.State, result.Reason, calls, err)
+			}
+			if tc.want == AutoMatched && (result.Document.Entity.ID != 43 || !slices.Contains(result.Evidence, "runtime_disambiguation") ||
+				!slices.Contains(result.Evidence, "closest_runtime")) {
+				t.Fatalf("wrong runtime-disambiguated candidate: %+v", result)
 			}
 		})
 	}

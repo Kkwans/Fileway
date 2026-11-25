@@ -273,13 +273,10 @@ queries:
 			exact = numberedTitleCandidates(ranked, queries)
 			numberedTitle = len(exact) != 0
 		}
-		if len(exact) > 1 {
-			return review("ambiguous_candidates")
-		}
 		if len(exact) == 0 || input.Kind != Movie || input.DurationMs <= 0 || !searchComplete {
 			return review("year_required")
 		}
-		eligible = append(eligible, exact[0])
+		eligible = append(eligible, exact...)
 	}
 	if len(eligible) == 0 {
 		exact := exactTitleCandidates(ranked, queries)
@@ -287,29 +284,100 @@ queries:
 			return review("title_year_conflict")
 		}
 		if len(exact) > 1 {
+			if input.DurationMs <= 0 {
+				return review("ambiguous_candidates")
+			}
+		} else if len(exact) == 0 {
+			return review("title_year_conflict")
+		}
+		// Search result dates can be stale. Exact-title candidates may be
+		// fetched, but the detail's own release year remains a hard fence below.
+		eligible = append(eligible, exact...)
+	}
+	var document Document
+	var projection TMDBProjection
+	var candidate MatchCandidate
+	runtimeDisambiguated := false
+	var closestRuntimeDifference int64
+	if len(eligible) > 1 {
+		if input.DurationMs <= 0 {
 			return review("ambiguous_candidates")
 		}
-		// Search result dates can be stale. A unique exact title is safe to
-		// fetch, but the detail's own release year remains a hard fence below.
-		eligible = append(eligible, exact[0])
-	}
-	if len(eligible) != 1 {
-		return review("ambiguous_candidates")
-	}
-	candidate := eligible[0]
-	if err := authorize(ctx); err != nil {
-		return AutomaticMatch{}, err
-	}
-	document, err := client.Fetch(ctx, candidate.Entity, FetchOptions{Language: language, Parts: []Part{Credits, ExternalIDs}})
-	if err != nil {
-		if providerErrorIs(err, NotFound) {
-			return AutomaticMatch{State: AutoNoMatch, Reason: "identifier_not_found"}, nil
+		type compatibleCandidate struct {
+			candidate  MatchCandidate
+			document   Document
+			projection TMDBProjection
+			difference int64
 		}
-		return AutomaticMatch{}, err
-	}
-	projection, err := ProjectTMDB(document)
-	if err != nil {
-		return AutomaticMatch{}, err
+		var compatible []compatibleCandidate
+		for _, candidate := range eligible {
+			if err := authorize(ctx); err != nil {
+				return AutomaticMatch{}, err
+			}
+			detail, err := client.Fetch(ctx, candidate.Entity, FetchOptions{Language: language, Parts: []Part{Credits, ExternalIDs}})
+			if err != nil {
+				if providerErrorIs(err, NotFound) {
+					continue
+				}
+				return AutomaticMatch{}, err
+			}
+			projected, err := ProjectTMDB(detail)
+			if err != nil {
+				return AutomaticMatch{}, err
+			}
+			if year := projected.Item.Fields["year"]; input.Year > 0 && len(year) != 0 && year[0] != strconv.Itoa(input.Year) {
+				continue
+			}
+			runtime := documentRuntimeMinutes(detail)
+			if runtime == 0 {
+				continue
+			}
+			compatible = append(compatible, compatibleCandidate{candidate: candidate, document: detail, projection: projected,
+				difference: runtimeDifferenceMs(input.DurationMs, runtime)})
+		}
+		if len(compatible) > 1 {
+			best := compatible[0]
+			tied := false
+			for _, candidate := range compatible[1:] {
+				switch {
+				case candidate.difference < best.difference:
+					best, tied = candidate, false
+				case candidate.difference == best.difference:
+					tied = true
+				}
+			}
+			if tied {
+				return review("ambiguous_candidates")
+			}
+			compatible = []compatibleCandidate{best}
+		}
+		if len(compatible) == 0 {
+			return review("runtime_unknown")
+		}
+		candidate = compatible[0].candidate
+		document, projection = compatible[0].document, compatible[0].projection
+		runtimeDisambiguated = true
+		closestRuntimeDifference = compatible[0].difference
+	} else {
+		if len(eligible) != 1 {
+			return review("ambiguous_candidates")
+		}
+		candidate = eligible[0]
+		if err := authorize(ctx); err != nil {
+			return AutomaticMatch{}, err
+		}
+		var err error
+		document, err = client.Fetch(ctx, candidate.Entity, FetchOptions{Language: language, Parts: []Part{Credits, ExternalIDs}})
+		if err != nil {
+			if providerErrorIs(err, NotFound) {
+				return AutomaticMatch{State: AutoNoMatch, Reason: "identifier_not_found"}, nil
+			}
+			return AutomaticMatch{}, err
+		}
+		projection, err = ProjectTMDB(document)
+		if err != nil {
+			return AutomaticMatch{}, err
+		}
 	}
 	titleField, originalField := "title", "original_title"
 	if input.Kind == Series {
@@ -335,21 +403,31 @@ queries:
 	if input.Year > 0 && len(projection.Item.Fields["year"]) != 0 && projection.Item.Fields["year"][0] != strconv.Itoa(input.Year) {
 		return review("title_year_conflict")
 	}
-	if input.Year <= 0 {
+	evidence := append([]string(nil), candidate.Evidence...)
+	if input.Year <= 0 && !runtimeDisambiguated {
 		runtime := documentRuntimeMinutes(document)
 		if runtime == 0 {
 			return review("runtime_unknown")
 		}
-		if !runtimeMatches(input.DurationMs, runtime) {
-			return review("runtime_conflict")
+		if runtimeMatches(input.DurationMs, runtime) {
+			evidence = append(evidence, "runtime_match")
+		} else {
+			evidence = append(evidence, "runtime_difference")
 		}
 	}
-	evidence := append([]string(nil), candidate.Evidence...)
+	if runtimeDisambiguated {
+		evidence = append(evidence, "runtime_disambiguation", "closest_runtime")
+		if closestRuntimeDifference <= int64(runtimeToleranceMinutes(documentRuntimeMinutes(document)))*60_000 {
+			evidence = append(evidence, "runtime_match")
+		} else {
+			evidence = append(evidence, "runtime_difference")
+		}
+	}
 	if input.Year <= 0 {
 		if numberedTitle {
-			evidence = append(evidence, "numbered_title_without_year", "runtime_match")
+			evidence = append(evidence, "numbered_title_without_year")
 		} else {
-			evidence = append(evidence, "exact_title_without_year", "runtime_match")
+			evidence = append(evidence, "exact_title_without_year")
 		}
 	}
 	if unfilteredSearch {

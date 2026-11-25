@@ -139,7 +139,11 @@ func (client *TMDBClient) resolveIncompleteMovieTitle(ctx context.Context, input
 	if len(matches) == 0 {
 		return AutomaticMatch{State: AutoNoMatch, Reason: "title_not_found"}, true, nil
 	}
-	var compatible []AutomaticMatch
+	type runtimeCandidate struct {
+		match      AutomaticMatch
+		difference int64
+	}
+	var candidates []runtimeCandidate
 	yearConflict, runtimeUnknown := false, false
 	for _, document := range matches {
 		if err := authorize(ctx); err != nil {
@@ -168,18 +172,35 @@ func (client *TMDBClient) resolveIncompleteMovieTitle(ctx context.Context, input
 			runtimeUnknown = true
 			continue
 		}
-		if !runtimeMatches(input.DurationMs, runtime) {
-			continue
+		candidates = append(candidates, runtimeCandidate{match: AutomaticMatch{State: AutoMatched, Document: detail, Projection: projection,
+			Evidence: []string{"incomplete_title_shape", "year_match"}}, difference: runtimeDifferenceMs(input.DurationMs, runtime)})
+	}
+	if len(candidates) > 1 {
+		best := candidates[0]
+		tied := false
+		for _, candidate := range candidates[1:] {
+			switch {
+			case candidate.difference < best.difference:
+				best, tied = candidate, false
+			case candidate.difference == best.difference:
+				tied = true
+			}
 		}
-		compatible = append(compatible, AutomaticMatch{State: AutoMatched, Document: detail, Projection: projection,
-			Evidence: []string{"incomplete_title_shape", "year_match", "runtime_match"}})
+		if tied {
+			return AutomaticMatch{State: AutoNeedsReview, Reason: "ambiguous_candidates"}, true, nil
+		}
+		candidates = []runtimeCandidate{best}
 	}
-	if len(compatible) > 1 {
-		return AutomaticMatch{State: AutoNeedsReview, Reason: "ambiguous_candidates"}, true, nil
-	}
-	if len(compatible) == 1 {
-		compatible[0].Evidence = append(compatible[0].Evidence, "unique_candidate")
-		return compatible[0], true, nil
+	if len(candidates) == 1 {
+		result := candidates[0].match
+		result.Evidence = append(result.Evidence, "closest_runtime")
+		if candidates[0].difference <= int64(runtimeToleranceMinutes(documentRuntimeMinutes(result.Document)))*60_000 {
+			result.Evidence = append(result.Evidence, "runtime_match")
+		} else {
+			result.Evidence = append(result.Evidence, "runtime_difference")
+		}
+		result.Evidence = append(result.Evidence, "unique_candidate")
+		return result, true, nil
 	}
 	if yearConflict {
 		return AutomaticMatch{State: AutoNeedsReview, Reason: "title_year_conflict"}, true, nil
@@ -187,7 +208,7 @@ func (client *TMDBClient) resolveIncompleteMovieTitle(ctx context.Context, input
 	if runtimeUnknown {
 		return AutomaticMatch{State: AutoNeedsReview, Reason: "runtime_unknown"}, true, nil
 	}
-	return AutomaticMatch{State: AutoNeedsReview, Reason: "runtime_conflict"}, true, nil
+	return AutomaticMatch{State: AutoNeedsReview, Reason: "title_not_found"}, true, nil
 }
 
 func documentRuntimeMinutes(document Document) int {
@@ -198,11 +219,18 @@ func documentRuntimeMinutes(document Document) int {
 	return runtime
 }
 
-func runtimeMatches(durationMs int64, runtimeMinutes int) bool {
+func runtimeDifferenceMs(durationMs int64, runtimeMinutes int) int64 {
 	difference := durationMs - int64(runtimeMinutes)*60_000
 	if difference < 0 {
-		difference = -difference
+		return -difference
 	}
-	tolerance := max(1, min(3, runtimeMinutes/20))
-	return difference <= int64(tolerance)*60_000
+	return difference
+}
+
+func runtimeToleranceMinutes(runtimeMinutes int) int {
+	return max(1, min(3, runtimeMinutes/20))
+}
+
+func runtimeMatches(durationMs int64, runtimeMinutes int) bool {
+	return runtimeDifferenceMs(durationMs, runtimeMinutes) <= int64(runtimeToleranceMinutes(runtimeMinutes))*60_000
 }

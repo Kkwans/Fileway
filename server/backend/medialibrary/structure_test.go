@@ -201,7 +201,8 @@ func TestCompleteLocalSeasonDirectoryCreatesSeriesAndMapsEpisode(t *testing.T) {
 	library := createLibrary(t, store, 7, "Fixture")
 	binding := createBoundSource(t, store, library)
 	_, lease := testScan(t, store, binding, "local-season")
-	directory := "韩剧【信号】(2016) 16集全 1080P韩语中字 李帝勋 ／ 赵震雄 ／ 金惠秀"
+	directory := "韩剧【信号】(2016) 1080P韩语中字 李帝勋 ／ 赵震雄 ／ 金惠秀"
+	year := 2016
 	locator := "/videos/" + directory
 	root, err := store.CommitScanContext(t.Context(), 7, *lease, DirectoryContextObservation{
 		Locator: []byte("/videos/"), TVShow: DirectorySidecar{Status: "missing"}, Season: DirectorySidecar{Status: "missing"},
@@ -211,6 +212,7 @@ func TestCompleteLocalSeasonDirectoryCreatesSeriesAndMapsEpisode(t *testing.T) {
 	}
 	ref, err := store.CommitScanContext(t.Context(), 7, *lease, DirectoryContextObservation{
 		Locator: []byte(locator), Parent: *root, TVShow: DirectorySidecar{Status: "missing"}, Season: DirectorySidecar{Status: "missing"},
+		Episodes: &DirectoryEpisodeEvidence{Title: "信号", Year: &year, Numbers: []int{1, 2}},
 	}, ScanCheckpoint{Version: 1, Sequence: 2, Phase: "enumerate"})
 	if err != nil {
 		t.Fatal(err)

@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
 	"sort"
 	"strings"
 
@@ -48,7 +49,7 @@ func (w *walker) readDirectoryContext(ctx context.Context, locator string, paren
 	if err != nil {
 		return observation, err
 	}
-	var tvNames, seasonNames []string
+	var tvNames, seasonNames, episodeNames []string
 	var tvOverflow, seasonOverflow bool
 	for {
 		if err := w.checkDirectory(ctx, locator, dir, info, stamp); err != nil {
@@ -76,6 +77,10 @@ func (w *walker) readDirectoryContext(ctx context.Context, locator string, paren
 				} else {
 					seasonOverflow = true
 				}
+			case videoName(name):
+				if len(episodeNames) < mediametadata.MaxEpisodeHints {
+					episodeNames = append(episodeNames, name)
+				}
 			}
 		}
 		if readErr != nil {
@@ -90,6 +95,7 @@ func (w *walker) readDirectoryContext(ctx context.Context, locator string, paren
 	}
 	observation.TVShow = w.readDirectorySidecars(ctx, locator, tvNames, tvOverflow, mediametadata.TVShow)
 	observation.Season = w.readDirectorySidecars(ctx, locator, seasonNames, seasonOverflow, mediametadata.Season)
+	observation.Episodes = directoryEpisodeEvidence(path.Base(locator), episodeNames)
 	if err := ctx.Err(); err != nil {
 		return observation, err
 	}
@@ -97,6 +103,56 @@ func (w *walker) readDirectoryContext(ctx context.Context, locator string, paren
 		return observation, err
 	}
 	return observation, nil
+}
+
+func directoryEpisodeEvidence(directory string, names []string) *medialibrary.DirectoryEpisodeEvidence {
+	title := ""
+	var year *int
+	numbers := make(map[int]struct{})
+	for _, name := range names {
+		parsed := mediametadata.ParseName(name)
+		if len(parsed.AbsoluteEpisodes) != 1 || len(parsed.SeasonEpisodes) != 0 {
+			continue
+		}
+		fileTitle := strings.TrimSpace(parsed.Title)
+		number := parsed.AbsoluteEpisodes[0]
+		if fileTitle == "" || number < 1 || number > 9999 {
+			continue
+		}
+		if title == "" {
+			title = fileTitle
+		} else if title != fileTitle {
+			return nil
+		}
+		if year == nil {
+			year = parsed.Year
+		} else if parsed.Year != nil && *year != *parsed.Year {
+			return nil
+		}
+		if len(numbers) >= mediametadata.MaxEpisodeHints {
+			return nil
+		}
+		numbers[number] = struct{}{}
+	}
+	if len(numbers) < 2 {
+		return nil
+	}
+	evidence := mediametadata.ParseDirectoryName(directory)
+	if title == "" {
+		title = evidence.Title
+	}
+	if year == nil {
+		year = evidence.Year
+	}
+	if title == "" || year == nil {
+		return nil
+	}
+	ordered := make([]int, 0, len(numbers))
+	for number := range numbers {
+		ordered = append(ordered, number)
+	}
+	sort.Ints(ordered)
+	return &medialibrary.DirectoryEpisodeEvidence{Title: title, Year: year, Numbers: ordered}
 }
 
 func (w *walker) readDirectorySidecars(ctx context.Context, directory string, names []string, overflow bool, expected mediametadata.Kind) medialibrary.DirectorySidecar {
