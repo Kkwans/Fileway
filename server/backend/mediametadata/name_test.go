@@ -189,6 +189,13 @@ func TestCompleteFilenameDoesNotInheritUnusedDirectoryAmbiguity(t *testing.T) {
 	}
 }
 
+func TestSubtitleOnlySuffixDoesNotPolluteTitle(t *testing.T) {
+	parsed := ParseName("隐藏的面孔 中字.mkv")
+	if parsed.Title != "隐藏的面孔" || parsed.Year != nil || len(parsed.Ambiguities) != 0 {
+		t.Fatalf("subtitle suffix polluted title: %+v", parsed)
+	}
+}
+
 func TestAnimeReleaseTagsDoNotPolluteTitle(t *testing.T) {
 	const filename = "[CoolComic404][Kimi no Na wa ] [ , ][ - ][MKV].mkv"
 	const directory = "[CoolComic404][Kimi no Na wa.(2016)][1080P][BDrip][CHS,JP][HEVC-10bit FLAC][MKV]"
