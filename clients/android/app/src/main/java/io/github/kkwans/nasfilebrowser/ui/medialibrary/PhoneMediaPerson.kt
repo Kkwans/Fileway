@@ -48,11 +48,11 @@ internal fun PhoneMediaPersonResult(person: MediaCatalogPerson, onOpen: () -> Un
                 }
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(person.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(person.roles.joinToString(" · ").ifBlank { "演职人员" }, style = MaterialTheme.typography.bodySmall,
+                Text(person.name, style = PhoneMediaType.itemTitle, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(person.roles.joinToString(" · ").ifBlank { "演职人员" }, style = PhoneMediaType.secondary,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 person.preview.firstOrNull()?.let { preview ->
-                    Text("作品：${preview.title.ifBlank { "未命名影视" }}", style = MaterialTheme.typography.bodySmall,
+                    Text("作品：${preview.title.ifBlank { "未命名影视" }}", style = PhoneMediaType.secondary,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
@@ -64,18 +64,18 @@ internal fun PhoneMediaPersonResult(person: MediaCatalogPerson, onOpen: () -> Un
 internal fun PhoneMediaPersonWorks(name: String, roles: List<String>, entries: List<MediaPoster>,
     loading: Boolean, problem: MediaProblem?, hasMore: Boolean, imageLoader: ImageLoader,
     onBack: () -> Unit, onAction: (PhoneMediaAction) -> Unit) {
-    Column(Modifier.fillMaxSize()) {
-        FilewayTopAppBar("人物作品", leadingIcon = Art.drawable.fileway_ic_arrow_back,
-            leadingDescription = "返回人物搜索", onLeadingClick = onBack)
-        Column(Modifier.fillMaxWidth().padding(horizontal = FilewaySpace.page), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(name, style = MaterialTheme.typography.headlineSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            Text(roles.joinToString(" · ").ifBlank { "演职人员" }, style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val columns = when { maxWidth >= 840.dp -> 4; maxWidth >= 600.dp -> 3; else -> 2 }
-            LazyVerticalGrid(columns = GridCells.Fixed(columns), modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = FilewaySpace.page, end = FilewaySpace.page, top = FilewaySpace.page, bottom = FilewaySpace.section),
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val grid = phoneMediaGridSpec(maxWidth)
+        Column(Modifier.fillMaxSize()) {
+            FilewayTopAppBar("人物作品", leadingIcon = Art.drawable.fileway_ic_arrow_back,
+                leadingDescription = "返回人物搜索", onLeadingClick = onBack)
+            Column(Modifier.fillMaxWidth().padding(horizontal = grid.pageInset), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(name, style = PhoneMediaType.pageTitle, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(roles.joinToString(" · ").ifBlank { "演职人员" }, style = PhoneMediaType.secondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            LazyVerticalGrid(columns = GridCells.Fixed(grid.columns), modifier = Modifier.weight(1f).fillMaxSize(),
+                contentPadding = PaddingValues(start = grid.pageInset, end = grid.pageInset, top = grid.pageInset, bottom = FilewaySpace.section),
                 horizontalArrangement = Arrangement.spacedBy(FilewaySpace.content), verticalArrangement = Arrangement.spacedBy(FilewaySpace.page)) {
                 if (loading) item(key = "loading", span = { GridItemSpan(maxLineSpan) }) { MediaLoading("正在加载人物作品") }
                 problem?.let { issue -> item(key = "problem", span = { GridItemSpan(maxLineSpan) }) {

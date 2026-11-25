@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
 import coil3.compose.AsyncImage
@@ -46,6 +47,18 @@ internal object PhoneMediaType {
     val action @Composable get() = filewayTextStyle(14, 20, FontWeight.Medium)
     val secondary @Composable get() = filewayTextStyle(14, 20)
     val badge @Composable get() = filewayTextStyle(12, 16, FontWeight.Medium)
+}
+
+internal data class PhoneMediaGridSpec(val columns: Int, val pageInset: Dp)
+
+internal fun phoneMediaGridSpec(width: Dp): PhoneMediaGridSpec {
+    val pageInset = if (width >= 600.dp) 24.dp else 16.dp
+    val columns = if (width < 600.dp) 2 else {
+        val minimumPoster = if (width >= 840.dp) 160.dp else 152.dp
+        val maximumColumns = if (width >= 840.dp) 6 else 4
+        ((width - pageInset * 2 + 12.dp) / (minimumPoster + 12.dp)).toInt().coerceIn(2, maximumColumns)
+    }
+    return PhoneMediaGridSpec(columns, pageInset)
 }
 
 /** Shares the project's 350ms delayed centered ring and placeholder geometry. Requests and

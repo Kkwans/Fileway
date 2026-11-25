@@ -26,10 +26,10 @@ internal fun PhoneMediaFileResult(fileName: String, item: MediaPoster, imageLoad
         Row(Modifier.fillMaxWidth().padding(FilewaySpace.content), horizontalArrangement = Arrangement.spacedBy(FilewaySpace.content),
             verticalAlignment = Alignment.CenterVertically) {
             MediaImage(item.poster, imageLoader, Modifier.width(64.dp).aspectRatio(2f / 3f), fallbackTitle = item.title)
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text(fileName, style = MaterialTheme.typography.titleSmall, maxLines = 3, overflow = TextOverflow.Ellipsis)
-                Text(item.title, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                if (item.subtitle.isNotBlank()) Text(item.subtitle, style = MaterialTheme.typography.bodySmall,
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(fileName, style = PhoneMediaType.itemTitle, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Text(item.title, style = PhoneMediaType.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                if (item.subtitle.isNotBlank()) Text(item.subtitle, style = PhoneMediaType.secondary,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
         }

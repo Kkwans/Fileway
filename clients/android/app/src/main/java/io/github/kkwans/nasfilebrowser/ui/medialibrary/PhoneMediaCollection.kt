@@ -42,8 +42,8 @@ internal fun PhoneMediaCollectionResult(collection: MediaCatalogCollection, imag
                     fallbackTitle = collection.preview.first().title)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(collection.name, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text("可见作品预览", style = MaterialTheme.typography.bodySmall,
+                Text(collection.name, style = PhoneMediaType.itemTitle, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text("可见作品预览", style = PhoneMediaType.secondary,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
@@ -54,14 +54,14 @@ internal fun PhoneMediaCollectionResult(collection: MediaCatalogCollection, imag
 internal fun PhoneMediaCollectionWorks(name: String, entries: List<MediaPoster>, loading: Boolean,
     problem: MediaProblem?, hasMore: Boolean, imageLoader: ImageLoader, onBack: () -> Unit,
     onAction: (PhoneMediaAction) -> Unit) {
-    Column(Modifier.fillMaxSize()) {
-        FilewayTopAppBar("合集作品", leadingIcon = Art.drawable.fileway_ic_arrow_back,
-            leadingDescription = "返回合集搜索", onLeadingClick = onBack)
-        Text(name, Modifier.fillMaxWidth().padding(horizontal = FilewaySpace.page), style = MaterialTheme.typography.headlineSmall)
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val columns = when { maxWidth >= 840.dp -> 4; maxWidth >= 600.dp -> 3; else -> 2 }
-            LazyVerticalGrid(columns = GridCells.Fixed(columns), modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = FilewaySpace.page, end = FilewaySpace.page, top = FilewaySpace.page, bottom = FilewaySpace.section),
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val grid = phoneMediaGridSpec(maxWidth)
+        Column(Modifier.fillMaxSize()) {
+            FilewayTopAppBar("合集作品", leadingIcon = Art.drawable.fileway_ic_arrow_back,
+                leadingDescription = "返回合集搜索", onLeadingClick = onBack)
+            Text(name, Modifier.fillMaxWidth().padding(horizontal = grid.pageInset), style = PhoneMediaType.pageTitle)
+            LazyVerticalGrid(columns = GridCells.Fixed(grid.columns), modifier = Modifier.weight(1f).fillMaxSize(),
+                contentPadding = PaddingValues(start = grid.pageInset, end = grid.pageInset, top = grid.pageInset, bottom = FilewaySpace.section),
                 horizontalArrangement = Arrangement.spacedBy(FilewaySpace.content), verticalArrangement = Arrangement.spacedBy(FilewaySpace.page)) {
                 if (loading) item(key = "loading", span = { GridItemSpan(maxLineSpan) }) { MediaLoading("正在加载合集作品") }
                 problem?.let { issue -> item(key = "problem", span = { GridItemSpan(maxLineSpan) }) {
