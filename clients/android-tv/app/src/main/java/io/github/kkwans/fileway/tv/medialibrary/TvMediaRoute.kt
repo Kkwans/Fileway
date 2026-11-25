@@ -123,6 +123,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
             } else route.closeDetail()
         }
         LaunchedEffect(route.selectedSeason) { route.selectedSeason?.let { season = it } }
+    LaunchedEffect(route.jumpedEpisodeId) { route.jumpedEpisodeId?.let { restore(it, "episode") } }
         LaunchedEffect(interactive, itemId, libraryId, route.supported) {
             if (!interactive) return@LaunchedEffect
             if (itemId == null || !route.supported) {
@@ -403,6 +404,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             onSeason = { route.selectSeason(it) },
                             onEpisode = { id -> route.episodes.firstOrNull { tvMediaKey(it.ref) == id }?.let { openSources(it.ref) } },
                             onMoreEpisodes = if (route.episodesCursor != null && !route.episodesLoading) ({ route.loadEpisodes(false) }) else null,
+                            onJumpEpisode = { route.jumpToEpisode(it) },
                             onRetry = route::loadDetail, onRetryEpisodes = { route.loadEpisodes(true) }, scrollState = detailScroll)
                         }
                     }

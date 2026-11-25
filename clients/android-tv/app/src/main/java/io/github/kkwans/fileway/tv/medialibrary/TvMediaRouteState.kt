@@ -75,6 +75,7 @@ internal class TvMediaRouteState(
     var episodesLoading by mutableStateOf(false); private set
     var episodesCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
     var episodesError by mutableStateOf<String?>(null); private set
+    var jumpedEpisodeId by mutableStateOf<String?>(null); private set
     var sourceRef by mutableStateOf<MediaCatalogRef?>(null); private set
     var variants by mutableStateOf<List<MediaCatalogVariant>>(emptyList()); private set
     var sourcesLoading by mutableStateOf(false); private set
@@ -399,7 +400,7 @@ internal class TvMediaRouteState(
         detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits()
         ref = item; desiredSeason = savedSeason; detail = null; detailCursor = null; detailError = null
         seasons = emptyList(); seasonsCursor = null; selectedSeason = null; episodes = emptyList(); episodesCursor = null
-        seasonsLoading = false; seasonsError = null; episodesLoading = false; episodesError = null
+        seasonsLoading = false; seasonsError = null; episodesLoading = false; episodesError = null; jumpedEpisodeId = null
         loadDetail()
     }
 
@@ -504,7 +505,7 @@ internal class TvMediaRouteState(
 
     fun selectSeason(id: String) {
         val season = seasons.firstOrNull { it.ref.itemId == id } ?: return
-        desiredSeason = id; selectedSeason = id; episodesJob?.cancel(); episodes = emptyList(); episodesCursor = null
+        desiredSeason = id; selectedSeason = id; episodesJob?.cancel(); episodes = emptyList(); episodesCursor = null; jumpedEpisodeId = null
         loadEpisodes(season, true)
     }
 
@@ -531,6 +532,45 @@ internal class TvMediaRouteState(
                     episodesError = tvMediaFailure(result.error)
                 }
             }
+            coroutineContext.ensureActive(); episodesLoading = false
+        }
+    }
+
+    fun jumpToEpisode(number: Int) {
+        val season = seasons.firstOrNull { it.ref.itemId == selectedSeason } ?: return
+        val item = ref ?: return
+        if (number !in 1..9999) { episodesError = "请输入 1–9999 的集数"; return }
+        episodesJob?.cancel(); jumpedEpisodeId = null; episodesLoading = true; episodesError = null
+        episodesJob = scope.launch {
+            var cursor: MediaCatalogCursor? = null
+            var found: String? = null
+            for (pageIndex in 0 until 50) {
+                when (val result = repository.episodes(item, season, limit = 100, cursor = cursor)) {
+                    is MediaReadResult.Success -> {
+                        if (result.scope != repository.scope) break
+                        val page = result.value
+                        val match = page.items.firstOrNull { it.episodeNumber.toInt() == number }
+                        if (match != null) {
+                            episodes = page.items.distinctBy { tvMediaKey(it.ref) }
+                            episodesCursor = page.nextCursor
+                            found = tvMediaKey(match.ref)
+                            jumpedEpisodeId = found
+                            break
+                        }
+                        val next = page.nextCursor
+                        if (next == null) { episodesError = "这一季没有第 $number 集"; break }
+                        cursor = next
+                    }
+                    is MediaReadResult.Failure -> {
+                        if (result.scope == repository.scope) {
+                            if (result.error.invalidatesTvData()) { episodes = emptyList(); episodesCursor = null }
+                            episodesError = tvMediaFailure(result.error)
+                        }
+                        break
+                    }
+                }
+            }
+            if (found == null && episodesError == null) episodesError = "未找到该集，请缩小范围后重试"
             coroutineContext.ensureActive(); episodesLoading = false
         }
     }

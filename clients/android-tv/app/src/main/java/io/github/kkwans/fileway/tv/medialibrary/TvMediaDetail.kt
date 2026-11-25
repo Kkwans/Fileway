@@ -17,15 +17,23 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.Text
 import coil3.ImageLoader
 import io.github.kkwans.fileway.design.R as Art
+import io.github.kkwans.fileway.tv.LocalTvInteractive
+import io.github.kkwans.fileway.tv.TvRemoteDialogKeys
 
 /** Callbacks express actual granted actions. A missing callback never produces an inert entry. */
 @Composable
@@ -45,6 +53,7 @@ fun TvMediaDetail(
     onEpisode: ((String) -> Unit)? = null,
     onEpisodeOptions: ((String) -> Unit)? = null,
     onMoreEpisodes: (() -> Unit)? = null,
+    onJumpEpisode: ((Int) -> Unit)? = null,
     onRelated: ((String) -> Unit)? = null,
     onRetry: (() -> Unit)? = null,
     onRetryEpisodes: (() -> Unit)? = null,
@@ -55,6 +64,13 @@ fun TvMediaDetail(
     var expanded by rememberSaveable(state.scopeKey, state.item.id) { mutableStateOf(false) }
     var fullTitle by rememberSaveable(state.scopeKey, state.item.id) { mutableStateOf(false) }
     var allRatings by rememberSaveable(state.scopeKey, state.item.id) { mutableStateOf(false) }
+    var jumpOpen by rememberSaveable(state.scopeKey, state.item.id) { mutableStateOf(false) }
+    val jumpFocus = remember { FocusRequester() }
+    var jumpWasOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(jumpOpen) {
+        if (jumpWasOpen && !jumpOpen) withFrameNanos { jumpFocus.requestFocus() }
+        jumpWasOpen = jumpOpen
+    }
     LazyColumn(state = scrollState, modifier = modifier.fillMaxSize().background(colors.canvas),
         contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(MediaLayout.sectionGap)) {
         item(key = "hero:${state.item.id}") {
@@ -141,7 +157,14 @@ fun TvMediaDetail(
         }
         if (state.seasons.isNotEmpty() || state.episodes.isNotEmpty() || state.episodesLoading || state.episodesError != null) item(key = "episodes") {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                MediaSectionTitle("选集", if (onMoreEpisodes != null) "更多剧集" else null, onMoreEpisodes)
+                Row(Modifier.fillMaxWidth().padding(horizontal = MediaLayout.pageInset),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text("选集", Modifier.weight(1f), style = MediaType.sectionTitle, color = colors.text)
+                    if (onJumpEpisode != null) MediaQuietAction("跳集", { jumpOpen = true },
+                        Modifier.focusRequester(jumpFocus), enabled = !state.episodesLoading)
+                    if (onMoreEpisodes != null) MediaQuietAction("更多剧集", onMoreEpisodes,
+                        enabled = !state.episodesLoading)
+                }
                 if (state.seasons.isNotEmpty()) LazyRow(Modifier.focusGroup(), contentPadding = MediaLayout.rowPadding,
                     horizontalArrangement = Arrangement.spacedBy(MediaLayout.itemGap)) {
                     items(state.seasons, key = { it.id }) { season ->
@@ -190,6 +213,50 @@ fun TvMediaDetail(
         }
         if (state.related.isNotEmpty() && onRelated != null) item(key = "related") {
             MediaShelf(TvMediaShelf("related", "相关作品", state.related), imageLoader, onRelated)
+        }
+    }
+    if (jumpOpen && onJumpEpisode != null) TvEpisodeJumpDialog(
+        onDismiss = { jumpOpen = false },
+        onSubmit = { number -> onJumpEpisode(number); jumpOpen = false },
+    )
+}
+
+@Composable
+private fun TvEpisodeJumpDialog(onDismiss: () -> Unit, onSubmit: (Int) -> Unit) {
+    val colors = LocalMediaColors.current
+    val interactive = LocalTvInteractive.current
+    var value by remember { mutableStateOf("") }
+    val number = value.toIntOrNull()
+    val valid = number != null && number in 1..9999
+    val inputFocus = remember { FocusRequester() }
+    Dialog(onDismissRequest = { if (interactive) onDismiss() }, properties = DialogProperties(
+        usePlatformDefaultWidth = false, dismissOnClickOutside = false)) {
+        if (interactive) TvRemoteDialogKeys(onDismiss)
+        LaunchedEffect(interactive) { if (interactive) withFrameNanos { inputFocus.requestFocus() } }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Column(Modifier.widthIn(max = 420.dp).padding(24.dp).clip(MediaLayout.shape).background(colors.canvas)
+                .padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Text("跳到第几集", style = MediaType.sectionTitle, color = colors.text)
+                Text("集数", style = MediaType.secondary, color = colors.secondary)
+                Box(Modifier.fillMaxWidth().heightIn(min = 56.dp).clip(MediaLayout.shape).background(colors.raised)
+                    .padding(horizontal = 16.dp), contentAlignment = Alignment.CenterStart) {
+                    BasicTextField(value, { next -> if (next.length <= 4 && next.all(Char::isDigit)) value = next },
+                        Modifier.fillMaxWidth().focusRequester(inputFocus), singleLine = true,
+                        textStyle = MediaType.body.copy(color = colors.text), cursorBrush = SolidColor(colors.accent),
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        decorationBox = { field ->
+                            if (value.isEmpty()) Text("例如 42", style = MediaType.body, color = colors.secondary)
+                            field()
+                        })
+                }
+                Text(if (value.isNotEmpty() && !valid) "请输入 1–9999" else "将在当前季内查找",
+                    style = MediaType.secondary, color = if (value.isNotEmpty() && !valid) colors.text else colors.secondary)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    MediaQuietAction("取消", onDismiss, Modifier.weight(1f))
+                    MediaAction("跳转", { if (number != null && number in 1..9999) onSubmit(number) }, Modifier.weight(1f),
+                        primary = true, enabled = valid)
+                }
+            }
         }
     }
 }
