@@ -330,6 +330,45 @@ func TestResolveAutomaticMatchAllowsUniqueExactTitleWithoutYearOnlyWithRuntimeAn
 	}
 }
 
+func TestResolveAutomaticMatchAllowsNumberedSequelSubtitleWithoutYearOnlyWithRuntime(t *testing.T) {
+	for _, tc := range []struct {
+		name, query, candidate string
+		duration               int64
+		want                   AutomaticMatchState
+		reason                 string
+	}{
+		{"numbered subtitle", "博物馆奇妙夜2", "博物馆奇妙夜2：史密森尼之战", 105 * 60_000, AutoMatched, ""},
+		{"different sequel number", "博物馆奇妙夜2", "博物馆奇妙夜20：史密森尼之战", 105 * 60_000, AutoNeedsReview, "year_required"},
+		{"unrelated making of", "银河护卫队3", "Marvel Studios Assembled: The Making of the Guardians of the Galaxy Vol. 3", 150 * 60_000, AutoNeedsReview, "year_required"},
+		{"runtime conflict", "博物馆奇妙夜3", "博物馆奇妙夜3：墓葬秘密", 90 * 60_000, AutoNeedsReview, "runtime_conflict"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+				switch request.URL.Path {
+				case "/3/search/movie":
+					if request.URL.Query().Get("query") != tc.query || request.URL.Query().Has("primary_release_year") {
+						t.Fatalf("unexpected sequel lookup %s", request.URL)
+					}
+					return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":18360,"title":"`+tc.candidate+`","release_date":"2009-05-20"}]}`), nil
+				case "/3/movie/18360":
+					return response(200, `{"id":18360,"title":"`+tc.candidate+`","release_date":"2009-05-20","runtime":105}`), nil
+				default:
+					t.Fatalf("unexpected outbound request %s", request.URL)
+					return nil, nil
+				}
+			})
+			result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: tc.query, DurationMs: tc.duration, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+			if err != nil || result.State != tc.want || result.Reason != tc.reason {
+				t.Fatalf("state=%s reason=%s err=%v", result.State, result.Reason, err)
+			}
+			if tc.want == AutoMatched && (result.Document.Entity.ID != 18360 ||
+				!slices.Contains(result.Evidence, "numbered_title_without_year") || !slices.Contains(result.Evidence, "runtime_match")) {
+				t.Fatalf("numbered sequel evidence missing: %+v", result)
+			}
+		})
+	}
+}
+
 func TestResolveAutomaticMatchRetriesWithoutYearOnlyAfterEmptySearch(t *testing.T) {
 	for _, tc := range []struct {
 		name, details string

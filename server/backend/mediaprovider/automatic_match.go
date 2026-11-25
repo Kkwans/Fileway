@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 const maxAutomaticTitleQueries = 6
@@ -251,9 +252,14 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 	if len(documents) == 0 {
 		return AutomaticMatch{State: AutoNoMatch, Reason: "title_not_found"}, nil
 	}
+	numberedTitle := false
 	if input.Year <= 0 {
 		ranked = RankCandidates(MatchHint{Kind: input.Kind, Title: title}, documents)
 		exact := exactTitleCandidates(ranked, queries)
+		if len(exact) == 0 {
+			exact = numberedTitleCandidates(ranked, queries)
+			numberedTitle = len(exact) != 0
+		}
 		if len(exact) > 1 {
 			return review("ambiguous_candidates")
 		}
@@ -298,7 +304,11 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 	}
 	matchedQuery := ""
 	for _, query := range queries {
-		if matchTitle(query) == matchTitle(textField(document, titleField)) || matchTitle(query) == matchTitle(textField(document, originalField)) {
+		matches := matchTitle(query) == matchTitle(textField(document, titleField)) || matchTitle(query) == matchTitle(textField(document, originalField))
+		if input.Year <= 0 && !matches {
+			matches = numberedTitleMatches(query, textField(document, titleField)) || numberedTitleMatches(query, textField(document, originalField))
+		}
+		if matches {
 			matchedQuery = query
 			break
 		}
@@ -323,7 +333,11 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 	}
 	evidence := append([]string(nil), candidate.Evidence...)
 	if input.Year <= 0 {
-		evidence = append(evidence, "exact_title_without_year", "runtime_match")
+		if numberedTitle {
+			evidence = append(evidence, "numbered_title_without_year", "runtime_match")
+		} else {
+			evidence = append(evidence, "exact_title_without_year", "runtime_match")
+		}
 	}
 	if unfilteredSearch {
 		evidence = append(evidence, "unfiltered_title_search")
@@ -337,6 +351,45 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 	}
 	evidence = append(evidence, "unique_candidate")
 	return AutomaticMatch{State: AutoMatched, Evidence: evidence, Document: document, Projection: projection}, nil
+}
+
+func numberedTitleCandidates(candidates []MatchCandidate, queries []string) []MatchCandidate {
+	result := make([]MatchCandidate, 0, 1)
+	seen := make(map[EntityRef]struct{}, len(candidates))
+	for _, candidate := range candidates {
+		matched := false
+		for _, query := range queries {
+			matched = matched || numberedTitleMatches(query, candidate.Title) || numberedTitleMatches(query, candidate.OriginalTitle)
+		}
+		if !matched {
+			continue
+		}
+		if _, exists := seen[candidate.Entity]; exists {
+			continue
+		}
+		seen[candidate.Entity] = struct{}{}
+		result = append(result, candidate)
+	}
+	return result
+}
+
+func numberedTitleMatches(query, candidate string) bool {
+	query = strings.TrimSpace(query)
+	candidate = strings.TrimSpace(candidate)
+	queryRunes := []rune(query)
+	if len(queryRunes) < 2 || !unicode.IsDigit(queryRunes[len(queryRunes)-1]) || !strings.HasPrefix(candidate, query) {
+		return false
+	}
+	remainder := []rune(strings.TrimPrefix(candidate, query))
+	if len(remainder) == 0 {
+		return false
+	}
+	switch remainder[0] {
+	case ':', '：', '-', '—':
+		return true
+	default:
+		return unicode.IsSpace(remainder[0])
+	}
 }
 
 func matchesAnyTitle(candidate MatchCandidate, queries []string) bool {
