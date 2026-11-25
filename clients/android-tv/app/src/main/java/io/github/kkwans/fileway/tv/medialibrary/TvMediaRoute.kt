@@ -47,6 +47,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
     imageLoader: ImageLoader,
     onExit: () -> Unit,
     currentSourceId: () -> String?,
+    onSettings: (() -> Unit)? = null,
     onPlayback: (MediaCatalogVariant, Boolean, MediaCatalogContinue?) -> Unit,
 ) {
     val interactive = LocalTvInteractive.current
@@ -349,7 +350,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                                 }, onSearch = if (route.home?.capabilities?.get("search") == true) ({
                                     route.chooseSearchMode(TvMediaSearchMode.WORKS)
                                     searching = true; homeAnchor = "search"; homeOrigin = "navigation"
-                                }) else null)
+                                }) else null, onSettings = onSettings)
                             })
                     }
                     }

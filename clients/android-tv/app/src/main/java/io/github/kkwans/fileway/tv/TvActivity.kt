@@ -108,6 +108,7 @@ class TvActivity : ComponentActivity() {
                                     if (repository != null) TvMediaRoute(session, repository, model.imageLoader,
                                         onExit = { catalogOpen = false },
                                         currentSourceId = model.media::currentCatalogSourceId,
+                                        onSettings = { model.navigate(TvRoute.SETTINGS); catalogOpen = false },
                                         onPlayback = { variant, fromStart, checkpoint ->
                                             model.media.openCatalog(repository, variant, fromStart, checkpoint)
                                         })
