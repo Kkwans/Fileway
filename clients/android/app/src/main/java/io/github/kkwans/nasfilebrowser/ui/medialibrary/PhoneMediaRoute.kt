@@ -448,12 +448,15 @@ private fun PhoneMediaRouteState.detailState(scope: String, id: String): PhoneMe
     val item = data?.detail
     val playable = card?.actions?.can(MediaCatalogAction.PLAY) == true
     val state = card?.userState
+    val detailSources = sourcesFor(id)
     return PhoneMediaDetailState(scope, id, item?.item?.revision?.toString().orEmpty(),
         title = card?.title ?: item?.item?.title.orEmpty(),
         originalTitle = card?.originalTitle, metadata = card?.let(::summary).orEmpty(),
         backdrop = card?.backdrop?.let { MediaArtwork(catalog = it) },
         poster = card?.artwork?.takeIf { it.role == "poster" }?.let { MediaArtwork(catalog = it) },
         overview = item?.fields?.get("plot")?.values?.firstOrNull(), canPlay = playable, canSelectSources = playable,
+        sourceCount = if (playable) detailSources.size else null,
+        sourceSummary = phoneSourceSummary(detailSources) ?: if (loadingSourcesFor(id)) "正在读取片源…" else null,
         canReviewMatch = card?.actions?.can(MediaCatalogAction.EDIT_METADATA) == true && card.structureKind in setOf(
             MediaItemKind.VIDEO, MediaItemKind.MOVIE, MediaItemKind.SERIES, MediaItemKind.EPISODE),
         canChangeUserState = state != null && card.actions.can(MediaCatalogAction.FAVORITE) && card.actions.can(MediaCatalogAction.MARK_WATCHED),
@@ -482,6 +485,18 @@ private fun PhoneMediaRouteState.detailState(scope: String, id: String): PhoneMe
         episodeSummary = card?.episodes?.collected?.let { "已收录 $it 集" },
         problem = detailProblem, loading = detailLoading || data == null && detailProblem == null,
     )
+}
+
+private fun phoneSourceSummary(variants: List<MediaCatalogVariant>): String? {
+    if (variants.isEmpty()) return null
+    val available = variants.count { it.available }
+    val editions = variants.map { it.editionId }.distinct().size
+    val qualities = variants.mapNotNull { it.resolution?.takeIf(String::isNotBlank) }.distinct()
+    return buildList {
+        add("$available 个可用片源")
+        if (editions > 1) add("$editions 个版本")
+        if (qualities.isNotEmpty()) add(qualities.joinToString(" · "))
+    }.joinToString(" · ")
 }
 
 private fun sourceStateLabel(state: MediaCatalogSourceAvailability): String? = when (state) {

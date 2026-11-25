@@ -109,6 +109,7 @@ internal class PhoneMediaRouteState(
     private var sourceRecoveryJob: Job? = null
     private var pendingSourceRecovery: MediaOperation? = null
     private var userStateJob: Job? = null
+    private var variantsRef: MediaCatalogRef? = null
 
     fun close() {
         listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, collectionsJob, collectionWorksJob, personWorksJob, creditsJob, detailJob, seasonsJob, episodesJob, sourcesJob, userStateJob).forEach { it?.cancel() }
@@ -483,6 +484,7 @@ internal class PhoneMediaRouteState(
         detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits()
         resetUserStateWrite()
         detailRef = ref; desiredSeason = restoreSeason; detailCursor = null
+        variants = emptyList(); variantsRef = null; sourcesCursor = null
         detail = null; detailProblem = null; seasons = emptyList(); seasonsCursor = null
         selectedSeason = null; episodes = emptyList(); episodesCursor = null
         loadDetail()
@@ -492,6 +494,7 @@ internal class PhoneMediaRouteState(
         detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits()
         resetUserStateWrite()
         detailRef = null; detail = null; detailCursor = null; selectedSeason = null
+        variants = emptyList(); variantsRef = null; sourcesCursor = null
     }
 
     fun loadDetail() {
@@ -503,6 +506,7 @@ internal class PhoneMediaRouteState(
                 is MediaReadResult.Success -> if (result.scope == repository.scope) when (val value = result.value) {
                     is MediaCatalogDetail.Complete -> {
                         detail = value; detailCursor = null
+                        if (value.card?.actions?.can(MediaCatalogAction.PLAY) == true) loadDetailSources(ref)
                         if (value.card?.userState != null) pendingUserState = repository.pendingUserStateOperation(ref)
                         if (value.detail.item.kind == MediaItemKind.SERIES) loadSeasons(reset = true)
                     }
@@ -650,13 +654,22 @@ internal class PhoneMediaRouteState(
         }
     }
 
+    private fun loadDetailSources(ref: MediaCatalogRef) {
+        if (variantsRef == ref && !sourcesLoading) return
+        loadSourcesFor(ref, reset = true)
+    }
+
+    fun sourcesFor(id: String): List<MediaCatalogVariant> = variants.takeIf { variantsRef?.let(::key) == id }.orEmpty()
+    fun loadingSourcesFor(id: String): Boolean = sourcesLoading && variantsRef?.let(::key) == id
+
     fun openSources(ref: MediaCatalogRef) {
-        sourcesJob?.cancel(); sourceRef = ref; variants = emptyList(); sourcesCursor = null
-        loadSources(reset = true)
+        sourcesJob?.cancel()
+        sourceRef = ref
+        if (variantsRef != ref || sourcesLoading || sourcesProblem != null) loadSourcesFor(ref, reset = true)
     }
 
     fun closeSources() {
-        sourcesJob?.cancel(); sourceRef = null; variants = emptyList(); sourcesCursor = null; sourcesProblem = null
+        sourcesJob?.cancel(); sourceRef = null; sourcesProblem = null; sourcesLoading = false
     }
 
     fun recoverSource(id: String) {
@@ -756,9 +769,13 @@ internal class PhoneMediaRouteState(
 
     fun loadSources(reset: Boolean) {
         val ref = sourceRef ?: return
+        loadSourcesFor(ref, reset)
+    }
+    private fun loadSourcesFor(ref: MediaCatalogRef, reset: Boolean) {
         if (!reset && (sourcesLoading || sourcesCursor == null)) return
         sourcesJob?.cancel(); val cursor = if (reset) null else sourcesCursor
         if (reset) { variants = emptyList(); sourcesCursor = null }
+        variantsRef = ref
         sourcesLoading = true; sourcesProblem = null
         sourcesJob = scope.launch {
             when (val result = repository.playbackVariants(ref, limit = 20, cursor = cursor)) {
