@@ -29,12 +29,24 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSectionHeader
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSpace
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusBanner
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusKind
+import io.github.kkwans.nasfilebrowser.ui.designsystem.filewayTextStyle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.CancellationException
 
 internal data class MediaArtworkBinding(val session: SessionContext, val repository: MediaLibraryRepository)
 internal val LocalMediaArtworkBinding = staticCompositionLocalOf<MediaArtworkBinding?> { null }
+
+internal object PhoneMediaType {
+    val workTitle @Composable get() = filewayTextStyle(28, 36, FontWeight.SemiBold)
+    val pageTitle @Composable get() = filewayTextStyle(24, 32, FontWeight.SemiBold)
+    val sectionTitle @Composable get() = filewayTextStyle(20, 28, FontWeight.Medium)
+    val itemTitle @Composable get() = filewayTextStyle(16, 24, FontWeight.Medium)
+    val body @Composable get() = filewayTextStyle(16, 24)
+    val action @Composable get() = filewayTextStyle(14, 20, FontWeight.Medium)
+    val secondary @Composable get() = filewayTextStyle(14, 20)
+    val badge @Composable get() = filewayTextStyle(12, 16, FontWeight.Medium)
+}
 
 /** Shares the project's 350ms delayed centered ring and placeholder geometry. Requests and
  * loader are supplied by the authorized image pipeline, never built from provider URLs here. */

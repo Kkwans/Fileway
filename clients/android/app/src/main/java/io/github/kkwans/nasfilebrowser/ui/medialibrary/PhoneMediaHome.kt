@@ -59,7 +59,7 @@ internal enum class PhoneMediaPage { HOME, LIBRARIES, CATEGORIES }
                     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
                         MediaIconAction(Art.drawable.fileway_ic_arrow_back, "返回", onBack)
                         Text(when (page) { PhoneMediaPage.HOME -> "影视中心"; PhoneMediaPage.LIBRARIES -> "媒体库"; PhoneMediaPage.CATEGORIES -> "分类" },
-                            Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.headlineSmall)
+                            Modifier.weight(1f).semantics { heading() }, style = PhoneMediaType.pageTitle)
                         if (page == PhoneMediaPage.LIBRARIES && state.canManage)
                             MediaIconAction(R.drawable.ic_settings, "管理媒体库", { onAction(PhoneMediaAction.ManageLibraries) })
                         if (state.canSearchCollections) MediaIconAction(Art.drawable.fileway_ic_library, "合集", { onAction(PhoneMediaAction.Collections) })
@@ -133,9 +133,9 @@ internal enum class PhoneMediaPage { HOME, LIBRARIES, CATEGORIES }
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(if (page == PhoneMediaPage.HOME) "最近加入" else state.catalogTitle,
-                                Modifier.weight(1f).semantics { heading() }, style = MaterialTheme.typography.titleLarge)
+                                Modifier.weight(1f).semantics { heading() }, style = PhoneMediaType.sectionTitle)
                         }
-                        state.filterSummary?.let { Text(it, style = MaterialTheme.typography.bodySmall,
+                        state.filterSummary?.let { Text(it, style = PhoneMediaType.secondary,
                             color = MaterialTheme.colorScheme.onSurfaceVariant) }
                     }
                 }
@@ -223,19 +223,19 @@ internal enum class PhoneMediaPage { HOME, LIBRARIES, CATEGORIES }
                         color = if (entry.backdrop != null) Color.Black.copy(alpha = .48f) else MaterialTheme.colorScheme.surface.copy(alpha = .72f),
                         shape = MaterialTheme.shapes.small) {
                         Text("最近入库", Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                            style = MaterialTheme.typography.labelSmall, color = titleColor)
+                            style = PhoneMediaType.badge, color = titleColor)
                     }
                     Column(Modifier.align(Alignment.BottomStart).padding(16.dp)) {
-                        Text(entry.title, color = titleColor, style = MaterialTheme.typography.headlineSmall,
+                        Text(entry.title, color = titleColor, style = PhoneMediaType.workTitle,
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        Text(entry.subtitle, color = subtitleColor, style = MaterialTheme.typography.bodySmall,
+                        Text(entry.subtitle, color = subtitleColor, style = PhoneMediaType.secondary,
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
         }
         if (entries.size > 1) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Text("${pager.currentPage + 1} / ${entries.size}", Modifier.weight(1f), style = MaterialTheme.typography.labelMedium,
+            Text("${pager.currentPage + 1} / ${entries.size}", Modifier.weight(1f), style = PhoneMediaType.secondary,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             TextButton(onClick = { onAction(PhoneMediaAction.SetCarouselAutoAdvance(!state.carouselAutoAdvance)) }) {
                 Text(if (state.carouselAutoAdvance) "暂停轮播" else "自动轮播")
@@ -262,17 +262,17 @@ internal enum class PhoneMediaPage { HOME, LIBRARIES, CATEGORIES }
                     entry.item.poster?.let { MediaImage(it, loader,
                         Modifier.align(Alignment.CenterEnd).fillMaxHeight().aspectRatio(2f / 3f)) }
                     Text(entry.item.title, Modifier.align(Alignment.BottomStart).fillMaxWidth(.65f).padding(12.dp),
-                        style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        style = PhoneMediaType.itemTitle, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
             MediaProgress(entry.progress)
         }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(top = 8.dp)) {
-                Text(entry.item.title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(if (entry.removing) "正在移出…" else entry.progressLabel, style = MaterialTheme.typography.bodySmall,
+                Text(entry.item.title, style = PhoneMediaType.itemTitle, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(if (entry.removing) "正在移出…" else entry.progressLabel, style = PhoneMediaType.secondary,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                entry.item.availability?.let { Text(it, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.error) }
+                entry.item.availability?.let { Text(it, style = PhoneMediaType.badge, color = MaterialTheme.colorScheme.error) }
             }
             Box {
                 MediaIconAction(R.drawable.ic_more_vert, "${entry.item.title}的更多操作", { setMenu(true) })
