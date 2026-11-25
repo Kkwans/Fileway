@@ -3,6 +3,7 @@ package io.github.kkwans.nasfilebrowser.ui.medialibrary
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
+import androidx.compose.foundation.lazy.grid.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -169,7 +170,10 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
                 }
                 item(key = "credits") {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        PhoneDetailHeading("演职人员", Modifier.padding(horizontal = inset))
+                        PhoneDetailHeading("演职人员", Modifier.padding(horizontal = inset)) {
+                            if (state.credits.entries.isNotEmpty()) PhoneDetailAction("全部", Art.drawable.fileway_ic_arrow_forward,
+                                { onAction(PhoneMediaAction.AllCredits(state.id)) })
+                        }
                         state.credits.problem?.let {
                             MediaProblemCard(it, { onAction(PhoneMediaAction.Retry("credits")) }, Modifier.padding(horizontal = inset))
                         }
@@ -181,7 +185,9 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
                         LazyRow(contentPadding = PaddingValues(horizontal = inset), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(state.credits.entries, key = { it.id }) { credit -> CreditColumn(credit, imageLoader) }
+                            items(state.credits.entries, key = { it.id }) { credit -> CreditColumn(credit, imageLoader) {
+                                onAction(PhoneMediaAction.OpenPerson(credit.personId))
+                            } }
                         }
                     }
                 }
@@ -330,13 +336,55 @@ private fun RatingColumn(rating: MediaRating) {
 }
 
 @Composable
-private fun CreditColumn(credit: MediaCredit, loader: ImageLoader) {
+private fun CreditColumn(credit: MediaCredit, loader: ImageLoader, onClick: () -> Unit) {
     val width = 96.dp * LocalDensity.current.fontScale.coerceAtLeast(1f)
-    Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        MediaImage(credit.portrait, loader, Modifier.fillMaxWidth().aspectRatio(1f), person = true)
-        Text(credit.name, style = PhoneDetailType.item, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
-        Text(credit.role, style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            maxLines = 2, overflow = TextOverflow.Ellipsis)
+    CreditCard(credit, loader, onClick, Modifier.width(width))
+}
+
+@Composable
+private fun CreditCard(credit: MediaCredit, loader: ImageLoader, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(onClick = onClick, modifier = modifier, shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .38f)) {
+        Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            MediaImage(credit.portrait, loader, Modifier.fillMaxWidth().aspectRatio(1f).clip(MaterialTheme.shapes.small), person = true)
+            Text(credit.name, style = PhoneDetailType.item, minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(credit.role, style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
+}
+
+@Composable
+internal fun PhoneMediaCredits(title: String, credits: List<MediaCredit>, loading: Boolean, problem: MediaProblem?,
+    hasMore: Boolean, imageLoader: ImageLoader, onBack: () -> Unit, onAction: (PhoneMediaAction) -> Unit, modifier: Modifier = Modifier) {
+    Column(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
+        FilewayTopAppBar("演职人员", leadingIcon = Art.drawable.fileway_ic_arrow_back, leadingDescription = "返回", onLeadingClick = onBack)
+        LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 136.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 32.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            item(key = "title", span = { GridItemSpan(maxLineSpan) }) {
+                Column(Modifier.fillMaxWidth().padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(title, style = PhoneDetailType.section)
+                    Text("已加载 ${credits.size} 位演职人员", style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            items(credits, key = { "credit/${it.personId}/${it.role}" }) { credit ->
+                CreditCard(credit, imageLoader, { onAction(PhoneMediaAction.OpenPerson(credit.personId)) }, Modifier.fillMaxWidth())
+            }
+            if (loading) item(key = "loading", span = { GridItemSpan(maxLineSpan) }) {
+                PhoneDetailLoading("正在加载演职人员")
+            }
+            if (problem != null) item(key = "problem", span = { GridItemSpan(maxLineSpan) }) {
+                MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("credits")) })
+            }
+            if (hasMore) item(key = "more", span = { GridItemSpan(maxLineSpan) }) {
+                TextButton({ onAction(PhoneMediaAction.LoadMore("credits")) }, Modifier.fillMaxWidth().heightIn(min = 48.dp),
+                    shape = MaterialTheme.shapes.medium) { Text("加载更多", style = PhoneDetailType.action) }
+            }
+            if (credits.isEmpty() && !loading && problem == null) item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
+                Text("暂无演职员资料", style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
     }
 }
 

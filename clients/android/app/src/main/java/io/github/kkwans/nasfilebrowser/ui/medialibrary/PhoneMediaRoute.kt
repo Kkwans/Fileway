@@ -82,6 +82,10 @@ internal fun PhoneMediaRoute(
     var mediaTab by rememberSaveable(session.owner) { mutableStateOf("home") }
     var searching by rememberSaveable(session.owner) { mutableStateOf(false) }
     var personPage by remember(route) { mutableStateOf<MediaCatalogPersonRef?>(null) }
+    var personReturnItem by remember(route) { mutableStateOf<String?>(null) }
+    var personReturnLibrary by remember(route) { mutableStateOf<String?>(null) }
+    var personReturnSeason by remember(route) { mutableStateOf<String?>(null) }
+    var creditsPage by remember(route) { mutableStateOf(false) }
     var collectionPage by remember(route) { mutableStateOf<MediaCatalogCollectionRef?>(null) }
     var startFromBeginning by remember(route) { mutableStateOf(false) }
     var sourceSelection by remember(route) { mutableStateOf<PhoneMediaSourceSelection?>(null) }
@@ -119,8 +123,15 @@ internal fun PhoneMediaRoute(
     }
 
     fun back() {
-        if (collectionPage != null && detailId == null) { collectionPage = null; route.closeCollection() }
-        else if (personPage != null && detailId == null) { personPage = null; route.closePerson() }
+        if (creditsPage) { creditsPage = false; route.closeCredits() }
+        else if (collectionPage != null && detailId == null) { collectionPage = null; route.closeCollection() }
+        else if (personPage != null && detailId == null) {
+            personPage = null; route.closePerson(); searching = false
+            if (personReturnItem != null && personReturnLibrary != null) {
+                item = personReturnItem; library = personReturnLibrary; season = personReturnSeason
+                personReturnItem = null; personReturnLibrary = null; personReturnSeason = null
+            }
+        }
         else if (searching && detailId == null) searching = false
         else if (reviewItemId != null) { reviewItemId = null; reviewLibraryId = null }
         else if (reviewing) reviewing = false
@@ -136,9 +147,7 @@ internal fun PhoneMediaRoute(
     }
 
     BackHandler {
-        if (collectionPage != null && detailId == null) { collectionPage = null; route.closeCollection() }
-        else if (personPage != null && detailId == null) { personPage = null; route.closePerson() }
-        else if (searching && detailId == null) searching = false
+        if (creditsPage || collectionPage != null && detailId == null || personPage != null && detailId == null || searching && detailId == null) back()
         else if (settings != null) closeSettings()
         else if (reviewItemId != null) back()
         else if (managing) managing = false
@@ -179,6 +188,15 @@ internal fun PhoneMediaRoute(
                     route.openPerson(person.ref, person.name)
                 }
             }
+            is PhoneMediaAction.OpenPerson -> libraryId?.let { targetLibrary ->
+                val name = route.credits.firstOrNull { it.personId == intent.id }?.name
+                    ?: route.detail?.detail?.credits?.items?.firstOrNull { it.personId == intent.id }?.name.orEmpty()
+                personReturnItem = detailId; personReturnLibrary = targetLibrary; personReturnSeason = season
+                val ref = MediaCatalogPersonRef(targetLibrary, intent.id)
+                personPage = ref; route.openPerson(ref, name); searching = true; creditsPage = false
+                item = null; library = null; season = null; parentItem = null; parentLibrary = null; parentSeason = null
+            }
+            is PhoneMediaAction.AllCredits -> { creditsPage = true; route.openCredits() }
             PhoneMediaAction.LoadMorePersonWorks -> route.loadPersonWorks(reset = false)
             is PhoneMediaAction.OpenCollection -> {
                 val collection = route.collections.firstOrNull { it.ref.libraryId == intent.libraryId && it.ref.collectionId == intent.collectionId }
@@ -252,6 +270,7 @@ internal fun PhoneMediaRoute(
                 "person-works" -> route.loadPersonWorks(reset = true)
                 "collection-works" -> route.loadCollectionWorks(reset = true)
                 "user-state" -> route.retryUserState()
+                "credits" -> route.loadCredits(reset = true)
                 else -> Unit
             }
             is PhoneMediaAction.LoadMore -> when (intent.section) {
@@ -267,6 +286,7 @@ internal fun PhoneMediaRoute(
                     MediaSearchMode.COLLECTIONS -> route.loadCollections(reset = false)
                 }
                 "person-works" -> route.loadPersonWorks(reset = false)
+                "credits" -> route.loadCredits(reset = false)
                 "collection-works" -> route.loadCollectionWorks(reset = false)
                 else -> Unit
             }
@@ -300,6 +320,10 @@ internal fun PhoneMediaRoute(
                 PhoneMediaMatchRoute(repository, repository.catalogRef(libraryId, detailId), imageLoader,
                     onBack = { reviewing = false }, onMatched = { reviewing = false; route.loadDetail(); route.refreshHome() })
             }
+        } else if (creditsPage && detailId != null && libraryId != null) {
+            PhoneMediaCredits(route.detail?.card?.title.orEmpty(), route.credits.map { credit ->
+                MediaCredit(credit.id, credit.name, credit.role.ifBlank { credit.roles.joinToString(" · ") }, personId = credit.personId)
+            }, route.creditsLoading, route.creditsProblem, route.creditsCursor != null, imageLoader, ::back, action, subpage)
         } else if (detailId != null) {
             pages.SaveableStateProvider("media-detail/$libraryId/$detailId") {
                 val ref = repository.catalogRef(requireNotNull(libraryId), requireNotNull(detailId))
@@ -445,8 +469,8 @@ private fun PhoneMediaRouteState.detailState(scope: String, id: String): PhoneMe
             listOfNotNull(collection.name, collection.number?.let { "编号 $it" }).joinToString(" · ")
         },
         credits = MediaSection(item?.credits?.items.orEmpty().map { credit ->
-            MediaCredit(credit.id, credit.name, credit.role.ifBlank { credit.roles.joinToString(" · ") })
-        }),
+            MediaCredit(credit.id, credit.name, credit.role.ifBlank { credit.roles.joinToString(" · ") }, personId = credit.personId)
+        }, hasMore = item?.credits?.nextCursor != null),
         seasons = seasons.map { MediaSeason(it.ref.itemId, it.label) },
         seasonsLoading = seasonsLoading, seasonsHasMore = seasonsCursor != null, seasonsProblem = seasonsProblem,
         selectedSeason = selectedSeason,

@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import io.github.kkwans.nasfilebrowser.app.SessionContext
 import io.github.kkwans.nasfilebrowser.data.*
+import io.github.kkwans.nasfilebrowser.data.MediaCredit as CatalogCredit
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -59,6 +60,10 @@ internal class PhoneMediaRouteState(
     var personWorksLoading by mutableStateOf(false); private set
     var personWorksProblem by mutableStateOf<MediaProblem?>(null); private set
     var personWorksCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
+    var credits by mutableStateOf<List<CatalogCredit>>(emptyList()); private set
+    var creditsCursor by mutableStateOf<String?>(null); private set
+    var creditsLoading by mutableStateOf(false); private set
+    var creditsProblem by mutableStateOf<MediaProblem?>(null); private set
     var filter by mutableStateOf("all"); private set
     var libraryFilter by mutableStateOf<String?>(null); private set
     var detail by mutableStateOf<MediaCatalogDetail.Complete?>(null); private set
@@ -96,6 +101,7 @@ internal class PhoneMediaRouteState(
     private var collectionsJob: Job? = null
     private var collectionWorksJob: Job? = null
     private var personWorksJob: Job? = null
+    private var creditsJob: Job? = null
     private var detailJob: Job? = null
     private var seasonsJob: Job? = null
     private var episodesJob: Job? = null
@@ -105,7 +111,7 @@ internal class PhoneMediaRouteState(
     private var userStateJob: Job? = null
 
     fun close() {
-        listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, collectionsJob, collectionWorksJob, personWorksJob, detailJob, seasonsJob, episodesJob, sourcesJob, userStateJob).forEach { it?.cancel() }
+        listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, collectionsJob, collectionWorksJob, personWorksJob, creditsJob, detailJob, seasonsJob, episodesJob, sourcesJob, userStateJob).forEach { it?.cancel() }
     }
 
     fun start(initialFilter: String) {
@@ -353,6 +359,44 @@ internal class PhoneMediaRouteState(
         person = null; personName = ""; personWorks = emptyList(); personWorksCursor = null; personWorksProblem = null
     }
 
+    fun openCredits() {
+        creditsJob?.cancel()
+        creditsLoading = false
+        credits = detail?.detail?.credits?.items.orEmpty().distinctBy { it.personId }
+        creditsCursor = detail?.detail?.credits?.nextCursor
+        creditsProblem = null
+        if (creditsCursor != null) loadCredits(reset = false)
+    }
+
+    fun closeCredits() {
+        creditsJob?.cancel()
+        credits = emptyList(); creditsCursor = null; creditsProblem = null; creditsLoading = false
+    }
+
+    fun loadCredits(reset: Boolean) {
+        val ref = detailRef ?: return
+        val revision = detail?.detail?.item?.revision ?: return
+        if (!reset && (creditsLoading || creditsCursor == null)) return
+        creditsJob?.cancel()
+        val cursor = if (reset) null else creditsCursor
+        if (reset) { credits = emptyList(); creditsCursor = null }
+        creditsLoading = true; creditsProblem = null
+        creditsJob = scope.launch {
+            when (val result = repository.listItemCredits(ref.libraryId, ref.itemId, revision, limit = 50, cursor = cursor)) {
+                is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                    val page = result.value
+                    credits = (if (reset) page.items else credits + page.items).distinctBy { it.personId }
+                    creditsCursor = page.nextCursor
+                }
+                is MediaReadResult.Failure -> if (result.scope == repository.scope) {
+                    if (result.error.invalidatesVisibleData()) { credits = emptyList(); creditsCursor = null }
+                    creditsProblem = problem(result.error, "无法加载演职人员")
+                }
+            }
+            coroutineContext.ensureActive(); creditsLoading = false
+        }
+    }
+
     fun loadPersonWorks(reset: Boolean) {
         val ref = person ?: return
         if (!reset && (personWorksLoading || personWorksCursor == null)) return
@@ -436,7 +480,7 @@ internal class PhoneMediaRouteState(
 
     fun openDetail(ref: MediaCatalogRef, restoreSeason: String?) {
         if (detailRef == ref && (detail != null || detailLoading)) return
-        detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources()
+        detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits()
         resetUserStateWrite()
         detailRef = ref; desiredSeason = restoreSeason; detailCursor = null
         detail = null; detailProblem = null; seasons = emptyList(); seasonsCursor = null
@@ -445,7 +489,7 @@ internal class PhoneMediaRouteState(
     }
 
     fun closeDetail() {
-        detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources()
+        detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits()
         resetUserStateWrite()
         detailRef = null; detail = null; detailCursor = null; selectedSeason = null
     }
