@@ -398,7 +398,8 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                                 recoveryLabel = tvSourceRecovery(value.recoveryAction))
                         })
                     }
-                    TvMediaSourcePicker(TvMediaSourcePickerState(session.owner, tvMediaKey(source), "选择片源", editions,
+                    TvMediaSourcePicker(TvMediaSourcePickerState(session.owner, tvMediaKey(source),
+                        route.detail?.card?.title ?: route.detail?.detail?.item?.title ?: "版本与片源", editions,
                         currentSourceId = currentSourceId(), loading = route.sourcesLoading,
                         error = route.sourcesError, applying = route.sourcesRecovering), onDismiss = ::closeSources,
                         onConfirm = { edition, sourceId ->
