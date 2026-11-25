@@ -267,7 +267,8 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             route.filesLoading, route.filesError, route.filesCursor != null,
                             route.collections.map { TvMediaCollectionResult(it.ref.libraryId, it.ref.collectionId, it.name, tvCard(it.preview.first(), art)) },
                             route.collectionsLoading, route.collectionsError, route.collectionsCursor != null,
-                            route.home?.capabilities?.get("fileSearch") == true, imageLoader,
+                            route.home?.capabilities?.get("fileSearch") == true,
+                            route.home?.capabilities?.get("collections") == true, imageLoader,
                             onQuery = route::editSearch, onSubmit = { route.submitSearch(route.searchQuery) }, onMode = route::chooseSearchMode,
                             onBack = ::closeSearch, onItem = { id ->
                                 (route.searchResults + route.files.map { it.card } + route.collectionWorks + route.personWorks + route.catalog + route.home?.hero?.items.orEmpty()).firstOrNull { tvMediaKey(it.ref) == id }?.let {
