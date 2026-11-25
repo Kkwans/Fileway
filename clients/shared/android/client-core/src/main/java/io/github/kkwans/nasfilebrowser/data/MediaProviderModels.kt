@@ -61,6 +61,47 @@ data class MediaTechnicalObservation(
     val videoBitDepth: Int?, val width: Int?, val height: Int?, val colorTransfer: String?, val dynamicRange: String?,
     val audioTracks: List<MediaTechnicalTrack>, val subtitleTracks: List<MediaTechnicalTrack>, val formatTitle: String? = null,
 )
+object MediaTechnicalFormatter {
+    fun badges(observation: MediaTechnicalObservation): List<String> = buildList {
+        val width = observation.width
+        val height = observation.height
+        if (width != null && height != null && width > 0 && height > 0) add("${width}×${height}")
+        observation.videoCodec?.takeIf(String::isNotBlank)?.let { add(it.uppercase()) }
+        observation.videoBitDepth?.takeIf { it > 0 }?.let { add("$it-bit") }
+        observation.pixelFormat?.takeIf(String::isNotBlank)?.let { add(it.uppercase()) }
+        when (observation.dynamicRange) {
+            "sdr" -> add("SDR")
+            "pq" -> add("HDR PQ")
+            "hlg" -> add("HDR HLG")
+            "dolby-vision" -> add("Dolby Vision")
+        }
+    }
+
+    fun lines(observation: MediaTechnicalObservation): List<String> = buildList {
+        add("片长 ${(observation.durationMs + 30_000) / 60_000} 分钟")
+        trackLine("音轨", observation.audioTracks)?.let(::add)
+        trackLine("字幕", observation.subtitleTracks)?.let(::add)
+    }
+
+    private fun trackLine(label: String, tracks: List<MediaTechnicalTrack>): String? {
+        if (tracks.isEmpty()) return null
+        val codecs = tracks.map { it.codec.trim().uppercase() }.filter(String::isNotBlank).distinct()
+        val languages = tracks.mapNotNull { it.language?.trim()?.lowercase() }.mapNotNull(::languageLabel).distinct()
+        val languageSummary = when {
+            languages.size <= 3 -> languages.joinToString(" / ")
+            else -> languages.take(3).joinToString(" / ") + "等 ${languages.size} 种"
+        }
+        return listOf("$label ${tracks.size}", codecs.takeIf(List<String>::isNotEmpty)?.joinToString(" / "), languageSummary)
+            .filterNotNull().filter(String::isNotBlank).joinToString(" · ")
+    }
+
+    private fun languageLabel(value: String): String? = when (value) {
+        "eng" -> "英语"; "zho", "chi" -> "中文"; "jpn" -> "日语"; "kor" -> "韩语"
+        "fra", "fre" -> "法语"; "deu", "ger" -> "德语"; "spa" -> "西班牙语"
+        "ita" -> "意大利语"; "rus" -> "俄语"; else -> null
+    }
+}
+
 data class MediaProviderIdentificationFile(
     val filename: String, val parsedTitle: String, val year: Int?, val typeHint: String,
     val providerIds: List<MediaProviderDeclaredId>, val state: String, val issues: List<String>, val revision: Long,

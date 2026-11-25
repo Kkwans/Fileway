@@ -457,6 +457,7 @@ private fun PhoneMediaRouteState.detailState(scope: String, id: String): PhoneMe
         overview = item?.fields?.get("plot")?.values?.firstOrNull(), canPlay = playable, canSelectSources = playable,
         sourceCount = if (playable) detailSources.size else null,
         sourceSummary = phoneSourceSummary(detailSources) ?: if (loadingSourcesFor(id)) "正在读取片源…" else null,
+        technical = technical,
         canReviewMatch = card?.actions?.can(MediaCatalogAction.EDIT_METADATA) == true && card.structureKind in setOf(
             MediaItemKind.VIDEO, MediaItemKind.MOVIE, MediaItemKind.SERIES, MediaItemKind.EPISODE),
         canChangeUserState = state != null && card.actions.can(MediaCatalogAction.FAVORITE) && card.actions.can(MediaCatalogAction.MARK_WATCHED),

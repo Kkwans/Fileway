@@ -31,6 +31,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.Text
 import coil3.ImageLoader
+import io.github.kkwans.nasfilebrowser.data.MediaTechnicalFormatter
 import io.github.kkwans.fileway.design.R as Art
 import io.github.kkwans.fileway.tv.LocalTvInteractive
 import io.github.kkwans.fileway.tv.TvRemoteDialogKeys
@@ -155,6 +156,23 @@ fun TvMediaDetail(
                     if (state.userStateBusy) MediaLoadingStatus("正在更新观看状态…", compact = true)
                     if (state.userStateError != null) MediaStatus(state.userStateError, onRetryUserState, compact = true)
                     if (state.loading) MediaLoadingStatus("正在更新影片资料…", compact = true)
+                }
+            }
+        }
+        state.technical?.let { technical ->
+            val badges = MediaTechnicalFormatter.badges(technical)
+            val lines = MediaTechnicalFormatter.lines(technical)
+            if (badges.isNotEmpty() || lines.isNotEmpty()) item(key = "technical") {
+                Column(Modifier.padding(horizontal = MediaLayout.pageInset), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    MediaSectionTitle("技术信息")
+                    if (badges.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        badges.forEach { label ->
+                            Text(label, Modifier.clip(MediaLayout.shape).background(colors.raised)
+                                .padding(horizontal = 16.dp, vertical = 10.dp), style = MediaType.secondary, color = colors.secondary)
+                        }
+                    }
+                    lines.forEach { line -> Text(line, style = MediaType.body, color = colors.secondary) }
                 }
             }
         }

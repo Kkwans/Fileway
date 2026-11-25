@@ -1,6 +1,7 @@
 package io.github.kkwans.fileway.tv.medialibrary
 
 import coil3.request.ImageRequest
+import io.github.kkwans.nasfilebrowser.data.MediaTechnicalObservation
 
 /** Presentation only. Never deserialize the service response directly into these types. */
 data class TvMediaArtwork(
@@ -115,6 +116,7 @@ data class TvMediaDetailState(
     val userStateError: String? = null,
     val sourceCount: Int = 0,
     val sourceSummary: String? = null,
+    val technical: MediaTechnicalObservation? = null,
     val people: List<TvMediaPerson> = emptyList(),
     val collections: List<String> = emptyList(),
     val seasons: List<TvMediaSeason> = emptyList(),

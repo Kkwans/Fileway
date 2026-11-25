@@ -67,6 +67,7 @@ internal class PhoneMediaRouteState(
     var filter by mutableStateOf("all"); private set
     var libraryFilter by mutableStateOf<String?>(null); private set
     var detail by mutableStateOf<MediaCatalogDetail.Complete?>(null); private set
+    var technical by mutableStateOf<MediaTechnicalObservation?>(null); private set
     var detailLoading by mutableStateOf(false); private set
     var detailProblem by mutableStateOf<MediaProblem?>(null); private set
     var userStateBusy by mutableStateOf(false); private set
@@ -103,6 +104,7 @@ internal class PhoneMediaRouteState(
     private var personWorksJob: Job? = null
     private var creditsJob: Job? = null
     private var detailJob: Job? = null
+    private var technicalJob: Job? = null
     private var seasonsJob: Job? = null
     private var episodesJob: Job? = null
     private var sourcesJob: Job? = null
@@ -112,7 +114,7 @@ internal class PhoneMediaRouteState(
     private var variantsRef: MediaCatalogRef? = null
 
     fun close() {
-        listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, collectionsJob, collectionWorksJob, personWorksJob, creditsJob, detailJob, seasonsJob, episodesJob, sourcesJob, userStateJob).forEach { it?.cancel() }
+        listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, collectionsJob, collectionWorksJob, personWorksJob, creditsJob, detailJob, technicalJob, seasonsJob, episodesJob, sourcesJob, userStateJob).forEach { it?.cancel() }
     }
 
     fun start(initialFilter: String) {
@@ -481,19 +483,19 @@ internal class PhoneMediaRouteState(
 
     fun openDetail(ref: MediaCatalogRef, restoreSeason: String?) {
         if (detailRef == ref && (detail != null || detailLoading)) return
-        detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits()
+        detailJob?.cancel(); technicalJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits()
         resetUserStateWrite()
         detailRef = ref; desiredSeason = restoreSeason; detailCursor = null
         variants = emptyList(); variantsRef = null; sourcesCursor = null
-        detail = null; detailProblem = null; seasons = emptyList(); seasonsCursor = null
+        detail = null; technical = null; detailProblem = null; seasons = emptyList(); seasonsCursor = null
         selectedSeason = null; episodes = emptyList(); episodesCursor = null
         loadDetail()
     }
 
     fun closeDetail() {
-        detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits()
+        detailJob?.cancel(); technicalJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits()
         resetUserStateWrite()
-        detailRef = null; detail = null; detailCursor = null; selectedSeason = null
+        detailRef = null; detail = null; technical = null; detailCursor = null; selectedSeason = null
         variants = emptyList(); variantsRef = null; sourcesCursor = null
     }
 
@@ -506,6 +508,7 @@ internal class PhoneMediaRouteState(
                 is MediaReadResult.Success -> if (result.scope == repository.scope) when (val value = result.value) {
                     is MediaCatalogDetail.Complete -> {
                         detail = value; detailCursor = null
+                        loadTechnical(ref)
                         if (value.card?.actions?.can(MediaCatalogAction.PLAY) == true) loadDetailSources(ref)
                         if (value.card?.userState != null) pendingUserState = repository.pendingUserStateOperation(ref)
                         if (value.detail.item.kind == MediaItemKind.SERIES) loadSeasons(reset = true)
@@ -651,6 +654,20 @@ internal class PhoneMediaRouteState(
                 }
             }
             coroutineContext.ensureActive(); episodesLoading = false
+        }
+    }
+
+    private fun loadTechnical(ref: MediaCatalogRef) {
+        technicalJob?.cancel()
+        technicalJob = scope.launch {
+            when (val result = repository.identification(ref)) {
+                is MediaReadResult.Success -> if (result.scope == repository.scope && detailRef == ref) {
+                    technical = result.value.file?.technical
+                }
+                is MediaReadResult.Failure -> if (result.scope == repository.scope && detailRef == ref) {
+                    technical = null
+                }
+            }
         }
     }
 

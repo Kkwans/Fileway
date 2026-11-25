@@ -60,6 +60,7 @@ internal class TvMediaRouteState(
     var personWorksError by mutableStateOf<String?>(null); private set
     var personWorksCursor by mutableStateOf<MediaCatalogCursor?>(null); private set
     var detail by mutableStateOf<MediaCatalogDetail.Complete?>(null); private set
+    var technical by mutableStateOf<MediaTechnicalObservation?>(null); private set
     var detailLoading by mutableStateOf(false); private set
     var detailError by mutableStateOf<String?>(null); private set
     var userStateBusy by mutableStateOf(false); private set
@@ -100,6 +101,7 @@ internal class TvMediaRouteState(
     private var collectionWorksJob: Job? = null
     private var personWorksJob: Job? = null
     private var detailJob: Job? = null
+    private var technicalJob: Job? = null
     private var creditsJob: Job? = null
     private var seasonsJob: Job? = null
     private var episodesJob: Job? = null
@@ -110,7 +112,7 @@ internal class TvMediaRouteState(
     private var userStateJob: Job? = null
     private var variantsRef: MediaCatalogRef? = null
 
-    fun close() { listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, collectionsJob, collectionWorksJob, personWorksJob, detailJob, creditsJob, seasonsJob, episodesJob, sourcesJob, sourceRecoveryJob, userStateJob).forEach { it?.cancel() } }
+    fun close() { listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, collectionsJob, collectionWorksJob, personWorksJob, detailJob, technicalJob, creditsJob, seasonsJob, episodesJob, sourcesJob, sourceRecoveryJob, userStateJob).forEach { it?.cancel() } }
 
     fun start(savedFilter: String) {
         filter = savedFilter.takeIf { it in setOf("all", "movie", "series", "video") } ?: "all"
@@ -403,8 +405,8 @@ internal class TvMediaRouteState(
 
     fun openDetail(item: MediaCatalogRef, savedSeason: String?) {
         if (ref == item && (detail != null || detailLoading)) return
-        detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits(); resetUserStateWrite()
-        ref = item; desiredSeason = savedSeason; detail = null; detailCursor = null; detailError = null
+        detailJob?.cancel(); technicalJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits(); resetUserStateWrite()
+        ref = item; desiredSeason = savedSeason; detail = null; technical = null; detailCursor = null; detailError = null
         variants = emptyList(); variantsRef = null; sourcesCursor = null
         seasons = emptyList(); seasonsCursor = null; selectedSeason = null; episodes = emptyList(); episodesCursor = null
         seasonsLoading = false; seasonsError = null; episodesLoading = false; episodesError = null; jumpedEpisodeId = null
@@ -412,8 +414,8 @@ internal class TvMediaRouteState(
     }
 
     fun closeDetail() {
-        detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits(); resetUserStateWrite()
-        ref = null; detail = null; detailCursor = null; selectedSeason = null
+        detailJob?.cancel(); technicalJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits(); resetUserStateWrite()
+        ref = null; detail = null; technical = null; detailCursor = null; selectedSeason = null
         variants = emptyList(); variantsRef = null; sourcesCursor = null
         detailLoading = false; seasonsLoading = false; episodesLoading = false
     }
@@ -464,6 +466,7 @@ internal class TvMediaRouteState(
                 is MediaReadResult.Success -> if (result.scope == repository.scope) when (val value = result.value) {
                     is MediaCatalogDetail.Complete -> {
                         detail = value; detailCursor = null
+                        loadTechnical(item)
                         if (value.card?.userState != null) {
                             pendingUserState = repository.pendingUserStateOperation(item)
                             if (pendingUserState != null) userStateError = "观看状态尚待确认，请确认原操作，避免重复提交。"
@@ -750,6 +753,20 @@ internal class TvMediaRouteState(
                 pendingSourceRecovery = operation
                 sourcesError = "扫描结果尚待确认，再次选择重新扫描以确认原操作。"
             } finally { sourcesRecovering = false }
+        }
+    }
+
+    private fun loadTechnical(ref: MediaCatalogRef) {
+        technicalJob?.cancel()
+        technicalJob = scope.launch {
+            when (val result = repository.identification(ref)) {
+                is MediaReadResult.Success -> if (result.scope == repository.scope && this@TvMediaRouteState.ref == ref) {
+                    technical = result.value.file?.technical
+                }
+                is MediaReadResult.Failure -> if (result.scope == repository.scope && this@TvMediaRouteState.ref == ref) {
+                    technical = null
+                }
+            }
         }
     }
 

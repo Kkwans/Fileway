@@ -21,6 +21,37 @@ class MediaProviderModelsTest {
     }
 
     @Test
+    fun technicalFormatterUsesRealCodecResolutionHdrAndTrackEvidence() {
+        val observation = MediaTechnicalObservation(
+            durationMs = 7_938_645, videoCodec = "hevc", videoProfile = "Main 10", pixelFormat = "yuv420p10le",
+            videoBitDepth = 10, width = 3840, height = 2160, colorTransfer = "smpte2084", dynamicRange = "pq",
+            audioTracks = listOf(
+                MediaTechnicalTrack(0, "eac3", "eng", null, true, false),
+                MediaTechnicalTrack(1, "aac", "zho", null, false, false),
+            ),
+            subtitleTracks = listOf(MediaTechnicalTrack(2, "subrip", "zho", null, false, false)),
+        )
+        assertEquals(listOf("3840×2160", "HEVC", "10-bit", "YUV420P10LE", "HDR PQ"), MediaTechnicalFormatter.badges(observation))
+        assertEquals(listOf(
+            "片长 132 分钟",
+            "音轨 2 · EAC3 / AAC · 英语 / 中文",
+            "字幕 1 · SUBRIP · 中文",
+        ), MediaTechnicalFormatter.lines(observation))
+    }
+
+    @Test
+    fun technicalFormatterOmitsUnknownValuesAndCapsLanguageSummary() {
+        val observation = MediaTechnicalObservation(
+            durationMs = 60_000, videoCodec = null, videoProfile = null, pixelFormat = null,
+            videoBitDepth = null, width = null, height = null, colorTransfer = null, dynamicRange = "unknown",
+            audioTracks = (1..5).map { MediaTechnicalTrack(it, "aac", listOf("eng", "jpn", "kor", "fra", "deu")[it - 1], null, false, false) },
+            subtitleTracks = emptyList(),
+        )
+        assertEquals(emptyList<String>(), MediaTechnicalFormatter.badges(observation))
+        assertEquals(listOf("片长 1 分钟", "音轨 5 · AAC · 英语 / 日语 / 韩语等 5 种"), MediaTechnicalFormatter.lines(observation))
+    }
+
+    @Test
     fun emptyPolicyLanguageUsesChineseDefaults() {
         val row = JSONObject()
             .put("libraryId", "lib_fixture")

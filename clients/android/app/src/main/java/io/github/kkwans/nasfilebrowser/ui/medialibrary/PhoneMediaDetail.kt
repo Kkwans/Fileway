@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
 import io.github.kkwans.nasfilebrowser.R
+import io.github.kkwans.nasfilebrowser.data.MediaTechnicalFormatter
 import io.github.kkwans.nasfilebrowser.ui.FilewayIcon
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMenuItem
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
@@ -68,6 +69,28 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
                 }
                 if (state.canSelectSources) item(key = "sources") {
                     DetailSourceRow(state, onAction, Modifier.padding(horizontal = inset))
+                }
+                state.technical?.let { technical ->
+                    val badges = MediaTechnicalFormatter.badges(technical)
+                    val lines = MediaTechnicalFormatter.lines(technical)
+                    if (badges.isNotEmpty() || lines.isNotEmpty()) item(key = "technical") {
+                        Column(Modifier.padding(horizontal = inset), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            PhoneDetailHeading("技术信息")
+                            if (badges.isNotEmpty()) FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                badges.forEach { label ->
+                                    Surface(shape = MaterialTheme.shapes.small,
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = .38f)) {
+                                        Text(label, Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                            style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                }
+                            }
+                            lines.forEach { line ->
+                                Text(line, style = PhoneDetailType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
                 }
                 if (state.canChangeUserState) item(key = "user-state") {
                     Column(Modifier.padding(horizontal = inset), verticalArrangement = Arrangement.spacedBy(8.dp)) {

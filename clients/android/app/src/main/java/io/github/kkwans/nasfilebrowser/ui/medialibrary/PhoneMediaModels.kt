@@ -3,6 +3,7 @@ package io.github.kkwans.nasfilebrowser.ui.medialibrary
 import coil3.request.ImageRequest
 import io.github.kkwans.nasfilebrowser.data.MediaCatalogArtwork
 import io.github.kkwans.nasfilebrowser.data.MediaMetadataRefreshPreview
+import io.github.kkwans.nasfilebrowser.data.MediaTechnicalObservation
 
 /** Presentation only. IDs are opaque; adapters own authorization, formatting and wire versions.
  * Image requests must already be authorized and scoped to account/instance/asset revision.
@@ -46,6 +47,7 @@ internal data class PhoneMediaDetailState(val scopeKey: String, val id: String, 
     val userStateRevision: Long? = null, val userStateBusy: Boolean = false, val userStateProblem: MediaProblem? = null,
     val favorite: Boolean = false, val watched: Boolean = false, val busy: Boolean = false,
     val sourceCount: Int? = null, val sourceSummary: String? = null, val playProblem: MediaProblem? = null,
+    val technical: MediaTechnicalObservation? = null,
     val canSelectSources: Boolean = false,
     val collections: List<String> = emptyList(),
     val credits: MediaSection<MediaCredit> = MediaSection(), val seasons: List<MediaSeason> = emptyList(),

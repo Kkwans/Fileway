@@ -403,6 +403,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             userStateBusy = route.userStateBusy, userStateError = route.userStateError,
                             sourceCount = detailSources.size,
                             sourceSummary = tvSourceSummary(detailSources) ?: if (route.sourcesLoading && reference != null && route.hasSourcesFor(reference)) "正在读取片源…" else null,
+                            technical = route.technical,
                             loading = route.detailLoading, error = route.detailError), imageLoader, onBack = { back() },
                             modifier = Modifier.weight(1f),
                             onPlay = if (playable && reference != null) ({ openSources(reference) }) else null,
