@@ -174,10 +174,14 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
             route.closePerson(); personPage = null
             if (personReturnItem != null && personReturnLibrary != null) {
                 val returnItem = personReturnItem
+                searching = false
                 item = personReturnItem; library = personReturnLibrary; season = personReturnSeason
                 personReturnItem = null; personReturnLibrary = null; personReturnSeason = null
                 restore(returnItem.orEmpty(), "detail-back")
-            } else restore(target.id, target.origin)
+            } else {
+                searching = true
+                restore(target.id, target.origin)
+            }
         }
         fun closeCollectionPage() {
             val target = resolveTvCatalogSearchFocusTarget(lastAnchor, lastOrigin,

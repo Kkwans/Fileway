@@ -125,11 +125,12 @@ internal fun PhoneMediaRoute(
         if (creditsPage) { creditsPage = false; route.closeCredits() }
         else if (collectionPage != null && detailId == null) { collectionPage = null; route.closeCollection() }
         else if (personPage != null && detailId == null) {
-            personPage = null; route.closePerson(); searching = false
+            personPage = null; route.closePerson()
             if (personReturnItem != null && personReturnLibrary != null) {
+                searching = false
                 item = personReturnItem; library = personReturnLibrary; season = personReturnSeason
                 personReturnItem = null; personReturnLibrary = null; personReturnSeason = null
-            }
+            } else searching = true
         }
         else if (searching && detailId == null) searching = false
         else if (reviewItemId != null) { reviewItemId = null; reviewLibraryId = null }
