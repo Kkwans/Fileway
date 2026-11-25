@@ -92,7 +92,7 @@ var (
 	directoryYearRange     = regexp.MustCompile(`(?:18|19|20|21)[0-9]{2}[ ._]*[-–][ ._]*(?:18|19|20|21)[0-9]{2}`)
 	partPattern            = regexp.MustCompile(`(?i)(?:cd|disc|part)[ ._\-]*([0-9]{1,2}|VIII|VII|VI|IV|III|II|IX|X|V|I)`)
 	chinesePartPattern     = regexp.MustCompile(`[上中下][部集篇]`)
-	editionPattern         = regexp.MustCompile(`(?i)director'?s[ ._\-]+cut|extended(?:[ ._\-]+cut)?|theatrical[ ._\-]+cut|final[ ._\-]+cut|unrated|remastered|导演剪辑(?:加长版|版)?|導演剪輯版|加长版|加長版|院线版|院線版|未分级(?:加长版|版)?|未分級版|修复版|修復版|[0-9]{1,3}分钟|终极剪辑版|終極剪輯版`)
+	editionPattern         = regexp.MustCompile(`(?i)director'?s[ ._\-]+cut|extended(?:[ ._\-]+cut)?|theatrical[ ._\-]+cut|final[ ._\-]+cut|unrated|remastered|导演剪辑(?:加长版|版)?|導演剪輯版|加长版|加長版|院线版|院線版|未分级(?:加长版|版)?|未分級版|修复版|修復版|无删减版|無刪減版|完整版|[0-9]{1,3}分钟|终极剪辑版|終極剪輯版`)
 	specialPattern         = regexp.MustCompile(`(?i)SP|OVA|OAD`)
 	emptyNameBrackets      = regexp.MustCompile(`\([ \t]*\)|\[[ \t]*\]|\{[ \t]*\}|【[ \t]*】|（[ \t]*）`)
 )
@@ -105,10 +105,10 @@ type technicalRule struct {
 var technicalNameRules = []technicalRule{
 	{"release_tag", regexp.MustCompile(`(?i)(?:\[[^\]\r\n]*(?:满屏版|杜比视界|帧率版本|简繁英字幕|国语音轨|多音轨|合集)[^\]\r\n]*\]|【[^】\r\n]*(?:满屏版|杜比视界|帧率版本|简繁英字幕|国语音轨|多音轨|合集)[^】\r\n]*】)`)},
 	{"collection", regexp.MustCompile(`(?i)\b[0-9]+in1\b`)},
-	{"resolution", regexp.MustCompile(`(?i)BD(?:1080[pi]|2160p|720p)|4320p|2160p|1440p|1080[pi]|720p|576p|480p|8k|4k`)},
+	{"resolution", regexp.MustCompile(`(?i)BD(?:1080[pi]|2160p|720p)|HD1080[pi]|4320p|2160p|1440p|1080[pi]|720p|576p|480p|8k|4k`)},
 	{"video_codec", regexp.MustCompile(`(?i)x26[45]|h[ .]?26[45]|hevc|avc|av1|xvid`)},
 	{"dynamic_range", regexp.MustCompile(`(?i)dolby[ ._\-]+vision|hdr10\+|hdr10|hdr|hlg|DoVi|dv|\bSDR\b`)},
-	{"source", regexp.MustCompile(`(?i)web[ ._\-]?dl|webrip|blu[ ._\-]?ray|bdrip|brrip|remux|hdtv|dvdrip|\bDVD\b|DSNP|iTunes|\b(?:FRA|TC|EC|DC)\b|\bBD(?:[ ._-]*[1-9])?\b`)},
+	{"source", regexp.MustCompile(`(?i)web[ ._\-]?dl|webrip|blu[ ._\-]?ray|bdrip|brrip|remux|hdtv|dvdrip|\bDVD\b|DSNP|iTunes|\b(?:FRA|TC|EC|DC)\b|\bBD(?:[ ._-]*[1-9])?\b|蓝光(?:版)?`)},
 	{"audio_layout", regexp.MustCompile(`(?i)[0-9][ ._.][01]`)},
 	{"audio_codec", regexp.MustCompile(`(?i)dts[ ._\-]?hd[ ._\-]?ma|truehd|ddp|dd|e[ ._\-]?ac3|ac3|aac|dts|atmos|flac|opus|pcm`)},
 	{"bit_depth", regexp.MustCompile(`(?i)(?:8|10|12)[ ._\-]?bit`)},
@@ -118,10 +118,10 @@ var technicalNameRules = []technicalRule{
 	{"version", regexp.MustCompile(`(?i)\bV[0-9]+\b`)},
 	{"language", regexp.MustCompile(`(?i)Mandarin&English|English&Mandarin|CHS[ ._-]?ENG|\b(?:English|Mandarin|CHS|JP|CN|USA|JPN|GER|CEE)\b`)},
 	{"subtitle", regexp.MustCompile(`国英双语|中英双字|中英字幕|中英特效|特效字幕|国语中字|粤语中字|日语中字|法语中字|英语中字|国日粤三语|泰国粤三语|中日双字|简繁双语|简繁字幕|双语中字|中文字幕|内嵌特效中简|特效`)},
-	{"release_noise", regexp.MustCompile(`(?i)\b[0-9]{1,3}(?:st|nd|rd|th)[ ._\-]+anniversary\b`)},
+	{"release_noise", regexp.MustCompile(`(?i)\b[0-9]{1,3}(?:st|nd|rd|th)[ ._\-]+anniversary\b|无水印`)},
 	{"release_group", regexp.MustCompile(`(?i)(?:\b(?:MNHD-FRDS|RARBG|HDBWEB|DreamHD|ParkHD|BBQDDQ|CTRLTV|FRDS|MTeam|WiKi|PTer|HDC|HDS|D-Z0N3|DiaosMan|SSDSSE|NukeHD|SONYHD|882FX|taobaobt|Mp4Ba(?:Fans)?|FFans|KOOK|UUMp4|D2Mp4|99Mp4|4KHDR|52movieba|TAG|CHD|MiniFHD)\b|人人影视|BT世界网|抠脚)`)},
 	{"market_tag", regexp.MustCompile(`(?i)\[(?:泰国|港版|日本|美国|韩国|剧情|喜剧|动作|爱情|科幻|悬疑|犯罪)(?:[ ._-]+(?:泰国|港版|日本|美国|韩国|剧情|喜剧|动作|爱情|科幻|悬疑|犯罪))*\]`)},
-	{"promotional_prefix", regexp.MustCompile(`(?i)^(?:【[^】]*(?:无水印|请访问|www[ ._]|https?://)[^】]*】|\[[^\]]*(?:www[ ._]|https?://)[^\]]*\])+`)},
+	{"promotional_prefix", regexp.MustCompile(`(?i)^(?:(?:福利电影|魅力社)[0-9A-Za-z ._\-]*com[ ._\-]+|(?:【[^】]*(?:无水印|请访问|www[ ._]|https?://)[^】]*】|\[[^\]]*(?:www[ ._]|https?://)[^\]]*\])+)`)},
 	{"site_prefix", regexp.MustCompile(`(?i)^(?:【[^】]*(?:www[ ._]|https?://)[^】]*】|\[[^\]]*(?:www[ ._]|https?://)[^\]]*\])`)},
 	{"site_tag", regexp.MustCompile(`(?i)(?:【[^】]*(?:www[ ._]|https?://)[^】]*】|\[[^\]]*(?:www[ ._]|https?://)[^\]]*\])`)},
 }

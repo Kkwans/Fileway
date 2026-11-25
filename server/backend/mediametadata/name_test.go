@@ -243,6 +243,9 @@ func TestParseNameCleansReleaseAndSubtitleNoise(t *testing.T) {
 		{"The Martian 2015 TC TrueHD7 1.mkv", "The Martian", 2015},
 		{"Love Actually 2003 DTS-HD MA5 1.mkv", "Love Actually", 2003},
 		{"Venom 2018 English.mkv", "Venom", 2018},
+		{"福利电影989pa com-盲井 无删减版 Blind Shaft 2003 HD1080P 无水印.mkv", "盲井 Blind Shaft", 2003},
+		{"魅力社989pa com-盲山 完整版 Blind Mountain 2007 HD1080P.mkv", "盲山 Blind Mountain", 2007},
+		{"黄海(蓝光 ) The Yellow Sea 2010.mkv", "黄海 The Yellow Sea", 2010},
 	} {
 		parsed := ParseName(tc.filename)
 		if parsed.Title != tc.title || parsed.Year == nil || *parsed.Year != tc.year || len(parsed.Ambiguities) != 0 {
