@@ -409,7 +409,8 @@ internal fun PhoneMediaRoute(
         route.sourceRef?.let { ref ->
             PhoneMediaSourcePicker(PhoneMediaSourcesState(
                 itemId = key(ref), title = route.detail?.card?.title ?: route.detail?.detail?.item?.title ?: "版本与片源",
-                revision = "", selectedId = sourceSelection?.takeIf { it.itemId == key(ref) }?.selectedId,
+                revision = "", selectedId = sourceSelection?.takeIf { it.itemId == key(ref) }?.selectedId
+                    ?: route.variants.firstOrNull { variantKey(it) == currentSourceId() && it.available }?.let(::variantKey),
                 entries = route.variants.map { variant ->
                     MediaSourceOption(variantKey(variant), variant.editionId, variant.editionName.ifBlank { "原始版本" },
                         variant.displayName, variant.sourceLabel,
