@@ -108,6 +108,7 @@ internal class TvMediaRouteState(
     private var pendingSourceRecovery: MediaOperation? = null
     private var pendingUserState: MediaOperation? = null
     private var userStateJob: Job? = null
+    private var variantsRef: MediaCatalogRef? = null
 
     fun close() { listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, collectionsJob, collectionWorksJob, personWorksJob, detailJob, creditsJob, seasonsJob, episodesJob, sourcesJob, sourceRecoveryJob, userStateJob).forEach { it?.cancel() } }
 
@@ -404,6 +405,7 @@ internal class TvMediaRouteState(
         if (ref == item && (detail != null || detailLoading)) return
         detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits(); resetUserStateWrite()
         ref = item; desiredSeason = savedSeason; detail = null; detailCursor = null; detailError = null
+        variants = emptyList(); variantsRef = null; sourcesCursor = null
         seasons = emptyList(); seasonsCursor = null; selectedSeason = null; episodes = emptyList(); episodesCursor = null
         seasonsLoading = false; seasonsError = null; episodesLoading = false; episodesError = null; jumpedEpisodeId = null
         loadDetail()
@@ -412,6 +414,7 @@ internal class TvMediaRouteState(
     fun closeDetail() {
         detailJob?.cancel(); seasonsJob?.cancel(); episodesJob?.cancel(); closeSources(); closeCredits(); resetUserStateWrite()
         ref = null; detail = null; detailCursor = null; selectedSeason = null
+        variants = emptyList(); variantsRef = null; sourcesCursor = null
         detailLoading = false; seasonsLoading = false; episodesLoading = false
     }
 
@@ -465,6 +468,7 @@ internal class TvMediaRouteState(
                             pendingUserState = repository.pendingUserStateOperation(item)
                             if (pendingUserState != null) userStateError = "观看状态尚待确认，请确认原操作，避免重复提交。"
                         }
+                        if (value.card?.actions?.can(MediaCatalogAction.PLAY) == true) loadDetailSources(item)
                         if (value.detail.item.kind == MediaItemKind.SERIES) loadSeasons(true)
                     }
                     is MediaCatalogDetail.Partial -> { detailCursor = value.nextCursor; detailError = "详情尚未加载完成，请继续读取。" }
@@ -749,15 +753,30 @@ internal class TvMediaRouteState(
         }
     }
 
-    fun openSources(item: MediaCatalogRef) {
-        sourcesJob?.cancel(); sourceRef = item; variants = emptyList(); sourcesCursor = null; loadSources(true)
+    private fun loadDetailSources(item: MediaCatalogRef) {
+        if (variantsRef == item && !sourcesLoading) return
+        loadSourcesFor(item, reset = true)
     }
-    fun closeSources() { sourcesJob?.cancel(); sourceRef = null; variants = emptyList(); sourcesCursor = null; sourcesError = null }
+
+    fun hasSourcesFor(item: MediaCatalogRef): Boolean = variantsRef == item
+
+    fun openSources(item: MediaCatalogRef) {
+        sourcesJob?.cancel()
+        sourceRef = item
+        if (variantsRef != item || sourcesLoading || sourcesError != null) loadSourcesFor(item, reset = true)
+    }
+    fun closeSources() {
+        sourcesJob?.cancel(); sourceRef = null; sourcesError = null; sourcesLoading = false
+    }
     fun loadSources(reset: Boolean) {
         val item = sourceRef ?: return
+        loadSourcesFor(item, reset)
+    }
+    private fun loadSourcesFor(item: MediaCatalogRef, reset: Boolean) {
         if (!reset && (sourcesLoading || sourcesCursor == null)) return
         sourcesJob?.cancel(); val cursor = if (reset) null else sourcesCursor
         if (reset) { variants = emptyList(); sourcesCursor = null }
+        variantsRef = item
         sourcesLoading = true; sourcesError = null
         sourcesJob = scope.launch {
             when (val result = repository.playbackVariants(item, limit = 20, cursor = cursor)) {

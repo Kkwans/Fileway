@@ -20,16 +20,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Text
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaShape
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaSpace
 import io.github.kkwans.fileway.tv.TvRemoteDialogKeys
 import io.github.kkwans.fileway.tv.LocalTvInteractive
-import io.github.kkwans.fileway.tv.tvTextStyle
 import io.github.kkwans.fileway.design.R as Art
 
 /** A separate Dialog window traps focus/input, including the existing phone remote gateway.
@@ -68,26 +68,26 @@ fun TvMediaSourcePicker(
             val verticalInset = if (maxHeight >= 480.dp) 28.dp else 12.dp
             val panelWidth = (maxWidth * .48f).coerceIn(440.dp, 520.dp).coerceAtMost(maxWidth - endInset * 2)
             Column(Modifier.align(Alignment.CenterEnd).padding(end = endInset, top = verticalInset, bottom = verticalInset)
-                .width(panelWidth).fillMaxHeight().clip(RoundedCornerShape(12.dp)).background(colors.canvas)
+                .width(panelWidth).fillMaxHeight().clip(MediaLayout.shape).background(colors.canvas)
                 .padding(horizontal = 24.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                     MediaIconAction("返回", onDismiss, Art.drawable.fileway_ic_arrow_back, Modifier.focusRequester(closeFocus))
                     Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("版本与片源", style = tvTextStyle(26, 34, FontWeight.Medium), color = colors.text,
+                        Text("版本与片源", style = MediaType.pageTitle, color = colors.text,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("当前服务器中的可用片源", style = tvTextStyle(16, 22), color = colors.secondary,
+                        Text("当前服务器中的可用片源", style = MediaType.secondary, color = colors.secondary,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
                 LazyColumn(Modifier.weight(1f).fillMaxWidth().focusGroup(),
                     contentPadding = PaddingValues(4.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item(key = "title") {
-                        Text(state.title, style = tvTextStyle(28, 36, FontWeight.Medium), color = colors.text,
+                        Text(state.title, style = MediaType.pageTitle, color = colors.text,
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                     if (state.editions.isNotEmpty()) item(key = "editions") {
                         LazyRow(Modifier.fillMaxWidth().focusGroup(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            horizontalArrangement = Arrangement.spacedBy(FilewayMediaSpace.Tv.content)) {
                             items(state.editions, key = { it.id }) { choice ->
                                 Column {
                                     val active = edition?.id == choice.id
@@ -108,14 +108,14 @@ fun TvMediaSourcePicker(
                     }
                     if (edition != null) item(key = "edition-summary") {
                         Text(listOfNotNull(edition.title, edition.runtimeLabel).joinToString(" · "),
-                            style = tvTextStyle(18, 26), color = colors.secondary)
+                            style = MediaType.body, color = colors.secondary)
                     }
                     if (state.loading) item(key = "loading") {
-                        Text("正在读取片源…", style = tvTextStyle(18, 27), color = colors.secondary)
+                        Text("正在读取片源…", style = MediaType.body, color = colors.secondary)
                     }
                     if (state.error != null) item(key = "error") {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(state.error, style = tvTextStyle(18, 27), color = colors.secondary)
+                            Text(state.error, style = MediaType.body, color = colors.secondary)
                             if (onRetry != null) MediaAction("重试", onRetry, icon = Art.drawable.fileway_ic_refresh)
                         }
                     }
@@ -129,7 +129,7 @@ fun TvMediaSourcePicker(
                         MediaAction("加载更多片源", onMore, enabled = !state.loading && !state.applying)
                     }
                     if (!state.loading && state.error == null && edition?.sources.isNullOrEmpty()) item(key = "empty") {
-                        Text("当前没有可访问的片源。", style = tvTextStyle(18, 27), color = colors.secondary)
+                        Text("当前没有可访问的片源。", style = MediaType.body, color = colors.secondary)
                     }
                 }
                 Column(Modifier.align(Alignment.End), horizontalAlignment = Alignment.End,
@@ -138,7 +138,7 @@ fun TvMediaSourcePicker(
                         if (edition != null && selectedSource != null && !state.applying && !state.loading) onConfirm(edition.id, selectedSource.id)
                     }, Modifier.widthIn(min = 220.dp), primary = true,
                         enabled = edition != null && selectedSource != null && !state.applying && !state.loading)
-                    Text("不同剪辑分别保留续播位置", style = tvTextStyle(15, 21), color = colors.secondary)
+                    Text("不同剪辑分别保留续播位置", style = MediaType.secondary, color = colors.secondary)
                 }
             }
         }
@@ -148,8 +148,8 @@ fun TvMediaSourcePicker(
 @Composable
 private fun SourceBadge(label: String) {
     val colors = LocalMediaColors.current
-    Text(label, Modifier.background(colors.raised, RoundedCornerShape(4.dp)).padding(horizontal = 8.dp, vertical = 3.dp),
-        style = tvTextStyle(13, 18, FontWeight.Medium), color = colors.text)
+    Text(label, Modifier.background(colors.raised, RoundedCornerShape(FilewayMediaShape.badge))
+        .padding(horizontal = FilewayMediaSpace.Tv.small, vertical = FilewayMediaSpace.Tv.tiny), style = MediaType.badge, color = colors.text)
 }
 
 @Composable
@@ -166,7 +166,7 @@ private fun MediaSourceRow(
             container = if (selected) colors.raised else colors.surface) {
             Row(Modifier.fillMaxWidth().heightIn(min = 104.dp).padding(14.dp), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Box(Modifier.size(46.dp).background(colors.raised, RoundedCornerShape(10.dp)), contentAlignment = Alignment.Center) {
+                Box(Modifier.size(46.dp).background(colors.raised, RoundedCornerShape(FilewayMediaShape.card)), contentAlignment = Alignment.Center) {
                     Icon(painterResource(when (source.kind) {
                         TvMediaSourceKind.SERVER -> Art.drawable.fileway_ic_server
                         TvMediaSourceKind.CLOUD -> Art.drawable.fileway_ic_storage
@@ -176,21 +176,21 @@ private fun MediaSourceRow(
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(source.locationLabel, Modifier.weight(1f), style = tvTextStyle(17, 25, FontWeight.Medium),
+                        Text(source.locationLabel, Modifier.weight(1f), style = MediaType.itemTitle,
                             color = colors.text, maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (current) SourceBadge("当前")
                     }
                     source.qualityLabel?.takeIf(String::isNotBlank)?.let {
-                        Text(it, style = tvTextStyle(23, 31, FontWeight.Medium), color = colors.text)
+                        Text(it, style = MediaType.sectionTitle, color = colors.text)
                     }
                     source.detailLabel?.takeIf(String::isNotBlank)?.let {
-                        Text(it, style = tvTextStyle(16, 24), color = colors.secondary)
+                        Text(it, style = MediaType.secondary, color = colors.secondary)
                     }
                     source.fileName?.takeIf(String::isNotBlank)?.let {
-                        Text(it, style = tvTextStyle(16, 24), color = colors.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Text(it, style = MediaType.secondary, color = colors.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                     if (!source.available) Text(source.unavailableReason?.takeIf(String::isNotBlank) ?: "此片源暂不可用",
-                        style = tvTextStyle(16, 24), color = colors.secondary)
+                        style = MediaType.secondary, color = colors.secondary)
                 }
                 if (source.available) Box(Modifier.size(24.dp).border(1.5.dp, colors.secondary, CircleShape)
                     .background(if (selected) colors.text else Color.Transparent, CircleShape), contentAlignment = Alignment.Center) {

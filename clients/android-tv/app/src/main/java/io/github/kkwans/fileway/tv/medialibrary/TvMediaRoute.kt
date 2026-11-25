@@ -360,6 +360,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                     val reference = if (libraryId != null) repository.catalogRef(libraryId, itemId) else null
                     val playable = card?.actions?.can(MediaCatalogAction.PLAY) == true
                     val userState = card?.userState
+                    val detailSources = if (reference != null && route.hasSourcesFor(reference)) route.variants else emptyList()
                     Column(Modifier.fillMaxSize()) {
                         if (creditsPage) {
                             TvMediaCredits(card?.title ?: detail?.item?.title.orEmpty(), route.credits.map { credit ->
@@ -395,6 +396,8 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             episodesLoading = route.episodesLoading, episodesError = route.episodesError,
                             favorite = userState?.favorite == true, watched = userState?.manualWatched == true,
                             userStateBusy = route.userStateBusy, userStateError = route.userStateError,
+                            sourceCount = detailSources.size,
+                            sourceSummary = tvSourceSummary(detailSources) ?: if (route.sourcesLoading && reference != null && route.hasSourcesFor(reference)) "正在读取片源…" else null,
                             loading = route.detailLoading, error = route.detailError), imageLoader, onBack = { back() },
                             modifier = Modifier.weight(1f),
                             onPlay = if (playable && reference != null) ({ openSources(reference) }) else null,
@@ -477,6 +480,18 @@ private fun TvContinueActions(entry: MediaCatalogContinue, onDismiss: () -> Unit
                 MediaAction("移出继续观看", onRemove, Modifier.fillMaxWidth())
         }
     }
+}
+
+private fun tvSourceSummary(variants: List<MediaCatalogVariant>): String? {
+    if (variants.isEmpty()) return null
+    val available = variants.count { it.available }
+    val editions = variants.map { it.editionId }.distinct().size
+    val qualities = variants.mapNotNull { it.resolution?.takeIf(String::isNotBlank) }.distinct()
+    return buildList {
+        add("$available 个可用片源")
+        if (editions > 1) add("$editions 个版本")
+        if (qualities.isNotEmpty()) add(qualities.joinToString(" · "))
+    }.joinToString(" · ")
 }
 
 private fun tvCard(card: MediaCatalogCard, art: TvCatalogArtworkRequests): TvMediaCard = TvMediaCard(
