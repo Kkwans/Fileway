@@ -833,11 +833,9 @@ func (v *catalogView) seriesCounts(ctx context.Context, library *medialibrary.Li
 	afterSeason, afterEpisode := -1, -1
 	// Large series defer counts rather than spending
 	// the entire page budget or publishing a partially authorized count.
-	for seen := 0; seen < 400; seen++ {
-		if !v.budget.take() {
-			return counts
-		}
-		items, _, err := v.d.store.MediaLibrary.ListSeriesEpisodeCandidates(ctx, v.d.user.ID, library.ID, seriesID, seasonID, afterSeason, afterEpisode, 1)
+	for seen := 0; seen < 400; {
+		limit := min(32, 400-seen, max(1, v.budget.remaining))
+		items, hasMore, err := v.d.store.MediaLibrary.ListSeriesEpisodeCandidates(ctx, v.d.user.ID, library.ID, seriesID, seasonID, afterSeason, afterEpisode, limit)
 		if err != nil {
 			counts.CountState = "error"
 			return counts
@@ -860,36 +858,44 @@ func (v *catalogView) seriesCounts(ctx context.Context, library *medialibrary.Li
 			counts.visibleUpdatedAt = updated
 			return counts
 		}
-		item := items[0]
-		if orderID == "" {
-			orderID, orderRevision = item.OrderID, item.OrderRevision
-		} else if orderID != item.OrderID || orderRevision != item.OrderRevision {
-			return counts
-		}
-		access, visible, complete, _, err := v.leafAccess(ctx, library, item.EpisodeID, "")
-		if err != nil {
-			counts.CountState = "error"
-			return counts
-		}
-		if !complete || access.sourceState == mediascan.ReferenceState("checking") {
-			return counts
-		}
-		if visible {
-			counts.OrderID = item.OrderID
-			if updated == nil || item.FirstAddedAt > *updated {
-				value := item.FirstAddedAt
-				updated = &value
+		for _, item := range items {
+			if !v.budget.take() {
+				return counts
 			}
-			if item.SeasonNumber == 0 {
-				specials++
-			} else {
-				collected++
-				if access.playable {
-					available++
+			if orderID == "" {
+				orderID, orderRevision = item.OrderID, item.OrderRevision
+			} else if orderID != item.OrderID || orderRevision != item.OrderRevision {
+				return counts
+			}
+			access, visible, complete, _, err := v.leafAccess(ctx, library, item.EpisodeID, "")
+			if err != nil {
+				counts.CountState = "error"
+				return counts
+			}
+			if !complete || access.sourceState == mediascan.ReferenceState("checking") {
+				return counts
+			}
+			if visible {
+				counts.OrderID = item.OrderID
+				if updated == nil || item.FirstAddedAt > *updated {
+					value := item.FirstAddedAt
+					updated = &value
+				}
+				if item.SeasonNumber == 0 {
+					specials++
+				} else {
+					collected++
+					if access.playable {
+						available++
+					}
 				}
 			}
+			afterSeason, afterEpisode = item.SeasonNumber, item.EpisodeNumber
+			seen++
 		}
-		afterSeason, afterEpisode = item.SeasonNumber, item.EpisodeNumber
+		if !hasMore {
+			continue
+		}
 	}
 	return counts
 }
