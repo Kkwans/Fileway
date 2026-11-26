@@ -472,24 +472,55 @@ func resolveLocalDirectorySeriesTx(ctx context.Context, tx *sql.Tx, actor uint, 
 	}
 	var revision int64
 	if current.LocalSeriesID == "" {
-		created, err := createCatalogItemTx(ctx, tx, actor, binding.LibraryID, NewCatalogItem{Kind: "series", Title: title, initialSource: "filename", initialBinding: &binding})
+		rows, err := tx.QueryContext(ctx, `SELECT i.id,i.revision
+FROM library_item i JOIN item_structure st ON st.library_id=i.library_id AND st.item_id=i.id
+WHERE i.library_id=? AND i.kind='series' AND i.title=? AND st.match_state='local_confirmed' AND st.superseded_by IS NULL`, binding.LibraryID, title)
 		if err != nil {
 			return "", err
 		}
-		current.LocalSeriesID = created.ID
-		revision = created.Revision
-	} else {
-		var kind, existing string
-		if err := tx.QueryRowContext(ctx, `SELECT kind,title FROM library_item WHERE library_id=? AND id=?`, binding.LibraryID, current.LocalSeriesID).Scan(&kind, &existing); err != nil {
+		var ids []string
+		for rows.Next() {
+			var id string
+			var itemRevision int64
+			if err := rows.Scan(&id, &itemRevision); err != nil {
+				_ = rows.Close()
+				return "", err
+			}
+			ids = append(ids, id)
+			revision = itemRevision
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
 			return "", err
 		}
-		if kind != "series" || existing != title {
+		if err := rows.Close(); err != nil {
+			return "", err
+		}
+		switch len(ids) {
+		case 0:
+			created, err := createCatalogItemTx(ctx, tx, actor, binding.LibraryID, NewCatalogItem{Kind: "series", Title: title, initialSource: "filename", initialBinding: &binding})
+			if err != nil {
+				return "", err
+			}
+			current.LocalSeriesID = created.ID
+			revision = created.Revision
+		case 1:
+			current.LocalSeriesID = ids[0]
+		default:
 			current.SeriesProblem = "conflict"
 			return "", nil
 		}
-		if err := tx.QueryRowContext(ctx, `SELECT revision FROM library_item WHERE library_id=? AND id=?`, binding.LibraryID, current.LocalSeriesID).Scan(&revision); err != nil {
-			return "", err
-		}
+	}
+	var kind, existing string
+	if err := tx.QueryRowContext(ctx, `SELECT kind,title FROM library_item WHERE library_id=? AND id=?`, binding.LibraryID, current.LocalSeriesID).Scan(&kind, &existing); err != nil {
+		return "", err
+	}
+	if kind != "series" || existing != title {
+		current.SeriesProblem = "conflict"
+		return "", nil
+	}
+	if err := tx.QueryRowContext(ctx, `SELECT revision FROM library_item WHERE library_id=? AND id=?`, binding.LibraryID, current.LocalSeriesID).Scan(&revision); err != nil {
+		return "", err
 	}
 	if evidence.Year != nil {
 		value := strconv.Itoa(*evidence.Year)
@@ -497,9 +528,25 @@ func resolveLocalDirectorySeriesTx(ctx context.Context, tx *sql.Tx, actor uint, 
 		err := tx.QueryRowContext(ctx, `SELECT value_json FROM item_field WHERE library_id=? AND item_id=? AND field='year'`, binding.LibraryID, current.LocalSeriesID).Scan(&encoded)
 		if err == nil {
 			var values []string
-			if json.Unmarshal([]byte(encoded), &values) != nil || len(values) != 1 || values[0] != value {
+			if json.Unmarshal([]byte(encoded), &values) != nil || len(values) != 1 {
 				current.SeriesProblem = "conflict"
 				return "", nil
+			}
+			existingYear, parseErr := strconv.Atoi(values[0])
+			if parseErr != nil {
+				current.SeriesProblem = "conflict"
+				return "", nil
+			}
+			if existingYear > *evidence.Year {
+				if err := putMetadataField(ctx, tx, binding.LibraryID, current.LocalSeriesID, metadataFieldState{
+					Name: "year", Values: []string{value}, Source: "filename", SourceKey: []byte(evidence.OriginalName),
+					BindingID: binding.BindingID, BindingEpoch: binding.ProofEpoch, Revision: revision + 1,
+				}); err != nil {
+					return "", err
+				}
+				if err := updateMetadataItem(ctx, tx, binding.LibraryID, current.LocalSeriesID, revision); err != nil {
+					return "", err
+				}
 			}
 		} else if errors.Is(err, sql.ErrNoRows) {
 			if err := putMetadataField(ctx, tx, binding.LibraryID, current.LocalSeriesID, metadataFieldState{

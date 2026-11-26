@@ -241,6 +241,40 @@ func TestCompleteLocalSeasonDirectoryCreatesSeriesAndMapsEpisode(t *testing.T) {
 	}
 }
 
+func TestLocalDirectorySeasonsShareOneSeries(t *testing.T) {
+	store := openTestStore(t)
+	library := createLibrary(t, store, 7, "Fixture")
+	binding := createBoundSource(t, store, library)
+	_, lease := testScan(t, store, binding, "local-multi-season")
+	root, err := store.CommitScanContext(t.Context(), 7, *lease, DirectoryContextObservation{
+		Locator: []byte("/videos/"), TVShow: DirectorySidecar{Status: "missing"}, Season: DirectorySidecar{Status: "missing"},
+	}, ScanCheckpoint{Version: 1, Sequence: 1, Phase: "enumerate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	year := 2016
+	for sequence, season := range []int{1, 2} {
+		_, err := store.CommitScanContext(t.Context(), 7, *lease, DirectoryContextObservation{
+			Locator: []byte(fmt.Sprintf("/videos/信号 S%02d", season)), Parent: *root,
+			TVShow: DirectorySidecar{Status: "missing"}, Season: DirectorySidecar{Status: "missing"},
+			Episodes: &DirectoryEpisodeEvidence{Title: "信号", Year: &year, Season: season, Numbers: []int{1, 2}},
+		}, ScanCheckpoint{Version: 1, Sequence: int64(sequence + 2), Phase: "enumerate"})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var series, seasons int
+	if err := store.db.QueryRow(`SELECT count(*) FROM library_item WHERE library_id=? AND kind='series'`, library.ID).Scan(&series); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.db.QueryRow(`SELECT count(*) FROM season_position sp JOIN episode_order eo ON eo.id=sp.order_id JOIN library_item s ON s.library_id=eo.library_id AND s.id=eo.series_id WHERE s.library_id=? AND s.kind='series'`, library.ID).Scan(&seasons); err != nil {
+		t.Fatal(err)
+	}
+	if series != 1 || seasons != 2 {
+		t.Fatalf("local seasons did not share a series: series=%d seasons=%d", series, seasons)
+	}
+}
+
 func TestBindingEpochFenceDoesNotReviveOldMapping(t *testing.T) {
 	store, library, first, lease, file, variant := playbackFixture(t)
 	ctx := t.Context()
