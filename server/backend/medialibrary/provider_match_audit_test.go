@@ -2,7 +2,9 @@ package medialibrary
 
 import (
 	"database/sql"
+	"encoding/json"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -95,6 +97,29 @@ func TestSchema21MigratesPopulatedV19Catalog(t *testing.T) {
 	var version int
 	if err := store.db.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil || version != SchemaVersion {
 		t.Fatalf("schema was not upgraded: version=%d err=%v", version, err)
+	}
+}
+
+func TestProviderMatchDocumentEpisodesRoundTrip(t *testing.T) {
+	document := ProviderMatchDocument{
+		Item: mediametadata.Item{Kind: mediametadata.TVShow, Fields: map[string][]string{"title": {"剧集"}}},
+		Episodes: []ProviderEpisodeDocument{{
+			SeasonNumber: 1, EpisodeNumber: 2, StillPath: "/still.jpg",
+			Item: mediametadata.Item{Kind: mediametadata.Episode, Fields: map[string][]string{
+				"title": {"第二集"}, "runtime": {"52"}, "aired": {"2024-03-01"},
+			}, ExternalIDs: []mediametadata.ExternalID{{Provider: "tmdb", Value: "202", Tag: "tmdbid"}}},
+		}},
+	}
+	encoded, err := json.Marshal(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var restored ProviderMatchDocument
+	if err := json.Unmarshal(encoded, &restored); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(document, restored) {
+		t.Fatalf("episode document changed: %+v", restored)
 	}
 }
 

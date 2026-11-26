@@ -187,8 +187,19 @@ func mediaMetadataRefreshHandler(preview bool, slots chan struct{}, starts <-cha
 				CanRefresh      bool     `json:"canRefresh"`
 			}{match.Audit.Language, policy.Language, changed, protected, preserved, true})
 		}
+		matchDocument, err := withProviderEpisodeDocuments(ctx, store, d.user.ID, library.ID, item.Ref.ItemID, match.ExternalID, client, policy.Language,
+			medialibrary.ProviderMatchDocument{Item: projection.Item, PosterPath: projection.PosterPath, BackdropPath: projection.BackdropPath})
+		if err != nil {
+			return matchProviderError(w, err)
+		}
+		if err := verifyCatalogSnapshot(ctx, d, snapshot); err != nil {
+			return catalogError(w, err)
+		}
+		if err = view.revalidateSources(ctx); err != nil {
+			return catalogError(w, err)
+		}
 		receipt, err := store.ConfirmProviderMatch(ctx, d.user.ID, body.OperationID, request, *fence, document.Language, document.FetchedAt.UnixMilli(),
-			medialibrary.ProviderMatchDocument{Item: projection.Item, PosterPath: projection.PosterPath, BackdropPath: projection.BackdropPath},
+			matchDocument,
 			medialibrary.ProviderMatchAudit{Source: "refresh", Region: policy.Region, AdapterVersion: "tmdb-v1", Evidence: []string{"language_refresh"}})
 		if err != nil {
 			return catalogError(w, err)

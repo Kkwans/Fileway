@@ -45,16 +45,19 @@ type catalogAccess struct {
 }
 
 type catalogView struct {
-	d              *data
-	budget         *catalogBudget
-	checks         map[catalogSourceKey]*catalogSourceCheck
-	coverage       map[catalogCoverageKey]catalogEpisodePlayback
-	counts         map[catalogCountsKey]*catalogEpisodeCounts
-	metadataChecks map[catalogMetadataKey]catalogMetadataCheck
+	d               *data
+	budget          *catalogBudget
+	checks          map[catalogSourceKey]*catalogSourceCheck
+	coverage        map[catalogCoverageKey]catalogEpisodePlayback
+	counts          map[catalogCountsKey]*catalogEpisodeCounts
+	metadataChecks  map[catalogMetadataKey]catalogMetadataCheck
+	episodeMetadata map[catalogEpisodeMetadataKey]*catalogEpisodeMetadata
 }
 
 func newCatalogView(d *data) *catalogView {
-	return &catalogView{d: d, budget: &catalogBudget{remaining: catalogCandidateBudget}, checks: map[catalogSourceKey]*catalogSourceCheck{}, coverage: map[catalogCoverageKey]catalogEpisodePlayback{}, counts: map[catalogCountsKey]*catalogEpisodeCounts{}, metadataChecks: map[catalogMetadataKey]catalogMetadataCheck{}}
+	return &catalogView{d: d, budget: &catalogBudget{remaining: catalogCandidateBudget}, checks: map[catalogSourceKey]*catalogSourceCheck{},
+		coverage: map[catalogCoverageKey]catalogEpisodePlayback{}, counts: map[catalogCountsKey]*catalogEpisodeCounts{},
+		metadataChecks: map[catalogMetadataKey]catalogMetadataCheck{}, episodeMetadata: map[catalogEpisodeMetadataKey]*catalogEpisodeMetadata{}}
 }
 
 type catalogSourceKey struct {

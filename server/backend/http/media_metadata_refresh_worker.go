@@ -138,6 +138,15 @@ func newMetadataRefreshWorker(store *storage.Storage, server *settings.Server, s
 				job.Attempt = 0
 				continue
 			}
+			matchDocument, err := withProviderEpisodeDocuments(ctx, store.MediaLibrary, job.OwnerUserID, job.LibraryID, target.ItemID, match.ExternalID, client, job.Language,
+				medialibrary.ProviderMatchDocument{Item: projection.Item, PosterPath: projection.PosterPath, BackdropPath: projection.BackdropPath})
+			if err != nil {
+				if resolveErr := coordinator.ResolveMetadataRefreshJobTarget(ctx, job, target.ItemID, "failed", "episode_metadata_unavailable"); resolveErr != nil {
+					finish("failed", "metadata_unavailable", nil)
+				}
+				job.Attempt = 0
+				continue
+			}
 			if err := verifyCatalogSnapshot(ctx, d, snapshot); err != nil {
 				if resolveErr := coordinator.ResolveMetadataRefreshJobTarget(ctx, job, target.ItemID, "source_changed", "catalog_changed"); resolveErr != nil {
 					finish("failed", "metadata_unavailable", nil)
@@ -194,7 +203,7 @@ func newMetadataRefreshWorker(store *storage.Storage, server *settings.Server, s
 			request := medialibrary.ProviderMatchRequest{LibraryID: job.LibraryID, ItemID: target.ItemID, Kind: kind,
 				ExternalID: match.ExternalID, ItemRevision: target.ItemRevision, StructureRevision: target.StructureRevision}
 			_, err = coordinator.CommitMetadataRefreshTarget(ctx, job, target, request, document.Language, document.FetchedAt.UnixMilli(),
-				medialibrary.ProviderMatchDocument{Item: projection.Item, PosterPath: projection.PosterPath, BackdropPath: projection.BackdropPath},
+				matchDocument,
 				medialibrary.ProviderMatchAudit{Source: "refresh", Region: job.Region, AdapterVersion: "tmdb-v1", Evidence: []string{"language_refresh"}})
 			if err != nil {
 				if errors.Is(err, medialibrary.ErrRevisionConflict) || errors.Is(err, medialibrary.ErrNotFound) {

@@ -21,10 +21,18 @@ type ProviderMatchRequest struct {
 	refreshOperationID                          string
 }
 
+type ProviderEpisodeDocument struct {
+	SeasonNumber  int                `json:"seasonNumber"`
+	EpisodeNumber int                `json:"episodeNumber"`
+	Item          mediametadata.Item `json:"item"`
+	StillPath     string             `json:"stillPath,omitempty"`
+}
+
 type ProviderMatchDocument struct {
-	Item         mediametadata.Item `json:"item"`
-	PosterPath   string             `json:"posterPath,omitempty"`
-	BackdropPath string             `json:"backdropPath,omitempty"`
+	Item         mediametadata.Item        `json:"item"`
+	PosterPath   string                    `json:"posterPath,omitempty"`
+	BackdropPath string                    `json:"backdropPath,omitempty"`
+	Episodes     []ProviderEpisodeDocument `json:"episodes,omitempty"`
 }
 
 type ProviderMatchAudit struct {
@@ -88,6 +96,9 @@ func (store *Store) ConfirmProviderMatch(ctx context.Context, actor uint, operat
 	if !ok || kind != document.Item.Kind || request.ExternalID <= 0 || request.ItemRevision < 1 ||
 		request.StructureRevision < 1 || fetchedAt <= 0 || (request.ConnectionID != "" && request.ConnectionID != authority.ConnectionID) {
 		return nil, ErrInvalid
+	}
+	if err := validateProviderEpisodeDocuments(request.Kind, document.Episodes); err != nil {
+		return nil, err
 	}
 	fields := make(map[string][]string, len(document.Item.Fields))
 	for name, values := range document.Item.Fields {
@@ -224,6 +235,31 @@ document_json=excluded.document_json,fetched_at=excluded.fetched_at,revision=exc
 		}
 		return &ProviderMatchResult{request.LibraryID, request.ItemID, request.Kind, strconv.FormatInt(request.ExternalID, 10), revision + 1}, nil
 	})
+}
+
+func validateProviderEpisodeDocuments(kind string, episodes []ProviderEpisodeDocument) error {
+	if len(episodes) > 2000 || kind != "series" && len(episodes) != 0 {
+		return ErrInvalid
+	}
+	type position struct{ season, episode int }
+	seen := make(map[position]struct{}, len(episodes))
+	for _, document := range episodes {
+		if document.SeasonNumber < 0 || document.SeasonNumber > 999 || document.EpisodeNumber < 0 || document.EpisodeNumber > 9999 ||
+			document.Item.Kind != mediametadata.Episode {
+			return ErrInvalid
+		}
+		key := position{document.SeasonNumber, document.EpisodeNumber}
+		if _, duplicate := seen[key]; duplicate {
+			return ErrInvalid
+		}
+		seen[key] = struct{}{}
+		for name, values := range document.Item.Fields {
+			if validateMetadataValues(name, values) != nil {
+				return ErrInvalid
+			}
+		}
+	}
+	return nil
 }
 
 // VisibleProviderMatch reads only the catalog snapshot for a current library

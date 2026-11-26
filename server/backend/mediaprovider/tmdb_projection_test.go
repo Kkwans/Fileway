@@ -159,7 +159,7 @@ func TestProjectTMDBSeasonEpisodes(t *testing.T) {
 	if err != nil || len(episodes) != 2 {
 		t.Fatalf("season episodes = %+v err=%v", episodes, err)
 	}
-	if episodes[0].SeasonNumber != 1 || episodes[0].Number != 1 || episodes[0].Title != "你好" || episodes[0].Overview != "第一集" || episodes[0].AirDate != "2024-03-01" || episodes[0].RuntimeMinutes != 52 || episodes[0].StillPath != "/still1.jpg" || episodes[1].RuntimeMinutes != 0 {
+	if episodes[0].ID != 201 || episodes[0].SeasonNumber != 1 || episodes[0].Number != 1 || episodes[0].Title != "你好" || episodes[0].Overview != "第一集" || episodes[0].AirDate != "2024-03-01" || episodes[0].RuntimeMinutes != 52 || episodes[0].StillPath != "/still1.jpg" || episodes[1].RuntimeMinutes != 0 {
 		t.Fatalf("season episode projection = %+v", episodes)
 	}
 }

@@ -194,7 +194,14 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 		return fillMatchResult{State: string(decision.State), Reason: decision.Reason}, nil
 	}
 	request.ExternalID = decision.Document.Entity.ID
-	document := medialibrary.ProviderMatchDocument{Item: decision.Projection.Item, PosterPath: decision.Projection.PosterPath, BackdropPath: decision.Projection.BackdropPath}
+	document, err := withProviderEpisodeDocuments(ctx, store, d.user.ID, library.ID, itemID, request.ExternalID, client, policy.Language,
+		medialibrary.ProviderMatchDocument{Item: decision.Projection.Item, PosterPath: decision.Projection.PosterPath, BackdropPath: decision.Projection.BackdropPath})
+	if err != nil {
+		return fillMatchResult{}, err
+	}
+	if err := check(ctx); err != nil {
+		return fillMatchResult{}, err
+	}
 	audit := medialibrary.ProviderMatchAudit{Source: "automatic", Region: policy.Region, AdapterVersion: "tmdb-v1", Evidence: decision.Evidence}
 	var receipt *medialibrary.ProviderMatchResult
 	if lease == nil {

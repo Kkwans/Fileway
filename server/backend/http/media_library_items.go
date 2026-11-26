@@ -147,6 +147,24 @@ func itemDetailFields(ctx context.Context, d *data, library *medialibrary.Librar
 			access.metadataState = "available"
 		}
 	}
+	if item.Kind == "episode" && access.view != nil {
+		episode, err := access.view.episodeProviderMetadata(ctx, library, item.ID)
+		if err != nil {
+			return mediaItemDetail{}, err
+		}
+		for name, values := range episode.Fields {
+			current, exists := fields[name]
+			if current.ExplicitClear || current.Locked || detail.Fields[name].ExplicitClear || detail.Fields[name].Locked {
+				continue
+			}
+			if !exists || episode.OnlineFirst || current.Source == "filename" {
+				fields[name] = medialibrary.MetadataField{Values: values, Source: "online", Revision: episode.Revision}
+			}
+		}
+		if len(episode.Fields) > 0 && access.metadataState == "none" {
+			access.metadataState = "available"
+		}
+	}
 	if title, allowed := fields["title"]; allowed && title.ExplicitClear {
 		item.Title = ""
 	} else if allowed && len(title.Values) > 0 {

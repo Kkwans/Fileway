@@ -169,6 +169,7 @@ func ProjectTMDB(document Document) (TMDBProjection, error) {
 }
 
 type TMDBEpisodeMetadata struct {
+	ID             int64
 	SeasonNumber   int
 	Number         int
 	Title          string
@@ -231,7 +232,7 @@ func ProjectTMDBSeasonEpisodes(document Document) ([]TMDBEpisodeMetadata, error)
 			}
 		}
 		result = append(result, TMDBEpisodeMetadata{
-			SeasonNumber: *source.SeasonNumber, Number: episode.EpisodeNumber, Title: strings.TrimSpace(episode.Name),
+			ID: *episode.ID, SeasonNumber: *source.SeasonNumber, Number: episode.EpisodeNumber, Title: strings.TrimSpace(episode.Name),
 			OriginalTitle: strings.TrimSpace(episode.OriginalName), Overview: strings.TrimSpace(episode.Overview), AirDate: airDate,
 			RuntimeMinutes: episode.EpisodeRuntime, StillPath: episode.StillPath,
 		})

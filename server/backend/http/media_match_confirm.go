@@ -137,6 +137,11 @@ func mediaMatchConfirmHandler(slots chan struct{}, starts <-chan time.Time) hand
 		if err != nil {
 			return matchProviderError(w, err)
 		}
+		document, err := withProviderEpisodeDocuments(ctx, store, d.user.ID, library.ID, item.Ref.ItemID, externalID, client, policy.Language,
+			medialibrary.ProviderMatchDocument{Item: projection.Item, PosterPath: projection.PosterPath, BackdropPath: projection.BackdropPath})
+		if err != nil {
+			return matchProviderError(w, err)
+		}
 		if err := verifyCatalogSnapshot(ctx, d, snapshot); err != nil {
 			return catalogError(w, err)
 		}
@@ -144,7 +149,7 @@ func mediaMatchConfirmHandler(slots chan struct{}, starts <-chan time.Time) hand
 			return catalogError(w, err)
 		}
 		receipt, err := store.ConfirmProviderMatch(ctx, d.user.ID, body.OperationID, request, *fence, doc.Language, doc.FetchedAt.UnixMilli(),
-			medialibrary.ProviderMatchDocument{Item: projection.Item, PosterPath: projection.PosterPath, BackdropPath: projection.BackdropPath},
+			document,
 			medialibrary.ProviderMatchAudit{Source: "manual", Region: policy.Region, AdapterVersion: "tmdb-v1", Evidence: []string{"manual_selection"}})
 		if err != nil {
 			return catalogError(w, err)
