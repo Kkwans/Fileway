@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/Kkwans/nas-file-browser/backend/mediametadata"
 )
@@ -83,6 +84,7 @@ func ProjectTMDB(document Document) (TMDBProjection, error) {
 	if document.Entity.Kind == Series {
 		result.Item.Kind = mediametadata.TVShow
 		title, original, date = source.Name, source.OriginalName, source.FirstAirDate
+		title = chineseSeriesTitle(document, title)
 		if source.AggregateCredits != nil {
 			credits = source.AggregateCredits
 		}
@@ -145,6 +147,60 @@ func ProjectTMDB(document Document) (TMDBProjection, error) {
 		}
 	}
 	return result, nil
+}
+
+func chineseSeriesTitle(document Document, title string) string {
+	if !strings.HasPrefix(strings.ToLower(document.Language), "zh") || containsHan(title) {
+		return title
+	}
+	var payload struct {
+		Titles []struct {
+			Title    string `json:"title"`
+			ISO      string `json:"iso_3166_1"`
+			Language string `json:"language"`
+		} `json:"titles"`
+		Results []struct {
+			Title    string `json:"title"`
+			ISO      string `json:"iso_3166_1"`
+			Language string `json:"language"`
+		} `json:"results"`
+	}
+	if json.Unmarshal(document.Fields["alternative_titles"], &payload) != nil {
+		return title
+	}
+	alternatives := payload.Titles
+	if len(alternatives) == 0 {
+		alternatives = payload.Results
+	}
+	chinese, simplified := "", ""
+	for _, alternative := range alternatives {
+		if !containsHan(alternative.Title) {
+			continue
+		}
+		if chinese == "" {
+			chinese = alternative.Title
+		}
+		if alternative.ISO == "CN" {
+			simplified = alternative.Title
+			break
+		}
+	}
+	if simplified != "" {
+		return simplified
+	}
+	if chinese != "" {
+		return chinese
+	}
+	return title
+}
+
+func containsHan(value string) bool {
+	for _, r := range value {
+		if unicode.Is(unicode.Han, r) {
+			return true
+		}
+	}
+	return false
 }
 
 func addTMDBField(fields map[string][]string, name, value string) {

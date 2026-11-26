@@ -113,6 +113,25 @@ func TestProjectTMDBSeriesAggregateCredits(t *testing.T) {
 	}
 }
 
+func TestProjectTMDBSeriesPrefersChineseAlternativeForChineseLanguage(t *testing.T) {
+	document := projectionDocument(t, Series, `{
+		"id": 95396, "name": "Severance", "original_name": "Severance", "first_air_date": "2022-02-18",
+		"alternative_titles": {"results": [
+			{"title": "切割術", "iso_3166_1": "TW"},
+			{"title": "人生切割术", "iso_3166_1": "CN"}
+		]}
+	}`)
+	projection, err := ProjectTMDB(document)
+	if err != nil || !reflect.DeepEqual(projection.Item.Fields["title"], []string{"人生切割术"}) {
+		t.Fatalf("Chinese series title = %v err=%v", projection.Item.Fields["title"], err)
+	}
+	document.Language = "en"
+	projection, err = ProjectTMDB(document)
+	if err != nil || !reflect.DeepEqual(projection.Item.Fields["title"], []string{"Severance"}) {
+		t.Fatalf("English series title = %v err=%v", projection.Item.Fields["title"], err)
+	}
+}
+
 func TestProjectTMDBRejectsInvalidEvidence(t *testing.T) {
 	for _, test := range []struct {
 		name, payload string
