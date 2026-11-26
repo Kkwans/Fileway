@@ -232,6 +232,9 @@ func (v *catalogView) leafAccess(ctx context.Context, library *medialibrary.Libr
 				return best, false, false, after, nil
 			}
 			after = entry.ID
+			if entry.MissingReason == "filtered_non_media" {
+				continue
+			}
 			state, err := v.checkSource(ctx, library, itemID, entry)
 			if err != nil {
 				if ctx.Err() != nil {
@@ -285,6 +288,9 @@ func (v *catalogView) fileAccess(ctx context.Context, library *medialibrary.Libr
 			after = entry.ID
 			if entry.SourceFileID != fileID {
 				continue
+			}
+			if entry.MissingReason == "filtered_non_media" {
+				return catalogAccess{}, false, true, "", nil
 			}
 			state, err := v.checkSource(ctx, library, itemID, entry)
 			if err != nil {

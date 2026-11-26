@@ -109,6 +109,7 @@ type ScanMissingCandidate struct {
 	LocatorRevision int64
 	SeenJobID       string
 	SeenGeneration  int64
+	MissingReason   string
 }
 
 type ScanMissingConfirmation = ScanMissingCandidate
@@ -863,7 +864,7 @@ func (store *Store) CommitScanMissing(ctx context.Context, actor uint, lease Sca
 	}
 	seen := make(map[string]struct{}, len(candidates))
 	for _, c := range candidates {
-		if c.SourceFileID == "" || len(c.Locator) == 0 || len(c.Locator) > 8192 || c.FileRevision < 1 || c.LocatorRevision < 1 || ((c.SeenJobID == "") != (c.SeenGeneration == 0)) || c.SeenGeneration < 0 {
+		if c.SourceFileID == "" || len(c.Locator) == 0 || len(c.Locator) > 8192 || c.FileRevision < 1 || c.LocatorRevision < 1 || (c.MissingReason != "" && c.MissingReason != "filtered_non_media") || ((c.SeenJobID == "") != (c.SeenGeneration == 0)) || c.SeenGeneration < 0 {
 			return fmt.Errorf("%w: missing confirmation", ErrInvalid)
 		}
 		if _, duplicate := seen[c.SourceFileID]; duplicate {
@@ -918,9 +919,9 @@ WHERE lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ? AND lf.sour
 			if c.SeenJobID != "" {
 				seenJobValue, seenGenerationValue = c.SeenJobID, c.SeenGeneration
 			}
-			if _, err := tx.ExecContext(ctx, `INSERT INTO scan_missing_candidate(job_id, generation, source_file_id, file_revision,locator_revision, locator, seen_job_id, seen_generation)
-VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(job_id, generation, source_file_id) DO UPDATE SET
-file_revision = excluded.file_revision,locator_revision=excluded.locator_revision, locator = excluded.locator, seen_job_id = excluded.seen_job_id, seen_generation = excluded.seen_generation`, r.ID, r.Generation, c.SourceFileID, c.FileRevision, c.LocatorRevision, c.Locator, seenJobValue, seenGenerationValue); err != nil {
+			if _, err := tx.ExecContext(ctx, `INSERT INTO scan_missing_candidate(job_id, generation, source_file_id, file_revision,locator_revision, locator, seen_job_id, seen_generation, missing_reason)
+VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(job_id, generation, source_file_id) DO UPDATE SET
+file_revision = excluded.file_revision,locator_revision=excluded.locator_revision, locator = excluded.locator, seen_job_id = excluded.seen_job_id, seen_generation = excluded.seen_generation, missing_reason=excluded.missing_reason`, r.ID, r.Generation, c.SourceFileID, c.FileRevision, c.LocatorRevision, c.Locator, seenJobValue, seenGenerationValue, c.MissingReason); err != nil {
 				return err
 			}
 		}
@@ -1002,13 +1003,15 @@ func (store *Store) FinishScan(ctx context.Context, actor uint, lease ScanLease,
 				return ErrRevisionConflict
 			}
 			now := time.Now().UnixMilli()
-			_, err = tx.ExecContext(ctx, `UPDATE library_file AS lf SET missing_since = ?
+			_, err = tx.ExecContext(ctx, `UPDATE library_file AS lf SET missing_since = ?, missing_reason = COALESCE((SELECT c.missing_reason FROM scan_missing_candidate c JOIN source_file f ON f.id = c.source_file_id AND f.source_id = lf.source_id
+WHERE c.job_id = ? AND c.generation = ? AND c.source_file_id = lf.source_file_id AND c.file_revision = f.revision AND c.locator_revision=lf.locator_revision AND c.locator = lf.locator
+AND c.seen_job_id IS lf.last_seen_job_id AND c.seen_generation IS lf.last_seen_generation), '')
 WHERE lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ? AND lf.missing_since IS NULL
 AND lf.binding_epoch=? AND lf.binding_epoch>0
 AND NOT (lf.last_seen_job_id IS ? AND lf.last_seen_generation IS ?)
 AND EXISTS (SELECT 1 FROM scan_missing_candidate c JOIN source_file f ON f.id = c.source_file_id AND f.source_id = lf.source_id
 WHERE c.job_id = ? AND c.generation = ? AND c.source_file_id = lf.source_file_id AND c.file_revision = f.revision AND c.locator_revision=lf.locator_revision AND c.locator = lf.locator
-AND c.seen_job_id IS lf.last_seen_job_id AND c.seen_generation IS lf.last_seen_generation)`, now, r.LibraryID, r.Binding.SourceID, r.Binding.RootLocator, r.Binding.ProofEpoch, r.ID, r.Generation, r.ID, r.Generation)
+AND c.seen_job_id IS lf.last_seen_job_id AND c.seen_generation IS lf.last_seen_generation)`, now, r.ID, r.Generation, r.LibraryID, r.Binding.SourceID, r.Binding.RootLocator, r.Binding.ProofEpoch, r.ID, r.Generation, r.ID, r.Generation)
 			if err != nil {
 				return err
 			}

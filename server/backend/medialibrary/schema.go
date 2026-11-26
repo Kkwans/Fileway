@@ -40,6 +40,45 @@ func migrateLibraryContentKindColumn(ctx context.Context, tx *sql.Tx) error {
 	return nil
 }
 
+func migrateMissingReasonColumns(ctx context.Context, tx *sql.Tx) error {
+	for _, column := range []struct {
+		table, name, definition string
+	}{
+		{"library_file", "missing_reason", "TEXT NOT NULL DEFAULT '' CHECK(missing_reason IN ('','filtered_non_media'))"},
+		{"scan_missing_candidate", "missing_reason", "TEXT NOT NULL DEFAULT '' CHECK(missing_reason IN ('','filtered_non_media'))"},
+	} {
+		rows, err := tx.QueryContext(ctx, `PRAGMA table_info(`+column.table+`)`)
+		if err != nil {
+			return err
+		}
+		found := false
+		for rows.Next() {
+			var cid int
+			var name, columnType string
+			var notNull, primaryKey int
+			var defaultValue any
+			if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+				_ = rows.Close()
+				return err
+			}
+			found = found || strings.EqualFold(name, column.name)
+		}
+		if err := rows.Err(); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		if !found {
+			if _, err := tx.ExecContext(ctx, `ALTER TABLE `+column.table+` ADD COLUMN `+column.name+` `+column.definition); err != nil {
+				return fmt.Errorf("add %s.%s: %w", column.table, column.name, err)
+			}
+		}
+	}
+	return nil
+}
+
 // Duration thresholds are library policy. A skipped target remains in the job
 // manifest so the owner can see why no provider request was made.
 const schemaV22 = `

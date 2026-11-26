@@ -148,7 +148,7 @@ func Run(ctx context.Context, actor uint, store *medialibrary.Store, coord *medi
 		}
 		confirmations := make([]medialibrary.ScanMissingConfirmation, 0, len(page.Items))
 		for _, candidate := range page.Items {
-			missing, err := w.missingCandidate(ctx, candidate.Locator)
+			missing, missingReason, err := w.missingCandidate(ctx, candidate.Locator)
 			if err != nil {
 				return result, err
 			}
@@ -159,7 +159,7 @@ func Run(ctx context.Context, actor uint, store *medialibrary.Store, coord *medi
 			}
 			confirmations = append(confirmations, medialibrary.ScanMissingConfirmation{
 				SourceFileID: candidate.SourceFileID, Locator: append([]byte(nil), candidate.Locator...), FileRevision: candidate.FileRevision, LocatorRevision: candidate.LocatorRevision,
-				SeenJobID: candidate.SeenJobID, SeenGeneration: candidate.SeenGeneration,
+				SeenJobID: candidate.SeenJobID, SeenGeneration: candidate.SeenGeneration, MissingReason: missingReason,
 			})
 		}
 		if len(confirmations) != 0 {

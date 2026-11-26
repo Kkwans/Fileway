@@ -26,6 +26,7 @@ type ItemSourceAccess struct {
 	SourceVersion   string           `json:"-"`
 	SizeBytes       *int64           `json:"-"`
 	MissingSince    *int64           `json:"-"`
+	MissingReason   string           `json:"-"`
 }
 
 func (store *Store) GetItemMetadataSourceAccess(ctx context.Context, viewer uint, libraryID, itemID, inputID string) (*ItemMetadataSourceAccess, error) {
@@ -72,7 +73,7 @@ func (store *Store) ListItemSourceAccess(ctx context.Context, viewer uint, libra
 		return nil, err
 	}
 	rows, err := store.db.QueryContext(ctx, `SELECT ls.binding_id || ':' || lf.source_file_id AS cursor, lf.source_file_id, ls.binding_id,
-s.id, s.owner_user_id, s.configuration_ref, s.authorization_revision, s.created_at, ls.root_locator, ls.revision, lf.locator, lf.missing_since,
+s.id, s.owner_user_id, s.configuration_ref, s.authorization_revision, s.created_at, ls.root_locator, ls.revision, lf.locator, lf.missing_since, lf.missing_reason,
 f.object_key,f.identity_kind,f.identity_epoch,f.source_version,lf.locator_revision,f.size_bytes,f.revision
  ,ls.proof_epoch,ls.proof_version,ls.mapping_digest,ls.root_identity_kind,ls.root_identity,ls.attested_at
 FROM library_file lf JOIN library_source ls ON ls.library_id = lf.library_id AND ls.source_id = lf.source_id AND ls.root_locator = lf.root_locator
@@ -92,7 +93,7 @@ AND (ls.binding_id || ':' || lf.source_file_id) > ? ORDER BY cursor LIMIT ?`, vi
 	for rows.Next() {
 		var entry ItemSourceAccess
 		proof := &BindingProof{}
-		err := rows.Scan(&entry.ID, &entry.SourceFileID, &entry.BindingID, &entry.Source.ID, &entry.Source.OwnerUserID, &entry.Source.ConfigurationRef, &entry.Source.AuthorizationRevision, &entry.Source.CreatedAt, &entry.Binding.RootLocator, &entry.Binding.BindingRevision, &entry.Locator, &entry.MissingSince, &entry.ObjectKey, &entry.IdentityKind, &entry.IdentityEpoch, &entry.SourceVersion, &entry.LocatorRevision, &entry.SizeBytes, &entry.FileRevision, &entry.Binding.ProofEpoch, &proof.Version, &proof.MappingDigest, &proof.RootIdentityKind, &proof.RootIdentity, &proof.AttestedAt)
+		err := rows.Scan(&entry.ID, &entry.SourceFileID, &entry.BindingID, &entry.Source.ID, &entry.Source.OwnerUserID, &entry.Source.ConfigurationRef, &entry.Source.AuthorizationRevision, &entry.Source.CreatedAt, &entry.Binding.RootLocator, &entry.Binding.BindingRevision, &entry.Locator, &entry.MissingSince, &entry.MissingReason, &entry.ObjectKey, &entry.IdentityKind, &entry.IdentityEpoch, &entry.SourceVersion, &entry.LocatorRevision, &entry.SizeBytes, &entry.FileRevision, &entry.Binding.ProofEpoch, &proof.Version, &proof.MappingDigest, &proof.RootIdentityKind, &proof.RootIdentity, &proof.AttestedAt)
 		if err != nil {
 			return nil, err
 		}

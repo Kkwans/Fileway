@@ -55,8 +55,30 @@ func TestCatalogListHonorsLibraryContentKind(t *testing.T) {
 	store := openTestStore(t)
 	ctx := t.Context()
 	library := createLibrary(t, store, 7, "Typed library")
+	binding := createBoundSource(t, store, library)
 	movie := catalogItem(t, store, 7, library.ID, "Movie")
+	if _, err := store.AttachCatalogFile(ctx, 7, library.ID, movie.ID, movie.Revision, observeFile(t, store, binding, "movie.mkv").ID); err != nil {
+		t.Fatal(err)
+	}
 	series, err := store.CreateCatalogItem(ctx, 7, library.ID, NewCatalogItem{Kind: "series", Title: "Series"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	season, err := store.CreateCatalogItem(ctx, 7, library.ID, NewCatalogItem{Kind: "season", ParentID: series.ID, Title: "Season 1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	episode, err := store.CreateCatalogItem(ctx, 7, library.ID, NewCatalogItem{Kind: "episode", ParentID: season.ID, Title: "Episode 1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE item_structure SET series_id=?,season_id=? WHERE library_id=? AND item_id IN (?,?)`, series.ID, season.ID, library.ID, season.ID, episode.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.AttachCatalogFile(ctx, 7, library.ID, episode.ID, episode.Revision, observeFile(t, store, binding, "series.mkv").ID); err != nil {
+		t.Fatal(err)
+	}
+	library, err = store.GetLibrary(ctx, 7, library.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +99,7 @@ func TestCatalogListHonorsLibraryContentKind(t *testing.T) {
 	if _, err := store.SetLibraryContentKind(ctx, 7, library.ID, library.Revision, LibraryContentKindSeries); err != nil {
 		t.Fatal(err)
 	}
-	page, err = store.ListCatalogItems(ctx, 7, library.ID, CatalogListOptions{})
+	page, err = store.ListCatalogItems(ctx, 7, library.ID, CatalogListOptions{Kind: "series"})
 	if err != nil || len(page.Items) != 1 || page.Items[0].ID != series.ID {
 		t.Fatalf("series library items=%+v err=%v", page, err)
 	}
