@@ -86,6 +86,7 @@ var (
 	chineseEpisodePattern  = regexp.MustCompile(`第([零〇一二两三四五六七八九十百千0-9]+)季[ ._\-]*第?([零〇一二两三四五六七八九十百千0-9]+)(?:[至到\-–]第?([零〇一二两三四五六七八九十百千0-9]+))?[集话話]`)
 	chineseAbsolutePattern = regexp.MustCompile(`第([零〇一二两三四五六七八九十百千0-9]+)(?:[至到\-–]第?([零〇一二两三四五六七八九十百千0-9]+))?[集话話]`)
 	absolutePattern        = regexp.MustCompile(`(?i)(?:ep?([0-9]{1,4})|[ \t]+-[ \t]+([0-9]{1,4}))(?:v[0-9]+)?`)
+	absoluteRangePattern   = regexp.MustCompile(`(?i)\bep?([0-9]{1,4})[ ._]*[-–][ ._]*e?p?([0-9]{1,4})\b`)
 	datePattern            = regexp.MustCompile(`((?:19|20|21)[0-9]{2})[.\-_]([0-9]{2})[.\-_]([0-9]{2})`)
 	compactDatePattern     = regexp.MustCompile(`((?:19|20|21)[0-9]{2})([0-9]{2})([0-9]{2})`)
 	bracketYearPattern     = regexp.MustCompile(`[\[(（【]((?:18|19|20|21)[0-9]{2})[\])）】]`)
@@ -113,7 +114,7 @@ var technicalNameRules = []technicalRule{
 	{"resolution", regexp.MustCompile(`(?i)BD(?:1080[pi]|2160p|720p)|HD1080[pi]|4320p|2160p|1440p|1080[pi]|720p|576p|480p|8k|4k`)},
 	{"video_codec", regexp.MustCompile(`(?i)x26[45]|h[ .]?26[45]|hevc|avc|av1|xvid`)},
 	{"dynamic_range", regexp.MustCompile(`(?i)dolby[ ._\-]+vision|hdr10\+|hdr10|hdr|hlg|DoVi|dv|\bSDR\b`)},
-	{"source", regexp.MustCompile(`(?i)web[ ._\-]?dl|webrip|blu[ ._\-]?ray|bdrip|brrip|remux|hdtv|dvdrip|\bDVD\b|DSNP|iTunes|\b(?:FRA|TC|EC|DC)\b|\bBD(?:[ ._-]*[1-9])?\b|蓝光(?:版)?`)},
+	{"source", regexp.MustCompile(`(?i)web[ ._\-]?dl|webrip|blu[ ._\-]?ray|bdrip|brrip|remux|hdtv|dvdrip|\bDVD\b|DSNP|iTunes|\bIQ\b|\b(?:FRA|TC|EC|DC)\b|\bBD(?:[ ._-]*[1-9])?\b|蓝光(?:版)?`)},
 	{"audio_channels", regexp.MustCompile(`(?i)\b(?:ac3|dts|aac|ddp|e[ ._\-]?ac3)[ ._\-]*[0-9]+(?:[ ._][0-9]+)?[ ._\-]*ch\b`)},
 	{"audio_layout", regexp.MustCompile(`(?i)[0-9][ ._.][01]`)},
 	{"audio_codec", regexp.MustCompile(`(?i)dts[ ._\-]?hd[ ._\-]?ma|truehd|ddp|dd|e[ ._\-]?ac3|ac3|aac|dts|atmos|flac|opus|pcm`)},
@@ -122,10 +123,11 @@ var technicalNameRules = []technicalRule{
 	{"audio_variant", regexp.MustCompile(`(?i)\b(?:AAC[0-9]|[1-9]Audios?)\b`)},
 	{"frame_rate", regexp.MustCompile(`(?i)\b[0-9]{2,3}fps\b`)},
 	{"version", regexp.MustCompile(`(?i)\bV[0-9]+\b`)},
-	{"language", regexp.MustCompile(`(?i)Mandarin&English|English&Mandarin|CHS[ ._-]?ENG|\b(?:English|Mandarin|CHS|JP|CN|USA|JPN|GER|CEE)\b`)},
+	{"language", regexp.MustCompile(`(?i)Mandarin&English|English&Mandarin|CHS[ ._-]?ENG|\b(?:English|Mandarin|CHS|JP|CN|USA|JPN|GER|CEE|Japanese)\b`)},
 	{"subtitle", regexp.MustCompile(`国英双语|中英双字|中英字幕|中英特效|特效字幕|国语中字|粤语中字|日语中字|韩语中字|韓語中字|法语中字|英语中字|国日粤三语|泰国粤三语|中日双字|简繁双语|简繁字幕|双语中字|中文字幕|内嵌特效中简|特效|中字`)},
 	{"release_noise", regexp.MustCompile(`(?i)\b[0-9]{1,3}(?:st|nd|rd|th)[ ._\-]+anniversary\b|无水印`)},
 	{"release_group", regexp.MustCompile(`(?i)(?:\b(?:MNHD-FRDS|RARBG|HDBWEB|DreamHD|ParkHD|BBQDDQ|CTRLTV|FRDS|MTeam|WiKi|PTer|HDC|HDS|D-Z0N3|DiaosMan|SSDSSE|NukeHD|SONYHD|882FX|taobaobt|Mp4Ba(?:Fans)?|FFans|KOOK|UUMp4|D2Mp4|99Mp4|4KHDR|52movieba|TAG|CHD|MiniFHD|CoolComic404|Waf)\b|人人影视|BT世界网|抠脚)`)},
+	{"release_group", regexp.MustCompile(`(?i)\bXiaomi(?:\([0-9]+\))?|\bLelveTV\b|\bXLYS\b`)},
 	{"market_tag", regexp.MustCompile(`(?i)\[(?:泰国|港版|日本|美国|韩国|剧情|喜剧|动作|爱情|科幻|悬疑|犯罪)(?:[ ._-]+(?:泰国|港版|日本|美国|韩国|剧情|喜剧|动作|爱情|科幻|悬疑|犯罪))*\]`)},
 	{"promotional_prefix", regexp.MustCompile(`(?i)^(?:(?:福利电影|魅力社)[0-9A-Za-z ._\-]*com[ ._\-]+|(?:【[^】]*(?:无水印|请访问|www[ ._]|https?://)[^】]*】|\[[^\]]*(?:www[ ._]|https?://)[^\]]*\])+)`)},
 	{"site_prefix", regexp.MustCompile(`(?i)^(?:【[^】]*(?:www[ ._]|https?://)[^】]*】|\[[^\]]*(?:www[ ._]|https?://)[^\]]*\])`)},
@@ -496,6 +498,23 @@ func (p *nameParser) parseAbsoluteEpisodes() {
 		}
 		p.addAbsolute(match[0], match[1], numbers)
 	}
+	for _, match := range absoluteRangePattern.FindAllStringSubmatchIndex(p.stem, -1) {
+		if !p.available(match[0], match[1]) {
+			continue
+		}
+		first, _ := strconv.Atoi(p.stem[match[2]:match[3]])
+		last, _ := strconv.Atoi(p.stem[match[4]:match[5]])
+		if first < 1 || last < first || last-first+1 > MaxEpisodeHints {
+			p.record("invalid_absolute_episode", match[0], match[1], "", true)
+			p.ambiguous("invalid_absolute_episode")
+			continue
+		}
+		numbers := make([]int, 0, last-first+1)
+		for number := first; number <= last; number++ {
+			numbers = append(numbers, number)
+		}
+		p.addAbsolute(match[0], match[1], numbers)
+	}
 	for _, match := range absolutePattern.FindAllStringSubmatchIndex(p.stem, -1) {
 		if !p.available(match[0], match[1]) || !rightTokenBound(p.stem, match[1]) || match[4] < 0 && !leftTokenBound(p.stem, match[0]) {
 			continue
@@ -651,6 +670,29 @@ func (p *nameParser) parseYears() {
 	if len(years) == 1 {
 		p.result.Year = &years[0]
 		return
+	}
+	if p.episodeHint || len(p.result.SeasonEpisodes) != 0 || len(p.result.AbsoluteEpisodes) != 0 {
+		type yearCandidate struct {
+			start, end, value int
+		}
+		var candidates []yearCandidate
+		for _, match := range yearPattern.FindAllStringIndex(p.stem, -1) {
+			if !p.available(match[0], match[1]) || !tokenBounds(p.stem, match[0], match[1]) || cleanNameTitle(p.unremoved(0, match[0])) == "" {
+				continue
+			}
+			year, _ := strconv.Atoi(p.stem[match[0]:match[1]])
+			candidates = append(candidates, yearCandidate{start: match[0], end: match[1], value: year})
+		}
+		if len(candidates) > 1 {
+			p.ambiguous("conflicting_years")
+			return
+		}
+		if len(candidates) == 1 {
+			candidate := candidates[0]
+			p.result.Year = &candidate.value
+			p.record("year", candidate.start, candidate.end, strconv.Itoa(candidate.value), true)
+			return
+		}
 	}
 	// A trailing unbracketed year is explicitly ambiguous: it can be part of
 	// a title (e.g. Blade Runner 2049). Never take a leading title number.

@@ -97,7 +97,7 @@ func (w *walker) readDirectoryContext(ctx context.Context, locator string, paren
 	}
 	observation.TVShow = w.readDirectorySidecars(ctx, locator, tvNames, tvOverflow, mediametadata.TVShow)
 	observation.Season = w.readDirectorySidecars(ctx, locator, seasonNames, seasonOverflow, mediametadata.Season)
-	observation.Episodes = directoryEpisodeEvidence(path.Base(locator), episodeNames)
+	observation.Episodes = directoryEpisodeEvidence(path.Base(strings.TrimRight(string(observation.Locator), "/")), episodeNames)
 	if err := ctx.Err(); err != nil {
 		return observation, err
 	}
@@ -162,6 +162,9 @@ func directoryEpisodeEvidence(directory string, names []string) *medialibrary.Di
 		if best*2 <= len(records) {
 			return nil
 		}
+		if localSeriesGenericDirectory(directory) {
+			title = baseline
+		}
 		selected = selected[:0]
 		for _, record := range records {
 			if localSeriesFileTitlesMatch(baseline, record.title) {
@@ -201,6 +204,15 @@ func directoryEpisodeEvidence(directory string, names []string) *medialibrary.Di
 	}
 	sort.Ints(ordered)
 	return &medialibrary.DirectoryEpisodeEvidence{Title: title, Year: year, Season: season, Numbers: ordered}
+}
+
+func localSeriesGenericDirectory(directory string) bool {
+	switch strings.ToLower(strings.TrimSpace(directory)) {
+	case "tv", "media", "movies", "movie", "films", "film", "series", "shows", "video", "videos", "电视剧", "剧集", "影视", "电影", "动漫", "动画":
+		return true
+	default:
+		return false
+	}
 }
 
 func localSeriesDirectoryTitle(directory string) string {

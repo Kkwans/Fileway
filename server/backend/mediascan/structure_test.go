@@ -145,6 +145,50 @@ func TestPersistentScanBuildsSeasonEncodedSeriesWithoutYear(t *testing.T) {
 	}
 }
 
+func TestLocalSeriesDirectoryTitleCleansEpisodeRangeReleaseTags(t *testing.T) {
+	directory := "热点.2025.EP01-10.HD1080P.X264.AAC.Japanese.CHS.XLYS"
+	if title := localSeriesDirectoryTitle(directory); title != "热点" {
+		t.Fatalf("local series directory title: %q", title)
+	}
+}
+
+func TestDirectoryEpisodeEvidenceUsesLooseFileTitleMajority(t *testing.T) {
+	year := 2023
+	names := []string{
+		"Meet.Yourself.2023.E01.WEB-DL.2160p.H265.AAC-Xiaomi(1).mp4",
+		"Meet.Yourself.S01E02.2023.2160p.IQ.WEB-DL.H265.DDP2.0-LelveTV.mkv",
+	}
+	evidence := directoryEpisodeEvidence("TV", names)
+	if evidence == nil || evidence.Title != "Meet Yourself" || evidence.Year == nil || *evidence.Year != year || evidence.Season != 1 || len(evidence.Numbers) != 2 || evidence.Numbers[0] != 1 || evidence.Numbers[1] != 2 {
+		t.Fatalf("loose episode evidence: %+v", evidence)
+	}
+}
+
+func TestPersistentScanAggregatesLooseRootEpisodes(t *testing.T) {
+	f := newPersistentFixture(t)
+	f.write(t, "Meet.Yourself.2023.E01.WEB-DL.2160p.H265.AAC-Xiaomi(1).mp4", "one")
+	f.write(t, "Meet.Yourself.S01E02.2023.2160p.IQ.WEB-DL.H265.DDP2.0-LelveTV.mkv", "two")
+	if _, err := Run(t.Context(), 7, f.store, f.coord, f.claim(t), f.ownerResolve, Options{ReadBatch: 2}); err != nil {
+		t.Fatal(err)
+	}
+	var title string
+	var episodes, videos int
+	if err := f.store.WithTx(t.Context(), func(tx *sql.Tx) error {
+		if err := tx.QueryRowContext(t.Context(), `SELECT title FROM library_item WHERE library_id=? AND kind='series'`, f.binding.LibraryID).Scan(&title); err != nil {
+			return err
+		}
+		if err := tx.QueryRowContext(t.Context(), `SELECT count(*) FROM episode_position`).Scan(&episodes); err != nil {
+			return err
+		}
+		return tx.QueryRowContext(t.Context(), `SELECT count(*) FROM library_item WHERE library_id=? AND kind='video'`, f.binding.LibraryID).Scan(&videos)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if title != "Meet Yourself" || episodes != 2 || videos != 0 {
+		t.Fatalf("loose root episodes: title=%q episodes=%d videos=%d", title, episodes, videos)
+	}
+}
+
 func TestPersistentScanIgnoresDirectoryRangeNoiseForSingleEpisodes(t *testing.T) {
 	f := newPersistentFixture(t)
 	directory := "[哔嘀影视-bde4.com]迷醉.第一季.Euphoria.US.S01E04-08.HD1080P"

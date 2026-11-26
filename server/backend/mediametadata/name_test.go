@@ -362,6 +362,22 @@ func TestCompleteLocalSeasonDirectoryRejectsOutOfRangeOrUndeclaredEpisodes(t *te
 	}
 }
 
+func TestParseNameEpisodeYearAndReleaseTags(t *testing.T) {
+	for _, filename := range []string{
+		"Meet.Yourself.2023.E01.WEB-DL.2160p.H265.AAC-Xiaomi(1).mp4",
+		"Meet.Yourself.S01E02.2023.2160p.IQ.WEB-DL.H265.DDP2.0-LelveTV.mkv",
+	} {
+		parsed := ParseName(filename)
+		if parsed.Title != "Meet Yourself" || parsed.Year == nil || *parsed.Year != 2023 {
+			t.Fatalf("episode title/year not cleaned: %s => %+v", filename, parsed)
+		}
+	}
+	parsed := ParseName("热点.2025.EP01-10.HD1080P.X264.AAC.Japanese.CHS.XLYS.mkv")
+	if parsed.Title != "热点" || parsed.Year == nil || *parsed.Year != 2025 || len(parsed.AbsoluteEpisodes) != 10 || parsed.AbsoluteEpisodes[0] != 1 || parsed.AbsoluteEpisodes[9] != 10 {
+		t.Fatalf("episode range title/year not cleaned: %+v", parsed)
+	}
+}
+
 func FuzzParseNameEvidence(f *testing.F) {
 	for _, seed := range []string{"三体 S00E00.mkv", "[Group] Anime - 01v2 [1080p].mkv", "2001 A Space Odyssey (1968).mkv", "Part I S01E01-E9999.mkv", "剧 第十二季第一百零一集.mkv"} {
 		f.Add(seed)
