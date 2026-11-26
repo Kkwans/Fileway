@@ -21,11 +21,32 @@ func TestDirectoryEpisodeEvidenceDoesNotRequireDeclaredCount(t *testing.T) {
 	for _, names := range [][]string{
 		{"信号.E01.mkv"},
 		{"信号.E01.mkv", "别的节目.E02.mkv"},
-		{"信号.S01E01.mkv", "信号.S01E02.mkv"},
 	} {
 		if got := directoryEpisodeEvidence("信号 (2016)", names); got != nil {
 			t.Fatalf("unsafe directory inference: %+v", got)
 		}
+	}
+}
+
+func TestDirectoryEpisodeEvidenceCoversSeasonEncodedFiles(t *testing.T) {
+	evidence := directoryEpisodeEvidence("人生切割术.第二季[全10集].Severance.S02.2025.2160p", []string{
+		"人生切割术.Severance.S02E01.2025.2160p.mkv",
+		"人生切割术.Severance.S02E02.2025.2160p.mkv",
+	})
+	if evidence == nil || evidence.Title != "人生切割术" || evidence.Year == nil || *evidence.Year != 2025 || evidence.Season != 2 ||
+		len(evidence.Numbers) != 2 || evidence.Numbers[0] != 1 || evidence.Numbers[1] != 2 {
+		t.Fatalf("season encoded directory evidence: %+v", evidence)
+	}
+	absoluteDirectory := "【秘密森林S02】[1080P][小玩剧字幕组]"
+	absolute := directoryEpisodeEvidence(absoluteDirectory, []string{
+		"[秘密森林2][E01修正][双语特效1080P].mkv",
+		"[秘密森林2][E02修正][双语特效1080P].mkv",
+	})
+	if absolute == nil {
+		t.Fatalf("absolute directory evidence missing")
+	}
+	if absolute.Title != "秘密森林" || absolute.Season != 2 || len(absolute.Numbers) != 2 {
+		t.Fatalf("absolute directory evidence without year: title=%q season=%d numbers=%v", absolute.Title, absolute.Season, absolute.Numbers)
 	}
 }
 
@@ -65,6 +86,35 @@ func TestPersistentScanBuildsLocalSeriesFromAbsoluteEpisodesWithoutDeclaredCount
 	detail, err := f.store.GetItemDetail(t.Context(), 7, f.binding.LibraryID, seriesID)
 	if err != nil || detail.Item.Title != "信号" || len(detail.Fields["year"].Values) != 1 || detail.Fields["year"].Values[0] != "2016" {
 		t.Fatalf("local series metadata: %+v err=%v", detail, err)
+	}
+}
+
+func TestPersistentScanBuildsSeasonEncodedSeriesWithoutYear(t *testing.T) {
+	f := newPersistentFixture(t)
+	directory := "【秘密森林S02】[1080P][小玩剧字幕组]"
+	f.write(t, directory+"/[秘密森林2][E01修正][双语特效1080P].mkv", "one")
+	f.write(t, directory+"/[秘密森林2][E02修正][双语特效1080P].mkv", "two")
+	if _, err := Run(t.Context(), 7, f.store, f.coord, f.claim(t), f.ownerResolve, Options{ReadBatch: 2}); err != nil {
+		t.Fatal(err)
+	}
+	var seriesID, title string
+	var season, episodes, videos int
+	if err := f.store.WithTx(t.Context(), func(tx *sql.Tx) error {
+		if err := tx.QueryRowContext(t.Context(), `SELECT id,title FROM library_item WHERE library_id=? AND kind='series'`, f.binding.LibraryID).Scan(&seriesID, &title); err != nil {
+			return err
+		}
+		if err := tx.QueryRowContext(t.Context(), `SELECT season_number FROM season_position sp JOIN episode_order eo ON eo.id=sp.order_id WHERE eo.series_id=?`, seriesID).Scan(&season); err != nil {
+			return err
+		}
+		if err := tx.QueryRowContext(t.Context(), `SELECT count(*) FROM episode_position ep JOIN episode_order eo ON eo.id=ep.order_id WHERE eo.series_id=?`, seriesID).Scan(&episodes); err != nil {
+			return err
+		}
+		return tx.QueryRowContext(t.Context(), `SELECT count(*) FROM library_item WHERE library_id=? AND kind='video'`, f.binding.LibraryID).Scan(&videos)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if title != "秘密森林" || season != 2 || episodes != 2 || videos != 0 {
+		t.Fatalf("season encoded structure: title=%q season=%d episodes=%d videos=%d", title, season, episodes, videos)
 	}
 }
 

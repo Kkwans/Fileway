@@ -9,7 +9,9 @@ import (
 	"io/fs"
 	"os"
 	"path"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/Kkwans/nas-file-browser/backend/files"
@@ -105,54 +107,168 @@ func (w *walker) readDirectoryContext(ctx context.Context, locator string, paren
 	return observation, nil
 }
 
+var localSeriesSeasonPattern = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])s([0-9]{1,3})(?:$|[^a-z0-9])`)
+var localSeriesChineseSeasonPattern = regexp.MustCompile(`第([零〇一二两三四五六七八九十百千0-9]+)季`)
+var localSeriesSeasonSuffixPattern = regexp.MustCompile(`(?i)(?:[ ._\-]*(?:s[0-9]{1,3}|第[零〇一二两三四五六七八九十百千0-9]+季))$`)
+
 func directoryEpisodeEvidence(directory string, names []string) *medialibrary.DirectoryEpisodeEvidence {
-	title := ""
-	var year *int
+	title := localSeriesDirectoryTitle(directory)
+	if title == "" || len(names) < 2 {
+		return nil
+	}
+	parsedDirectory := mediametadata.ParseDirectoryName(directory)
+	year := parsedDirectory.Year
+	season := localSeriesDirectorySeason(directory)
 	numbers := make(map[int]struct{})
 	for _, name := range names {
-		parsed := mediametadata.ParseName(name)
-		if len(parsed.AbsoluteEpisodes) != 1 || len(parsed.SeasonEpisodes) != 0 {
-			continue
-		}
-		fileTitle := strings.TrimSpace(parsed.Title)
-		number := parsed.AbsoluteEpisodes[0]
-		if fileTitle == "" || number < 1 || number > 9999 {
-			continue
-		}
-		if title == "" {
-			title = fileTitle
-		} else if title != fileTitle {
+		parsed := mediametadata.ParseNameInDirectory(name, directory)
+		if !localSeriesTitleMatches(directory, title, parsed.Title) {
 			return nil
 		}
-		if year == nil {
+		var episode int
+		if len(parsed.SeasonEpisodes) == 1 {
+			position := parsed.SeasonEpisodes[0]
+			if season == 0 {
+				season = position.Season
+			} else if season != position.Season {
+				return nil
+			}
+			episode = position.Episode
+		} else if len(parsed.AbsoluteEpisodes) == 1 {
+			episode = parsed.AbsoluteEpisodes[0]
+		} else {
+			continue
+		}
+		if episode < 1 || episode > 9999 {
+			continue
+		}
+		if year == nil && parsed.Year != nil {
 			year = parsed.Year
-		} else if parsed.Year != nil && *year != *parsed.Year {
+		} else if year != nil && parsed.Year != nil && *year != *parsed.Year {
 			return nil
 		}
-		if len(numbers) >= mediametadata.MaxEpisodeHints {
-			return nil
-		}
-		numbers[number] = struct{}{}
+		numbers[episode] = struct{}{}
 	}
-	if len(numbers) < 2 {
+	if len(numbers) < 2 || len(numbers) > mediametadata.MaxEpisodeHints {
 		return nil
 	}
-	evidence := mediametadata.ParseDirectoryName(directory)
-	if title == "" {
-		title = evidence.Title
-	}
-	if year == nil {
-		year = evidence.Year
-	}
-	if title == "" || year == nil {
-		return nil
+	if season == 0 {
+		season = 1
 	}
 	ordered := make([]int, 0, len(numbers))
 	for number := range numbers {
 		ordered = append(ordered, number)
 	}
 	sort.Ints(ordered)
-	return &medialibrary.DirectoryEpisodeEvidence{Title: title, Year: year, Numbers: ordered}
+	return &medialibrary.DirectoryEpisodeEvidence{Title: title, Year: year, Season: season, Numbers: ordered}
+}
+
+func localSeriesDirectoryTitle(directory string) string {
+	parsed := mediametadata.ParseDirectoryName(directory)
+	if parsed.Title != "" && !strings.ContainsAny(parsed.Title, "[]【】") && !strings.Contains(strings.ToLower(parsed.Title), "www") {
+		return strings.TrimSpace(parsed.Title)
+	}
+	cleaned := strings.TrimSpace(directory)
+	for {
+		var content string
+		switch {
+		case strings.HasPrefix(cleaned, "【"):
+			end := strings.Index(cleaned, "】")
+			if end < 0 {
+				return ""
+			}
+			content = cleaned[len("【"):end]
+			cleaned = strings.TrimSpace(cleaned[end+len("】"):])
+		case strings.HasPrefix(cleaned, "["):
+			end := strings.Index(cleaned, "]")
+			if end < 0 {
+				return ""
+			}
+			content = cleaned[1:end]
+			cleaned = strings.TrimSpace(cleaned[end+len("]"):])
+		default:
+			content = ""
+		}
+		if content == "" {
+			break
+		}
+		lower := strings.ToLower(content)
+		if strings.Contains(lower, "www") || strings.Contains(lower, "http") || strings.Contains(content, "发布") ||
+			strings.Contains(content, "首发") || strings.Contains(content, "高清") || strings.Contains(content, "影视") ||
+			strings.Contains(lower, "bde4") || strings.Contains(lower, "bphd") || strings.Contains(lower, "ddhd") || strings.Contains(lower, "pthd") {
+			continue
+		}
+		cleaned = content
+		break
+	}
+	if index := strings.IndexAny(cleaned, ".[（("); index >= 0 {
+		cleaned = cleaned[:index]
+	}
+	cleaned = strings.TrimSpace(strings.TrimPrefix(cleaned, "韩剧"))
+	cleaned = strings.TrimSpace(localSeriesSeasonSuffixPattern.ReplaceAllString(cleaned, ""))
+	return strings.Trim(cleaned, " -_")
+}
+
+func localSeriesTitleMatches(directory, title, fileTitle string) bool {
+	if strings.TrimSpace(fileTitle) == "" {
+		return false
+	}
+	needles := []string{title}
+	for _, alias := range mediametadata.TitleAliases(directory) {
+		if len([]rune(strings.TrimSpace(alias))) >= 2 {
+			needles = append(needles, strings.TrimSpace(alias))
+		}
+	}
+	for _, needle := range needles {
+		if needle != "" && strings.Contains(fileTitle, needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func localSeriesDirectorySeason(directory string) int {
+	if match := localSeriesSeasonPattern.FindStringSubmatch(directory); len(match) == 2 {
+		if season, err := strconv.Atoi(match[1]); err == nil && season >= 0 && season <= 999 {
+			return season
+		}
+	}
+	if match := localSeriesChineseSeasonPattern.FindStringSubmatch(directory); len(match) == 2 {
+		return localSeriesChineseSeason(match[1])
+	}
+	return 0
+}
+
+func localSeriesChineseSeason(value string) int {
+	if season, err := strconv.Atoi(value); err == nil && season >= 0 && season <= 999 {
+		return season
+	}
+	switch value {
+	case "零", "〇":
+		return 0
+	case "一":
+		return 1
+	case "二", "两":
+		return 2
+	case "三":
+		return 3
+	case "四":
+		return 4
+	case "五":
+		return 5
+	case "六":
+		return 6
+	case "七":
+		return 7
+	case "八":
+		return 8
+	case "九":
+		return 9
+	case "十":
+		return 10
+	default:
+		return 0
+	}
 }
 
 func (w *walker) readDirectorySidecars(ctx context.Context, directory string, names []string, overflow bool, expected mediametadata.Kind) medialibrary.DirectorySidecar {

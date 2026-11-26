@@ -40,6 +40,7 @@ type DirectoryContextObservation struct {
 type DirectoryEpisodeEvidence struct {
 	Title   string
 	Year    *int
+	Season  int
 	Numbers []int
 }
 
@@ -329,14 +330,18 @@ func (store *Store) CommitScanContext(ctx context.Context, actor uint, lease Sca
 		if current.SeriesID == "" && input.TVShow.NFO == nil && input.TVShow.Status == "missing" && input.Episodes != nil && len(input.Episodes.Numbers) >= 2 {
 			directory := path.Base(strings.TrimRight(string(input.Locator), "/"))
 			evidence := mediametadata.ParseDirectoryName(directory)
-			if evidence.Title == "" {
+			if input.Episodes.Title != "" {
 				evidence.Title = input.Episodes.Title
 			}
 			if evidence.Year == nil {
 				evidence.Year = input.Episodes.Year
 			}
 			seen := make(map[int]struct{}, len(input.Episodes.Numbers))
-			valid := evidence.Title != "" && evidence.Year != nil && len(input.Episodes.Numbers) <= mediametadata.MaxEpisodeHints
+			season := input.Episodes.Season
+			if season == 0 {
+				season = 1
+			}
+			valid := evidence.Title != "" && season >= 0 && season <= 999 && len(input.Episodes.Numbers) <= mediametadata.MaxEpisodeHints
 			for _, number := range input.Episodes.Numbers {
 				if number < 1 || number > 9999 {
 					valid = false
@@ -353,7 +358,7 @@ func (store *Store) CommitScanContext(ctx context.Context, actor uint, lease Sca
 				}
 				if seriesID != "" {
 					current.SeriesID = seriesID
-					seasonID, _, err := ensureSeasonTx(ctx, tx, actor, r.Binding, seriesID, 1)
+					seasonID, _, err := ensureSeasonTx(ctx, tx, actor, r.Binding, seriesID, season)
 					if err != nil {
 						return err
 					}
@@ -364,7 +369,7 @@ func (store *Store) CommitScanContext(ctx context.Context, actor uint, lease Sca
 					} else {
 						current.LocalSeasonID = seasonID
 						current.SeasonID = seasonID
-						current.SeasonNumber = sql.NullInt64{Int64: 1, Valid: true}
+						current.SeasonNumber = sql.NullInt64{Int64: int64(season), Valid: true}
 						current.SeriesProblem, current.SeasonProblem = "", ""
 					}
 				}
