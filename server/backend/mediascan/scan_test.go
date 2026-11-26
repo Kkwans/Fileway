@@ -121,6 +121,20 @@ func TestScanLocalEnumeratesBoundedPagesAndRecordsNFOErrorsPerItem(t *testing.T)
 	}
 }
 
+func TestScanLocalSkipsPromotionalSampleClips(t *testing.T) {
+	f := newScanFixture(t)
+	f.write(t, "movie/film.mkv", "video")
+	f.write(t, "movie/【更多无水印蓝光原盘请访问 www.BBQDDQ.com】【更多无水印蓝光原盘请访问 www.BBQDDQ.com】.MP4", "sample")
+	sink := &observationSink{}
+	result, err := ScanLocal(t.Context(), 7, f.binding, f.resolve, sink, Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Observed != 1 || len(sink.observations) != 1 || string(sink.observations[0].Locator) != "/media/movie/film.mkv" {
+		t.Fatalf("promotional sample entered the work catalog: result=%+v observations=%+v", result, sink.observations)
+	}
+}
+
 func TestScanLocalDurationProbeKeepsUnknownEvidenceWithoutFailingScan(t *testing.T) {
 	f := newScanFixture(t)
 	f.write(t, "short.mkv", "video")

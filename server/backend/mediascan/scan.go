@@ -13,6 +13,7 @@ import (
 	"os"
 	"path"
 	"runtime"
+	"slices"
 	"strings"
 	"unicode"
 
@@ -351,6 +352,9 @@ func (w *walker) videoInContext(ctx context.Context, locator, name string, direc
 		return err
 	}
 	parsedName := mediametadata.ParseNameInDirectory(name, path.Base(path.Dir(locator)))
+	if parsedName.Title == "" && slices.Contains(parsedName.Ambiguities, "promotional_filename") {
+		return nil
+	}
 	var durationMs int64
 	if technical != nil {
 		durationMs = technical.DurationMs
