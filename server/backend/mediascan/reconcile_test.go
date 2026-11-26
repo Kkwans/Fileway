@@ -10,6 +10,23 @@ import (
 	"github.com/Kkwans/nas-file-browser/backend/mediasource"
 )
 
+func TestMissingCandidateTreatsCurrentlyIgnoredFilesAsAbsent(t *testing.T) {
+	f := newScanFixture(t)
+	f.write(t, "folder/source.ts", "export const value = 1\n")
+	f.write(t, "folder/【更多无水印蓝光原盘请访问 www.BBQDDQ.com】.mp4", "promotional placeholder")
+	source, err := mediasource.NewLocal(string(f.binding.RootLocator), f.resolve)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := walker{source: source, binding: f.binding.Ref(), options: Options{ReadBatch: 1, MaxDepth: 8}}
+	for _, name := range []string{"/media/folder/source.ts", "/media/folder/【更多无水印蓝光原盘请访问 www.BBQDDQ.com】.mp4"} {
+		missing, err := w.missingCandidate(t.Context(), []byte(name))
+		if err != nil || !missing {
+			t.Fatalf("%q: missing=%t err=%v", name, missing, err)
+		}
+	}
+}
+
 func TestMissingCandidateRequiresVerifiedAbsenceAndLiveAuthority(t *testing.T) {
 	f := newScanFixture(t)
 	f.write(t, "folder/present.mp4", "video")

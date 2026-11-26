@@ -6,9 +6,12 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"path"
+	"slices"
 	"strings"
 
 	"github.com/Kkwans/nas-file-browser/backend/files"
+	"github.com/Kkwans/nas-file-browser/backend/mediametadata"
 )
 
 var ErrCandidateUncertain = errors.New("media scan cannot establish candidate absence")
@@ -25,12 +28,38 @@ func (w *walker) missingCandidate(ctx context.Context, absolute []byte) (bool, e
 	resource, err := w.source.Open(ctx, relative, false)
 	if err == nil {
 		info, _, stateErr := resource.State()
-		closeErr := resource.Close()
-		if stateErr != nil || closeErr != nil {
-			return false, errors.Join(stateErr, closeErr)
+		if stateErr != nil {
+			_ = resource.Close()
+			return false, stateErr
 		}
 		if info == nil || files.IsPrivateMediaFile(info) {
+			_ = resource.Close()
 			return false, fs.ErrPermission
+		}
+		if !info.Mode().IsRegular() {
+			_ = resource.Close()
+			return false, ErrCandidateUncertain
+		}
+		name := path.Base(relative)
+		ignored := !videoName(name)
+		if !ignored {
+			parsed := mediametadata.ParseName(name)
+			ignored = parsed.Title == "" && slices.Contains(parsed.Ambiguities, "promotional_filename")
+		}
+		if !ignored && strings.EqualFold(path.Ext(name), ".ts") && resource.File != nil {
+			transport, transportErr := isMPEGTransportStream(resource.File, info.Size())
+			if transportErr != nil {
+				_ = resource.Close()
+				return false, transportErr
+			}
+			ignored = !transport
+		}
+		closeErr := resource.Close()
+		if closeErr != nil {
+			return false, closeErr
+		}
+		if ignored {
+			return true, nil
 		}
 		return false, ctx.Err()
 	}
