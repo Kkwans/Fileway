@@ -813,14 +813,23 @@ class MediaLibraryRepository(
     private suspend fun <T> typedWrite(request: MediaMutationRequest): MediaWriteResult<T> = write(request) as MediaWriteResult<T>
 
     private suspend fun write(request: MediaMutationRequest): MediaWriteResult<Any> {
-        checkCurrent()
-        require(request.operation.account == scope.account) { "操作不属于当前账号或服务器" }
         val providerRequest = request.kind in providerMutationKinds
-        val previouslyUnknown = providerRequest && journal.records(scope.account).any {
-            it.operation == request.operation && (it.state == MediaWriteState.UNKNOWN || it.state == MediaWriteState.ACKNOWLEDGED_INVALID_RESPONSE)
+        val previouslyUnknown = try {
+            checkCurrent()
+            require(request.operation.account == scope.account) { "操作不属于当前账号或服务器" }
+            providerRequest && journal.records(scope.account).any {
+                it.operation == request.operation && (it.state == MediaWriteState.UNKNOWN || it.state == MediaWriteState.ACKNOWLEDGED_INVALID_RESPONSE)
+            }
+        } catch (error: CancellationException) { throw error }
+        catch (error: Exception) {
+            return MediaWriteResult.Failure(scope, request.operation, mediaFailureBeforeDispatch(error))
         }
         val started = try { withTimeout(2_000) { journal.begin(scope, request) } }
         catch (_: TimeoutCancellationException) { false }
+        catch (error: CancellationException) { throw error }
+        catch (error: Exception) {
+            return MediaWriteResult.Failure(scope, request.operation, mediaFailureBeforeDispatch(error))
+        }
         if (!started) return MediaWriteResult.Failure(scope, request.operation, mediaStorageFailureBeforeDispatch())
         var acknowledgement: MediaWriteResult<Any>? = null
         try {
@@ -942,6 +951,8 @@ private fun <T> parsePage(row: JSONObject, limit: Int, cursor: String?, maxCurso
 
 internal fun mediaStorageFailureBeforeDispatch(): MediaFailure =
     MediaFailure(MediaFailureKind.STORAGE, mutationMayHaveCommitted = false)
+
+internal fun mediaFailureBeforeDispatch(error: Exception): MediaFailure = mediaFailure(error, false)
 
 private fun mediaFailure(error: Exception, write: Boolean): MediaFailure {
     val status = (error as? ServiceException)?.status

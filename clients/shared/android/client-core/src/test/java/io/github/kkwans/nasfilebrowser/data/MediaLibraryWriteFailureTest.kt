@@ -9,4 +9,10 @@ class MediaLibraryWriteFailureTest {
         assertEquals(MediaFailureKind.STORAGE, failure.kind)
         assertEquals(false, failure.mutationMayHaveCommitted)
     }
+
+    @Test fun journalExceptionBeforeDispatchDoesNotClaimMutation() {
+        val failure = mediaFailureBeforeDispatch(IllegalStateException("journal closed"))
+        assertEquals(MediaFailureKind.INVALID_RESPONSE, failure.kind)
+        assertEquals(false, failure.mutationMayHaveCommitted)
+    }
 }
