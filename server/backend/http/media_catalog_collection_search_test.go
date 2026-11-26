@@ -91,7 +91,7 @@ func TestCatalogCollectionSearchAndWorksUseProviderDeclarations(t *testing.T) {
 		t.Fatalf("provider collection items: %d", itemCount)
 	}
 	candidates, err := f.store.ListCollectionCandidates(t.Context(), f.owner.ID, medialibrary.CollectionCandidateOptions{Query: "系列", Limit: 10})
-	if err != nil || len(candidates.Items) != 1 {
+	if err != nil || len(candidates.Items) != 1 || !strings.HasPrefix(candidates.Items[0].ID, "tmdb_collection_") {
 		t.Fatalf("provider collection candidates: %+v err=%v", candidates, err)
 	}
 	sources, err := f.store.ListCollectionSources(t.Context(), f.owner.ID, candidates.Items[0], "", "", 10)

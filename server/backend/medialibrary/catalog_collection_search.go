@@ -16,7 +16,7 @@ lower(trim(json_extract(c.value,'$.fields.name[0]'))) name_key,
 trim(json_extract(c.value,'$.fields.name[0]')) name,
 CASE WHEN json_extract(e.value,'$.value') IS NOT NULL
  AND length(json_extract(e.value,'$.value')) BETWEEN 1 AND 256
- AND json_extract(e.value,'$.value') NOT GLOB '*[!A-Za-z0-9_.:-]*'
+ AND json_extract(e.value,'$.value') NOT GLOB '*[^0-9]*'
  THEN json_extract(e.value,'$.value') ELSE NULL END external_id
 FROM metadata_input x,json_each(x.evidence_json,'$.items') doc_item,json_each(doc_item.value,'$.collections') c
 LEFT JOIN json_each(c.value,'$.externalIds') e ON lower(json_extract(e.value,'$.provider'))='tmdb'
@@ -28,7 +28,7 @@ lower(trim(json_extract(c.value,'$.fields.name[0]'))),
 trim(json_extract(c.value,'$.fields.name[0]')),
 CASE WHEN json_extract(e.value,'$.value') IS NOT NULL
  AND length(json_extract(e.value,'$.value')) BETWEEN 1 AND 256
- AND json_extract(e.value,'$.value') NOT GLOB '*[!A-Za-z0-9_.:-]*'
+ AND json_extract(e.value,'$.value') NOT GLOB '*[^0-9]*'
  THEN json_extract(e.value,'$.value') ELSE NULL END
 FROM item_provider_match pm
 JOIN library_item i ON i.library_id=pm.library_id AND i.id=pm.item_id AND i.revision=pm.revision
