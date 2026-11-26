@@ -101,6 +101,9 @@ func itemDetailFields(ctx context.Context, d *data, library *medialibrary.Librar
 				field.Values = []string{access.fallbackTitle}
 				fields[name] = field
 			}
+			if name == "year" && detail.Item.Kind == "series" {
+				fields[name] = field
+			}
 			continue
 		}
 		allowed := field.InputID == "" && field.Source == "manual"

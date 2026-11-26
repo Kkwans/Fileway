@@ -65,6 +65,52 @@ func TestAutomaticMatchInputUsesContainerYear(t *testing.T) {
 	}
 }
 
+func TestMediaIdentificationCarriesLocalSeriesYear(t *testing.T) {
+	f := newMediaScanHTTPFixture(t)
+	catalogFixtureWrite(t, f, "signal/tvshow.nfo", `<tvshow><title>信号</title><year>2016</year></tvshow>`)
+	catalogFixtureWrite(t, f, "signal/信号.S01E01.mkv", "episode")
+	catalogFixtureWrite(t, f, "signal/信号.S01E02.mkv", "episode")
+	library, source := f.libraryAndSource(t)
+	scanFixtureLibrary(t, f, library, source, "series-year-identification")
+	items, _ := fixtureItems(t, f, f.owner.ID, library.ID, "")
+	if len(items) == 0 || items[0].Kind != "episode" {
+		t.Fatalf("episode items missing: %+v", items)
+	}
+	var seriesID string
+	season, err := f.store.GetItemDetail(t.Context(), f.owner.ID, library.ID, items[0].ParentID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seriesID = season.Item.ParentID
+	binding, err := f.store.GetLibrarySourceByID(t.Context(), f.owner.ID, source.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.WithTx(t.Context(), func(tx *sql.Tx) error {
+		_, err := tx.Exec(`UPDATE item_field SET source='filename',input_id=NULL,source_binding_id=?,source_binding_epoch=? WHERE library_id=? AND item_id=? AND field='year'`,
+			binding.ID, binding.ProofEpoch, library.ID, seriesID)
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	detail := fixtureDetail(t, f, f.owner.ID, library.ID, seriesID)
+	if year := detail.Fields["year"]; len(year.Values) != 1 || year.Values[0] != "2016" {
+		t.Fatalf("series detail year filtered: %+v", detail.Fields)
+	}
+	response := f.call(t, f.owner.ID, http.MethodGet,
+		"/api/media-library/v1/libraries/"+library.ID+"/items/"+seriesID+"/identification", nil)
+	var identification mediaIdentificationResponse
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &identification) != nil {
+		t.Fatalf("identification: %d %s", response.Code, response.Body)
+	}
+	if identification.Year != 2016 || identification.File != nil {
+		t.Fatalf("local series year lost: %+v", identification)
+	}
+	if input := automaticMatchInput(identification, true); input.Year != 2016 || input.Kind != mediaprovider.Series {
+		t.Fatalf("automatic series input lost year: %+v", input)
+	}
+}
+
 func TestAutomaticMatchInputIgnoresUnusedDirectoryIssues(t *testing.T) {
 	year := 2017
 	item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{
