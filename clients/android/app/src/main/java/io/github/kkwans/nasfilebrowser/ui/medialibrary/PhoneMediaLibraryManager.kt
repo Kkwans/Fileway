@@ -90,6 +90,7 @@ import kotlin.coroutines.coroutineContext
         var scanMetadata by remember { mutableStateOf<Map<String, MediaMetadataJob>>(emptyMap()) }
         var policy by remember { mutableStateOf<MediaProviderPolicy?>(null) }
         var historyReviewOpen by rememberSaveable { mutableStateOf(false) }
+        var attestingSourceId by rememberSaveable { mutableStateOf<String?>(null) }
         var loading by remember { mutableStateOf(false) }
         var paging by remember { mutableStateOf(false) }
         var busy by remember { mutableStateOf(false) }
@@ -118,7 +119,7 @@ import kotlin.coroutines.coroutineContext
             if (busy) return
             when (screen) {
                 "directory" -> if (browseStack.size > 1) browseStack = browseStack.dropLast(1)
-                    else { screen = directoryReturn; browseEntries = emptyList() }
+                    else { screen = directoryReturn; browseEntries = emptyList(); if (directoryReturn == "attest") attestingSourceId = null }
                 "create" -> {
                     if (pendingId != null) {
                         error = "创建结果尚待确认。请先确认上次操作，已选文件夹会保留。"
@@ -340,7 +341,10 @@ import kotlin.coroutines.coroutineContext
                         }
                         is MediaLibrarySource -> {
                             selected = selected?.copy(revision = value.libraryRevision)
-                            if (draftBinding != null) {
+                            if (attestingSourceId != null) {
+                                attestingSourceId = null
+                                notice = "来源已重新确认，可以开始扫描。"
+                            } else if (draftBinding != null) {
                                 draftFolders.firstOrNull { it.wirePath == draftBinding }?.let { folder ->
                                     setupCompleted = setupCompleted + folder
                                     if (value.id !in setupBindingIds) setupBindingIds = ArrayList(setupBindingIds + value.id)
@@ -486,7 +490,10 @@ import kotlin.coroutines.coroutineContext
             FilewayTopAppBar(when (screen) {
                 "create" -> "新建媒体库"; "library" -> selected?.name ?: "媒体库"; "directory" -> "选择媒体文件夹"; else -> "管理媒体库"
             }, leadingIcon = R.drawable.ic_arrow_back, leadingDescription = "返回", onLeadingClick = {
-                if (screen == "directory" && !busy) screen = directoryReturn else leave()
+                if (screen == "directory" && !busy) {
+                    screen = directoryReturn
+                    if (directoryReturn == "attest") attestingSourceId = null
+                } else leave()
             }, actions = {
                 if (screen == "libraries" && session.api.identity.deviceSessionId.isEmpty()) {
                     TextButton(onClick = { screen = "create"; error = null; notice = null }, enabled = !busy && pendingId == null && draftLibraryId == null) { Text("创建") }
@@ -523,7 +530,7 @@ import kotlin.coroutines.coroutineContext
                           else if (screen == "directory") browseRefresh++ else { setupPaused = false; refreshPage() } })
                 }
                 if (pendingId != null && error == null && !busy) item(key = "pending") {
-                    val label = when (pendingKind) { "create" -> "创建媒体库"; "source" -> "添加来源"; "scan", "setup-scan" -> "启动扫描"; else -> "上次操作" }
+                    val label = when (pendingKind) { "create" -> "创建媒体库"; "source" -> "添加来源"; "attest" -> "确认来源"; "scan", "setup-scan" -> "启动扫描"; else -> "上次操作" }
                     MediaProblemCard(MediaProblem("${label}尚待确认", "请先确认结果，避免重复提交。", "确认上次操作"), ::confirmPending)
                 }
                 if (busy) item(key = "busy") { MediaLoading("正在处理，请稍候") }
@@ -688,10 +695,18 @@ import kotlin.coroutines.coroutineContext
                                             Text(sourceAccessLabel(source.access), style = PhoneMediaType.secondary)
                                             }
                                             TextButton(onClick = {
-                                                val rules = support?.localRulesRevision ?: return@TextButton
-                                                submit("scan") { repository.startScan(it, library.id, source.id, source.revision, rules) }
-                                            }, enabled = source.access == MediaSourceAccess.AVAILABLE && support?.available == true && !busy && !loading && pendingId == null && draftLibraryId == null,
-                                                modifier = Modifier.heightIn(min = 48.dp)) { Text("开始扫描") }
+                                                if (source.access == MediaSourceAccess.REBIND_REQUIRED) {
+                                                    attestingSourceId = source.id
+                                                    openDirectory("attest")
+                                                } else {
+                                                    val rules = support?.localRulesRevision ?: return@TextButton
+                                                    submit("scan") { repository.startScan(it, library.id, source.id, source.revision, rules) }
+                                                }
+                                            }, enabled = !busy && !loading && pendingId == null && draftLibraryId == null &&
+                                                (source.access == MediaSourceAccess.REBIND_REQUIRED || source.access == MediaSourceAccess.AVAILABLE && support?.available == true),
+                                                modifier = Modifier.heightIn(min = 48.dp)) {
+                                                Text(if (source.access == MediaSourceAccess.REBIND_REQUIRED) "重新确认" else "开始扫描")
+                                            }
                                         }
                                     }
                                 }
@@ -741,18 +756,22 @@ import kotlin.coroutines.coroutineContext
             }
             if (screen == "create" || screen == "directory") {
                 val creating = screen == "create"
-                val alreadyAdded = if (directoryReturn == "create") draftFolders.any { it.wirePath == currentDirectory.wirePath }
+                val attesting = directoryReturn == "attest"
+                val alreadyAdded = if (creating || attesting) false else if (directoryReturn == "create") draftFolders.any { it.wirePath == currentDirectory.wirePath }
                     else sources.any { it.wireRoot == LibrarySourceRoot.fromDirectory(currentDirectory) }
-                val canSubmit = if (creating) canCreate else directoryVerified && !alreadyAdded &&
-                    (directoryReturn == "create" || selected != null)
+                val canSubmit = if (creating) canCreate else if (attesting) directoryVerified && selected != null && attestingSourceId != null
+                    else directoryVerified && !alreadyAdded && (directoryReturn == "create" || selected != null)
                 Surface(color = MaterialTheme.colorScheme.background,
                     modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth()) {
                     Column {
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             if (!creating) {
-                                Text(if (alreadyAdded) "已添加 · ${currentDirectory.name}" else "当前文件夹 · ${currentDirectory.name}",
-                                    style = PhoneMediaType.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(when {
+                                    attesting -> "请选择与原来源相同的文件夹"
+                                    alreadyAdded -> "已添加 · ${currentDirectory.name}"
+                                    else -> "当前文件夹 · ${currentDirectory.name}"
+                                }, style = PhoneMediaType.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                             if (creating) {
                                 Text(if (draftFolders.isEmpty()) "可以先创建媒体库，之后再添加文件夹。"
@@ -782,13 +801,17 @@ import kotlin.coroutines.coroutineContext
                                     } else {
                                         val library = selected ?: return@FilewayButton
                                         val root = LibrarySourceRoot.fromDirectory(currentDirectory)
-                                        submit("source") { repository.createLocalSource(it, library.id, library.revision, root) }
+                                        if (attesting) {
+                                            val source = sources.firstOrNull { it.id == attestingSourceId } ?: return@FilewayButton
+                                            submit("attest") { repository.attestSource(it, library.id, source.id, source.revision, root) }
+                                        } else submit("source") { repository.createLocalSource(it, library.id, library.revision, root) }
                                     }
                                 }
                             }, enabled = canSubmit && !busy && pendingId == null,
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
                                 Text(when {
                                     busy -> "正在保存…"
+                                    attesting -> "确认当前文件夹"
                                     alreadyAdded -> "已添加此文件夹"
                                     else -> "添加当前文件夹"
                                 })
