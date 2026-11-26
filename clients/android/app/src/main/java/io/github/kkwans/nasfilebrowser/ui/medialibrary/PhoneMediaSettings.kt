@@ -15,6 +15,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
@@ -34,9 +35,9 @@ import kotlinx.coroutines.launch
 
 @Composable internal fun MediaSettingsGroup(title: String, subtitle: String? = null,
     content: @Composable ColumnScope.() -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(title, Modifier.padding(start = 4.dp).semantics { heading() }, style = PhoneMediaType.action,
-            color = MaterialTheme.colorScheme.primary)
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Text(title, Modifier.padding(start = 4.dp).semantics { heading() }, style = PhoneMediaType.itemTitle,
+            fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
         if (!subtitle.isNullOrBlank()) Text(subtitle, Modifier.padding(start = 4.dp),
             style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Surface(Modifier.fillMaxWidth().semantics { contentDescription = "${title}设置分组" },
@@ -69,6 +70,16 @@ import kotlinx.coroutines.launch
     }
 }
 
+@Composable internal fun MediaSettingsFact(label: String, value: String) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Text(label, Modifier.weight(1f), style = PhoneMediaType.secondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(value, style = PhoneMediaType.action, fontWeight = FontWeight.SemiBold,
+            color = MaterialTheme.colorScheme.onSurface)
+    }
+}
+
 @Composable internal fun MediaSettingsChip(label: String, selected: Boolean, enabled: Boolean = true,
     onClick: () -> Unit) {
     FilterChip(selected = selected, onClick = onClick, enabled = enabled, label = { Text(label) },
@@ -78,38 +89,31 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun PhoneMediaSettings(onBack: () -> Unit, onLibraries: () -> Unit, onProvider: () -> Unit) {
     MediaSettingsPage("影视设置", onBack) {
-        Text("管理媒体库、资料源与识别规则。扫描在服务器后台执行，源文件保持只读。",
+        Text("管理媒体库与 TMDB 资料。扫描在服务器后台执行，源文件保持只读。",
             style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
         MediaSettingsGroup("媒体库") {
-            MediaSettingsAction("管理媒体库", "创建媒体库、添加目录、查看扫描结果与待确认影片",
+            MediaSettingsAction("管理媒体库", "添加目录、扫描与查看识别结果",
                 R.drawable.ic_library, action = onLibraries)
         }
         MediaSettingsGroup("资料源") {
-            MediaSettingsAction("TMDB 数据源", "密钥与连接检测 · 默认简体中文、中国大陆资料",
+            MediaSettingsAction("TMDB 数据源", "密钥、连接检测与默认中文资料",
                 R.drawable.ic_settings, action = onProvider)
         }
-        MediaSettingsGroup("识别与扫描") {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Text("多信号智能匹配", style = PhoneMediaType.body,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                Text("结合片名、别名、年份、真实片长、目录结构与唯一候选；存在冲突时进入待确认。",
+        MediaSettingsGroup("识别规则") {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("自动匹配", style = PhoneMediaType.body, fontWeight = FontWeight.SemiBold)
+                Text("结合片名、别名、年份、真实片长、目录结构与唯一候选；只有证据冲突时才需要确认。",
                     style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MediaSettingsChip("电影 ≥ 60 分钟", selected = true, enabled = false) {}
-                    MediaSettingsChip("单集 ≥ 10 分钟", selected = true, enabled = false) {}
-                }
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .6f))
+                MediaSettingsFact("电影最低时长", "60 分钟")
+                MediaSettingsFact("电视剧单集最低时长", "10 分钟")
                 Text("可在每个媒体库的“资料优先级”中调整。", style = PhoneMediaType.secondary,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        MediaSettingsGroup("文件安全") {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("源文件只读", style = PhoneMediaType.body,
-                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
-                Text("不会改名、移动或回写视频、NFO 与图片。识别结果只保存在媒体目录中。",
-                    style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        }
+        Text("源视频、NFO 与图片不会被改名、移动或回写。",
+            Modifier.padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
+            style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
