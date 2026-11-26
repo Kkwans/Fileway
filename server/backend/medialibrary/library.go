@@ -33,10 +33,19 @@ const (
 // Library is a caller-visible catalog. Role is the caller's catalog role, not a
 // grant to read source bytes. Only the owner can manage the library or members;
 // an editor's future metadata-edit permission never grants sharing permission.
+type LibraryContentKind string
+
+const (
+	LibraryContentKindMixed  LibraryContentKind = "mixed"
+	LibraryContentKindMovie  LibraryContentKind = "movie"
+	LibraryContentKindSeries LibraryContentKind = "series"
+)
+
 type Library struct {
 	ID          string
 	OwnerUserID uint
 	Name        string
+	ContentKind LibraryContentKind
 	Revision    int64
 	CreatedAt   int64
 	UpdatedAt   int64
@@ -77,7 +86,7 @@ func (store *Store) CreateLibrary(ctx context.Context, actor uint, name string) 
 	var library *Library
 	err := store.WithTx(ctx, func(tx *sql.Tx) error {
 		var err error
-		library, err = createLibraryTx(ctx, tx, actor, name)
+		library, err = createLibraryTx(ctx, tx, actor, name, LibraryContentKindMixed)
 		return err
 	})
 	if err != nil {
@@ -86,11 +95,15 @@ func (store *Store) CreateLibrary(ctx context.Context, actor uint, name string) 
 	return library, nil
 }
 
-func createLibraryTx(ctx context.Context, tx *sql.Tx, actor uint, name string) (*Library, error) {
+func createLibraryTx(ctx context.Context, tx *sql.Tx, actor uint, name string, contentKind LibraryContentKind) (*Library, error) {
 	if actor == 0 {
 		return nil, ErrForbidden
 	}
 	name, err := libraryName(name)
+	if err != nil {
+		return nil, err
+	}
+	normalizedKind, err := normalizeLibraryContentKind(contentKind)
 	if err != nil {
 		return nil, err
 	}
@@ -99,8 +112,8 @@ func createLibraryTx(ctx context.Context, tx *sql.Tx, actor uint, name string) (
 		return nil, err
 	}
 	now := time.Now().UnixMilli()
-	library := &Library{ID: id, OwnerUserID: actor, Name: name, Revision: 1, CreatedAt: now, UpdatedAt: now, Role: RoleOwner}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO library(id, owner_user_id, name, created_at, updated_at) VALUES (?, ?, ?, ?, ?)`, id, actor, name, now, now); err != nil {
+	library := &Library{ID: id, OwnerUserID: actor, Name: name, ContentKind: normalizedKind, Revision: 1, CreatedAt: now, UpdatedAt: now, Role: RoleOwner}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO library(id, owner_user_id, name, content_kind, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`, id, actor, name, normalizedKind, now, now); err != nil {
 		return nil, err
 	}
 	if err := publishLibraryChange(ctx, tx, library, actor, "library.created", nil); err != nil {
@@ -109,7 +122,7 @@ func createLibraryTx(ctx context.Context, tx *sql.Tx, actor uint, name string) (
 	return library, nil
 }
 
-const librarySelection = `SELECT l.id, l.owner_user_id, l.name, l.revision, l.created_at, l.updated_at, l.archived_at,
+const librarySelection = `SELECT l.id, l.owner_user_id, l.name, l.content_kind, l.revision, l.created_at, l.updated_at, l.archived_at,
 CASE WHEN l.owner_user_id = ? THEN 'owner' ELSE m.role END
 FROM library l LEFT JOIN library_member m ON m.library_id = l.id AND m.user_id = ? AND m.revoked_at IS NULL`
 
@@ -181,6 +194,32 @@ func updateLibraryAction(name string) func(*Library) (bool, error) {
 		}
 		library.Name = name
 		return true, nil
+	}
+}
+
+func (store *Store) SetLibraryContentKind(ctx context.Context, actor uint, id string, expectedRevision int64, kind LibraryContentKind) (*Library, error) {
+	normalized, err := normalizeLibraryContentKind(kind)
+	if err != nil {
+		return nil, err
+	}
+	return store.changeLibrary(ctx, actor, id, expectedRevision, "library.content_kind.updated", func(library *Library) (bool, error) {
+		if library.ArchivedAt != nil {
+			return false, ErrArchived
+		}
+		if library.ContentKind == normalized {
+			return false, nil
+		}
+		library.ContentKind = normalized
+		return true, nil
+	})
+}
+
+func normalizeLibraryContentKind(kind LibraryContentKind) (LibraryContentKind, error) {
+	switch kind {
+	case LibraryContentKindMixed, LibraryContentKindMovie, LibraryContentKindSeries:
+		return kind, nil
+	default:
+		return "", fmt.Errorf("%w: library content kind", ErrInvalid)
 	}
 }
 
@@ -351,7 +390,7 @@ type rowScanner interface{ Scan(...any) error }
 
 func scanLibrary(row rowScanner) (*Library, error) {
 	library := &Library{}
-	err := row.Scan(&library.ID, &library.OwnerUserID, &library.Name, &library.Revision, &library.CreatedAt, &library.UpdatedAt, &library.ArchivedAt, &library.Role)
+	err := row.Scan(&library.ID, &library.OwnerUserID, &library.Name, &library.ContentKind, &library.Revision, &library.CreatedAt, &library.UpdatedAt, &library.ArchivedAt, &library.Role)
 	if err != nil {
 		return nil, err
 	}
@@ -360,7 +399,7 @@ func scanLibrary(row rowScanner) (*Library, error) {
 
 func updateLibrary(ctx context.Context, tx *sql.Tx, library *Library) error {
 	library.UpdatedAt = max(time.Now().UnixMilli(), library.UpdatedAt)
-	result, err := tx.ExecContext(ctx, "UPDATE library SET name = ?, revision = revision + 1, updated_at = ?, archived_at = ? WHERE id = ? AND revision = ?", library.Name, library.UpdatedAt, library.ArchivedAt, library.ID, library.Revision)
+	result, err := tx.ExecContext(ctx, "UPDATE library SET name = ?, content_kind = ?, revision = revision + 1, updated_at = ?, archived_at = ? WHERE id = ? AND revision = ?", library.Name, library.ContentKind, library.UpdatedAt, library.ArchivedAt, library.ID, library.Revision)
 	if err != nil {
 		return err
 	}

@@ -71,6 +71,9 @@ func TestCatalogPersonSearchAndWorksUseAuthorizedOnlineCredits(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	if _, err := f.store.ListPersonCandidates(t.Context(), owner, medialibrary.PersonCandidateOptions{Query: "张", Limit: 20}); err != nil {
+		t.Fatalf("person candidate query: %v", err)
+	}
 	response := f.call(t, owner, http.MethodGet, "/api/media-library/v1/catalog/people?q="+url.QueryEscape("张"), nil)
 	var page catalogPersonPage
 	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &page) != nil || len(page.Items) != 1 ||

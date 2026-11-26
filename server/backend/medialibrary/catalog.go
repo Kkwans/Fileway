@@ -249,6 +249,8 @@ WHERE e.library_id = ? AND e.item_id = ? AND v.source_file_id = ? ORDER BY e.id,
 	return link, nil
 }
 
+const libraryContentKindFence = `(l.content_kind='mixed' OR (l.content_kind='movie' AND i.kind IN ('movie','video')) OR (l.content_kind='series' AND (i.kind='series' OR EXISTS(SELECT 1 FROM library_item parent WHERE parent.library_id=i.library_id AND parent.id=i.parent_id AND parent.kind IN ('series','season')))))`
+
 const catalogSelection = `SELECT i.id, i.library_id, i.kind, COALESCE(i.parent_id, ''),
 COALESCE((SELECT CASE WHEN f.explicit_clear=1 THEN '' ELSE json_extract(f.value_json,'$[0]') END FROM item_field f WHERE f.library_id=i.library_id AND f.item_id=i.id AND f.field='title' AND f.source!='legacy' AND (f.source!='filename' OR EXISTS(SELECT 1 FROM library_source fb WHERE fb.binding_id=f.source_binding_id AND fb.library_id=f.library_id AND fb.proof_epoch=f.source_binding_epoch AND fb.proof_epoch>0 AND fb.active_proof_version=1)) AND (f.input_id IS NULL OR EXISTS(SELECT 1 FROM metadata_input mi JOIN library_source ls ON ls.binding_id=mi.binding_id AND ls.library_id=mi.library_id WHERE mi.id=f.input_id AND mi.binding_epoch=ls.proof_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1))),'') AS title, i.revision, i.created_at,
 (SELECT count(DISTINCT v.source_file_id) FROM edition e JOIN variant v ON v.edition_id = e.id AND v.library_id = e.library_id
@@ -263,7 +265,7 @@ func (store *Store) GetCatalogItem(ctx context.Context, actor uint, libraryID, i
 	if actor == 0 {
 		return nil, ErrForbidden
 	}
-	item, err := scanCatalogItem(store.db.QueryRowContext(ctx, catalogSelection+" WHERE i.library_id = ? AND i.id = ? AND "+libraryVisibility+" AND l.archived_at IS NULL", actor, libraryID, itemID, actor))
+	item, err := scanCatalogItem(store.db.QueryRowContext(ctx, catalogSelection+" WHERE i.library_id = ? AND i.id = ? AND "+libraryVisibility+" AND l.archived_at IS NULL AND "+libraryContentKindFence, actor, libraryID, itemID, actor))
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrNotFound
 	}
@@ -282,7 +284,7 @@ func (store *Store) ListCatalogItems(ctx context.Context, actor uint, libraryID 
 	}
 	// Reapply visibility in the row query itself: a revoked grant between the
 	// existence check and this SELECT must not reveal the catalog.
-	rows, err := store.db.QueryContext(ctx, catalogSelection+" WHERE i.library_id = ? AND "+libraryVisibility+` AND l.archived_at IS NULL AND i.id > ?
+	rows, err := store.db.QueryContext(ctx, catalogSelection+" WHERE i.library_id = ? AND "+libraryVisibility+` AND l.archived_at IS NULL AND `+libraryContentKindFence+` AND i.id > ?
 AND (? = '' OR i.kind = ?) AND (? = '' OR i.parent_id = ?)
 AND (? = '' OR EXISTS (SELECT 1 FROM edition fe JOIN variant fv ON fv.edition_id = fe.id AND fv.library_id = fe.library_id
 JOIN library_file lf ON lf.library_id = fv.library_id AND lf.source_file_id = fv.source_file_id

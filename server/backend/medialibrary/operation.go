@@ -160,8 +160,19 @@ func sourceMutationOperation(ctx context.Context, store *Store, actor uint, kind
 }
 
 func (store *Store) CreateLibraryWithOperation(ctx context.Context, actor uint, operationID, name string) (*Library, error) {
-	return operationTx(ctx, store, actor, "library.create", operationID, struct{ Name string }{name}, func(tx *sql.Tx) (*Library, error) {
-		return createLibraryTx(ctx, tx, actor, name)
+	return store.CreateLibraryWithContentKindOperation(ctx, actor, operationID, name, LibraryContentKindMixed)
+}
+
+func (store *Store) CreateLibraryWithContentKindOperation(ctx context.Context, actor uint, operationID, name string, contentKind LibraryContentKind) (*Library, error) {
+	normalized, err := normalizeLibraryContentKind(contentKind)
+	if err != nil {
+		return nil, err
+	}
+	return operationTx(ctx, store, actor, "library.create", operationID, struct {
+		Name        string
+		ContentKind LibraryContentKind
+	}{name, normalized}, func(tx *sql.Tx) (*Library, error) {
+		return createLibraryTx(ctx, tx, actor, name, normalized)
 	})
 }
 
@@ -223,6 +234,29 @@ func (store *Store) UpdateLibraryWithOperation(ctx context.Context, actor uint, 
 		Name     string
 	}{id, expectedRevision, name}, func(tx *sql.Tx) (*Library, error) {
 		return changeLibraryTx(ctx, tx, actor, id, expectedRevision, "library.updated", updateLibraryAction(normalized))
+	})
+}
+
+func (store *Store) SetLibraryContentKindWithOperation(ctx context.Context, actor uint, id string, expectedRevision int64, operationID string, contentKind LibraryContentKind) (*Library, error) {
+	normalized, err := normalizeLibraryContentKind(contentKind)
+	if err != nil {
+		return nil, err
+	}
+	return operationTx(ctx, store, actor, "library.update", operationID, struct {
+		ID          string
+		Revision    int64
+		ContentKind LibraryContentKind
+	}{id, expectedRevision, normalized}, func(tx *sql.Tx) (*Library, error) {
+		return changeLibraryTx(ctx, tx, actor, id, expectedRevision, "library.content_kind.updated", func(library *Library) (bool, error) {
+			if library.ArchivedAt != nil {
+				return false, ErrArchived
+			}
+			if library.ContentKind == normalized {
+				return false, nil
+			}
+			library.ContentKind = normalized
+			return true, nil
+		})
 	})
 }
 

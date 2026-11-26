@@ -174,8 +174,9 @@ func (store *Store) ListCollectionWorkCandidates(ctx context.Context, viewer uin
 	rows, err := store.db.QueryContext(ctx, nfoCollectionCTE+` SELECT DISTINCT i.id,i.library_id,i.kind,i.revision,st.match_state,st.structure_revision,st.first_added_at,st.series_updated_at
 FROM declaration d JOIN library_item i ON i.library_id=d.library_id AND i.id=d.item_id
 JOIN item_structure st ON st.library_id=i.library_id AND st.item_id=i.id AND st.superseded_by IS NULL
+JOIN library l ON l.id=i.library_id
 WHERE d.library_id=? AND d.name_key=? AND ((?='' AND d.external_id IS NULL) OR d.external_id=?)
-AND i.kind IN ('movie','series','video') AND i.id>? ORDER BY i.id LIMIT ?`,
+AND i.kind IN ('movie','series','video') AND `+libraryContentKindFence+` AND i.id>? ORDER BY i.id LIMIT ?`,
 		candidate.LibraryID, candidate.NameKey, candidate.ExternalID, candidate.ExternalID, afterID, limit+1)
 	if err != nil {
 		return nil, err

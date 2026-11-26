@@ -1,14 +1,44 @@
 package fbhttp
 
 import (
+	"encoding/json"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/users"
 )
+
+func TestMediaLibraryHTTPContentKind(t *testing.T) {
+	h := newTrashHTTPHarness(t, users.User{Username: "owner"})
+	owner := trashHTTPUserByName(t, h, "owner")
+	catalog, err := medialibrary.Open(t.Context(), filepath.Join(t.TempDir(), "catalog.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = catalog.Close() })
+	h.storage.MediaLibrary = catalog
+	url := "/api/media-library/v1/libraries"
+	created := h.request(t, owner.ID, mediaLibraryCreateHandler, http.MethodPost, url, strings.NewReader(`{"operationId":"typed-create","name":"Typed","contentKind":"movie"}`), nil)
+	if created.Code != http.StatusCreated || !strings.Contains(created.Body.String(), `"contentKind":"movie"`) {
+		t.Fatalf("create: %d %s", created.Code, created.Body)
+	}
+	var summary mediaLibrarySummary
+	if err := json.Unmarshal(created.Body.Bytes(), &summary); err != nil {
+		t.Fatal(err)
+	}
+	changed := h.request(t, owner.ID, mediaLibraryChangeHandler("update"), http.MethodPost, url+"/"+summary.ID, strings.NewReader(`{"operationId":"typed-update","expectedRevision":`+strconv.FormatInt(summary.Revision, 10)+`,"contentKind":"series"}`), map[string]string{"id": summary.ID})
+	if changed.Code != http.StatusOK || !strings.Contains(changed.Body.String(), `"contentKind":"series"`) {
+		t.Fatalf("update: %d %s", changed.Code, changed.Body)
+	}
+	invalid := h.request(t, owner.ID, mediaLibraryChangeHandler("update"), http.MethodPost, url+"/"+summary.ID, strings.NewReader(`{"operationId":"typed-invalid","expectedRevision":`+strconv.FormatInt(summary.Revision+1, 10)+`,"contentKind":"episode"}`), map[string]string{"id": summary.ID})
+	if invalid.Code != http.StatusBadRequest {
+		t.Fatalf("invalid content kind: %d %s", invalid.Code, invalid.Body)
+	}
+}
 
 func TestMediaLibraryHTTPReadsArePrivateAndOptional(t *testing.T) {
 	h := newTrashHTTPHarness(t, users.User{Username: "owner"}, users.User{Username: "viewer"})

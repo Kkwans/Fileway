@@ -43,7 +43,7 @@ JOIN library l ON l.id=p.library_id LEFT JOIN library_member m ON m.library_id=l
 WHERE `+libraryVisibility+` AND l.archived_at IS NULL AND (?='' OR p.library_id=?) AND p.id>? AND (?='' OR p.name LIKE ? ESCAPE '\')
 AND EXISTS(SELECT 1 FROM credit c JOIN item_structure st ON st.library_id=c.library_id AND st.item_id=c.item_id AND st.superseded_by IS NULL
 JOIN library_item i ON i.library_id=c.library_id AND i.id=c.item_id
-WHERE c.library_id=p.library_id AND 'tmdb_person_'||c.external_id=p.id AND i.kind IN ('movie','series','video'))
+WHERE c.library_id=p.library_id AND 'tmdb_person_'||c.external_id=p.id AND i.kind IN ('movie','series','video') AND `+libraryContentKindFence+`)
 ORDER BY p.id LIMIT ?`, viewer, viewer, options.LibraryID, options.LibraryID, options.AfterID, options.Query, pattern, options.Limit+1)
 	if err != nil {
 		return nil, err
@@ -79,7 +79,8 @@ func (store *Store) ListPersonWorkCandidates(ctx context.Context, viewer uint, l
 	rows, err := store.db.QueryContext(ctx, providerCreditCTE+` SELECT DISTINCT i.id,i.library_id,i.kind,i.revision,st.match_state,st.structure_revision,st.first_added_at,st.series_updated_at
 FROM credit c JOIN library_item i ON i.library_id=c.library_id AND i.id=c.item_id
 JOIN item_structure st ON st.library_id=i.library_id AND st.item_id=i.id AND st.superseded_by IS NULL
-WHERE c.library_id=? AND 'tmdb_person_'||c.external_id=? AND i.kind IN ('movie','series','video') AND i.id>? ORDER BY i.id LIMIT ?`,
+JOIN library l ON l.id=i.library_id
+WHERE c.library_id=? AND 'tmdb_person_'||c.external_id=? AND i.kind IN ('movie','series','video') AND `+libraryContentKindFence+` AND i.id>? ORDER BY i.id LIMIT ?`,
 		libraryID, personID, afterID, limit+1)
 	if err != nil {
 		return nil, err

@@ -14,14 +14,16 @@ import (
 )
 
 type mediaLibraryCreateBody struct {
-	OperationID string `json:"operationId"`
-	Name        string `json:"name"`
+	OperationID string                          `json:"operationId"`
+	Name        string                          `json:"name"`
+	ContentKind medialibrary.LibraryContentKind `json:"contentKind,omitempty"`
 }
 
 type mediaLibraryChangeBody struct {
-	OperationID      string `json:"operationId"`
-	ExpectedRevision int64  `json:"expectedRevision"`
-	Name             string `json:"name,omitempty"`
+	OperationID      string                          `json:"operationId"`
+	ExpectedRevision int64                           `json:"expectedRevision"`
+	Name             string                          `json:"name,omitempty"`
+	ContentKind      medialibrary.LibraryContentKind `json:"contentKind,omitempty"`
 }
 
 type mediaLibraryMemberBody struct {
@@ -75,7 +77,11 @@ var mediaLibraryCreateHandler = mediaScanManagement(func(w http.ResponseWriter, 
 	if decodeMediaScanBody(w, r, &body) != nil || !validScanID(body.OperationID) {
 		return http.StatusBadRequest, fmt.Errorf("媒体库参数无效")
 	}
-	library, err := d.store.MediaLibrary.CreateLibraryWithOperation(r.Context(), d.user.ID, body.OperationID, body.Name)
+	kind := body.ContentKind
+	if kind == "" {
+		kind = medialibrary.LibraryContentKindMixed
+	}
+	library, err := d.store.MediaLibrary.CreateLibraryWithContentKindOperation(r.Context(), d.user.ID, body.OperationID, body.Name, kind)
 	if err != nil {
 		return mediaScanError(err)
 	}
@@ -88,7 +94,7 @@ func mediaLibraryChangeHandler(action string) handleFunc {
 		if decodeMediaScanBody(w, r, &body) != nil || !validScanID(body.OperationID) || body.ExpectedRevision < 1 {
 			return http.StatusBadRequest, fmt.Errorf("媒体库参数无效")
 		}
-		if action != "update" && body.Name != "" {
+		if action != "update" && (body.Name != "" || body.ContentKind != "") {
 			return http.StatusBadRequest, fmt.Errorf("媒体库参数无效")
 		}
 		id := mux.Vars(r)["id"]
@@ -96,7 +102,11 @@ func mediaLibraryChangeHandler(action string) handleFunc {
 		var err error
 		switch action {
 		case "update":
-			library, err = d.store.MediaLibrary.UpdateLibraryWithOperation(r.Context(), d.user.ID, id, body.ExpectedRevision, body.OperationID, body.Name)
+			if body.ContentKind != "" {
+				library, err = d.store.MediaLibrary.SetLibraryContentKindWithOperation(r.Context(), d.user.ID, id, body.ExpectedRevision, body.OperationID, body.ContentKind)
+			} else {
+				library, err = d.store.MediaLibrary.UpdateLibraryWithOperation(r.Context(), d.user.ID, id, body.ExpectedRevision, body.OperationID, body.Name)
+			}
 		case "archive":
 			library, err = d.store.MediaLibrary.ArchiveLibraryWithOperation(r.Context(), d.user.ID, id, body.ExpectedRevision, body.OperationID)
 		case "restore":

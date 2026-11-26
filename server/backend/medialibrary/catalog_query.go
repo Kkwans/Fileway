@@ -124,7 +124,7 @@ func (store *Store) ListBrowseCandidates(ctx context.Context, viewer uint, optio
 	args = append(args, options.Query, pattern, pattern, options.Limit+1)
 	rows, err := store.db.QueryContext(ctx, `SELECT i.id,i.library_id,i.kind,i.revision,st.match_state,st.structure_revision,st.first_added_at,st.series_updated_at
 FROM library_item i JOIN item_structure st ON st.library_id=i.library_id AND st.item_id=i.id JOIN library l ON l.id=i.library_id LEFT JOIN library_member m ON m.library_id=l.id AND m.user_id=? AND m.revoked_at IS NULL
-WHERE `+libraryVisibility+` AND l.archived_at IS NULL AND (?=0 OR l.owner_user_id=?) AND (?='' OR i.library_id=?) AND (?='' OR i.kind=?) AND i.kind IN ('movie','series','video') AND st.superseded_by IS NULL AND `+filter+`
+WHERE `+libraryVisibility+` AND l.archived_at IS NULL AND (?=0 OR l.owner_user_id=?) AND (?='' OR i.library_id=?) AND (?='' OR i.kind=?) AND i.kind IN ('movie','series','video') AND st.superseded_by IS NULL AND `+libraryContentKindFence+` AND `+filter+`
 AND (?='' OR i.title LIKE ? ESCAPE '\' OR EXISTS(SELECT 1 FROM item_field f WHERE f.library_id=i.library_id AND f.item_id=i.id AND f.field IN ('title','originaltitle','sorttitle')
 AND EXISTS(SELECT 1 FROM json_each(f.value_json) v WHERE v.type='text' AND v.value LIKE ? ESCAPE '\'))) ORDER BY `+order+` LIMIT ?`, args...)
 	if err != nil {
@@ -173,7 +173,7 @@ JOIN library_file lf ON lf.library_id=v.library_id AND lf.source_file_id=f.id AN
 JOIN library_source ls ON ls.library_id=lf.library_id AND ls.source_id=lf.source_id AND ls.root_locator=lf.root_locator AND ls.binding_id=fm.binding_id AND ls.proof_epoch=fm.binding_epoch AND ls.active_proof_version=1 AND ls.proof_epoch>0
 JOIN library l ON l.id=i.library_id LEFT JOIN library_member m ON m.library_id=l.id AND m.user_id=? AND m.revoked_at IS NULL
 WHERE `+libraryVisibility+` AND l.archived_at IS NULL AND (?=0 OR l.owner_user_id=?) AND (?='' OR i.library_id=?)
-AND i.kind IN ('movie','video','episode') AND st.superseded_by IS NULL
+AND i.kind IN ('movie','video','episode') AND st.superseded_by IS NULL AND `+libraryContentKindFence+`
 AND (i.id>? OR (i.id=? AND f.id>?)) AND CAST(f.locator AS TEXT) LIKE ? ESCAPE '\'
 AND (i.kind!='episode' OR fm.confirmed_by='manual' OR fm.evidence_id IS NULL OR EXISTS(SELECT 1 FROM identification_evidence ie WHERE ie.id=fm.evidence_id AND ie.match_state!='needs_review'))
 ORDER BY i.id,f.id LIMIT ?`, args...)

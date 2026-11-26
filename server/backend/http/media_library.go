@@ -13,15 +13,16 @@ import (
 // Public library summaries never include source paths, credential references or
 // an implied playback grant. Catalog membership is only one access boundary.
 type mediaLibrarySummary struct {
-	ID       string                  `json:"id"`
-	Name     string                  `json:"name"`
-	Revision int64                   `json:"revision"`
-	Role     medialibrary.MemberRole `json:"role"`
-	Archived bool                    `json:"archived"`
+	ID          string                          `json:"id"`
+	Name        string                          `json:"name"`
+	ContentKind medialibrary.LibraryContentKind `json:"contentKind"`
+	Revision    int64                           `json:"revision"`
+	Role        medialibrary.MemberRole         `json:"role"`
+	Archived    bool                            `json:"archived"`
 }
 
 func librarySummary(value *medialibrary.Library) mediaLibrarySummary {
-	return mediaLibrarySummary{ID: value.ID, Name: value.Name, Revision: value.Revision, Role: value.Role, Archived: value.ArchivedAt != nil}
+	return mediaLibrarySummary{ID: value.ID, Name: value.Name, ContentKind: value.ContentKind, Revision: value.Revision, Role: value.Role, Archived: value.ArchivedAt != nil}
 }
 
 func mediaLibraryRead(fn handleFunc) handleFunc {

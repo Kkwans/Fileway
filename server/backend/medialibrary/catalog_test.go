@@ -51,6 +51,38 @@ func catalogItem(t *testing.T, store *Store, actor uint, libraryID, title string
 	return item
 }
 
+func TestCatalogListHonorsLibraryContentKind(t *testing.T) {
+	store := openTestStore(t)
+	ctx := t.Context()
+	library := createLibrary(t, store, 7, "Typed library")
+	movie := catalogItem(t, store, 7, library.ID, "Movie")
+	series, err := store.CreateCatalogItem(ctx, 7, library.ID, NewCatalogItem{Kind: "series", Title: "Series"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetLibraryContentKind(ctx, 7, library.ID, library.Revision, LibraryContentKindMovie); err != nil {
+		t.Fatal(err)
+	}
+	page, err := store.ListCatalogItems(ctx, 7, library.ID, CatalogListOptions{})
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != movie.ID {
+		t.Fatalf("movie library items=%+v err=%v", page, err)
+	}
+	if _, err := store.GetCatalogItem(ctx, 7, library.ID, series.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("series leaked into movie library: %v", err)
+	}
+	library, err = store.GetLibrary(ctx, 7, library.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SetLibraryContentKind(ctx, 7, library.ID, library.Revision, LibraryContentKindSeries); err != nil {
+		t.Fatal(err)
+	}
+	page, err = store.ListCatalogItems(ctx, 7, library.ID, CatalogListOptions{})
+	if err != nil || len(page.Items) != 1 || page.Items[0].ID != series.ID {
+		t.Fatalf("series library items=%+v err=%v", page, err)
+	}
+}
+
 func TestSourceOwnershipAndCatalogPermissionsAreSeparate(t *testing.T) {
 	store := openTestStore(t)
 	ctx := t.Context()

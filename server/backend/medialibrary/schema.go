@@ -1,5 +1,45 @@
 package medialibrary
 
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"strings"
+)
+
+func migrateLibraryContentKindColumn(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, `PRAGMA table_info(library)`)
+	if err != nil {
+		return err
+	}
+	found := false
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull, primaryKey int
+		var defaultValue any
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		found = found || strings.EqualFold(name, "content_kind")
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if found {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, `ALTER TABLE library ADD COLUMN content_kind TEXT NOT NULL DEFAULT 'mixed' CHECK(content_kind IN ('mixed','movie','series'))`); err != nil {
+		return fmt.Errorf("add library content kind: %w", err)
+	}
+	return nil
+}
+
 // Duration thresholds are library policy. A skipped target remains in the job
 // manifest so the owner can see why no provider request was made.
 const schemaV22 = `
@@ -317,6 +357,7 @@ CREATE TABLE library (
     id TEXT PRIMARY KEY NOT NULL CHECK(length(id) > 0),
     owner_user_id INTEGER NOT NULL CHECK(owner_user_id > 0),
     name TEXT NOT NULL CHECK(length(trim(name)) > 0),
+    content_kind TEXT NOT NULL DEFAULT 'mixed' CHECK(content_kind IN ('mixed','movie','series')),
     revision INTEGER NOT NULL DEFAULT 1 CHECK(revision > 0),
     created_at INTEGER NOT NULL CHECK(created_at >= 0),
     updated_at INTEGER NOT NULL CHECK(updated_at >= created_at)
