@@ -801,7 +801,7 @@ func (store *Store) CompleteScanEnumeration(ctx context.Context, actor uint, lea
 
 // A valid staged candidate still names the exact file revision, locator and
 // previously observed generation that were checked for safe absence.
-const unstagedMissing = `lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ? AND lf.missing_since IS NULL AND lf.binding_epoch>0
+const unstagedMissing = `lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ? AND lf.binding_epoch>0
 AND lf.binding_epoch=(SELECT ls.proof_epoch FROM library_source ls WHERE ls.library_id=lf.library_id AND ls.source_id=lf.source_id AND ls.root_locator=lf.root_locator)
 AND NOT (lf.last_seen_job_id IS ? AND lf.last_seen_generation IS ?)
 AND NOT EXISTS (SELECT 1 FROM scan_missing_candidate c WHERE c.job_id = ? AND c.generation = ? AND c.source_file_id = lf.source_file_id
@@ -903,16 +903,17 @@ func (store *Store) CommitScanMissing(ctx context.Context, actor uint, lease Sca
 			var seenJob sql.NullString
 			var seenGeneration sql.NullInt64
 			var missing sql.NullInt64
-			err := tx.QueryRowContext(ctx, `SELECT lf.locator, f.revision,lf.locator_revision, lf.last_seen_job_id, lf.last_seen_generation, lf.missing_since
+			var missingReason string
+			err := tx.QueryRowContext(ctx, `SELECT lf.locator, f.revision,lf.locator_revision, lf.last_seen_job_id, lf.last_seen_generation, lf.missing_since, lf.missing_reason
 FROM library_file lf JOIN source_file f ON f.id = lf.source_file_id AND f.source_id = lf.source_id
-WHERE lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ? AND lf.source_file_id = ? AND lf.binding_epoch=? AND lf.binding_epoch>0`, r.LibraryID, r.Binding.SourceID, r.Binding.RootLocator, c.SourceFileID, r.Binding.ProofEpoch).Scan(&locator, &revision, &locatorRevision, &seenJob, &seenGeneration, &missing)
+WHERE lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ? AND lf.source_file_id = ? AND lf.binding_epoch=? AND lf.binding_epoch>0`, r.LibraryID, r.Binding.SourceID, r.Binding.RootLocator, c.SourceFileID, r.Binding.ProofEpoch).Scan(&locator, &revision, &locatorRevision, &seenJob, &seenGeneration, &missing, &missingReason)
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrRevisionConflict
 			}
 			if err != nil {
 				return err
 			}
-			if missing.Valid || revision != c.FileRevision || locatorRevision != c.LocatorRevision || !bytes.Equal(locator, c.Locator) || seenJob.String != c.SeenJobID || seenGeneration.Int64 != c.SeenGeneration || (seenJob.Valid && seenJob.String == r.ID && seenGeneration.Valid && seenGeneration.Int64 == r.Generation) {
+			if revision != c.FileRevision || locatorRevision != c.LocatorRevision || !bytes.Equal(locator, c.Locator) || seenJob.String != c.SeenJobID || seenGeneration.Int64 != c.SeenGeneration || (seenJob.Valid && seenJob.String == r.ID && seenGeneration.Valid && seenGeneration.Int64 == r.Generation) {
 				return ErrRevisionConflict
 			}
 			var seenJobValue, seenGenerationValue any
@@ -1003,10 +1004,10 @@ func (store *Store) FinishScan(ctx context.Context, actor uint, lease ScanLease,
 				return ErrRevisionConflict
 			}
 			now := time.Now().UnixMilli()
-			_, err = tx.ExecContext(ctx, `UPDATE library_file AS lf SET missing_since = ?, missing_reason = COALESCE((SELECT c.missing_reason FROM scan_missing_candidate c JOIN source_file f ON f.id = c.source_file_id AND f.source_id = lf.source_id
+			_, err = tx.ExecContext(ctx, `UPDATE library_file AS lf SET missing_since = COALESCE(lf.missing_since, ?), missing_reason = COALESCE((SELECT c.missing_reason FROM scan_missing_candidate c JOIN source_file f ON f.id = c.source_file_id AND f.source_id = lf.source_id
 WHERE c.job_id = ? AND c.generation = ? AND c.source_file_id = lf.source_file_id AND c.file_revision = f.revision AND c.locator_revision=lf.locator_revision AND c.locator = lf.locator
 AND c.seen_job_id IS lf.last_seen_job_id AND c.seen_generation IS lf.last_seen_generation), '')
-WHERE lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ? AND lf.missing_since IS NULL
+WHERE lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ?
 AND lf.binding_epoch=? AND lf.binding_epoch>0
 AND NOT (lf.last_seen_job_id IS ? AND lf.last_seen_generation IS ?)
 AND EXISTS (SELECT 1 FROM scan_missing_candidate c JOIN source_file f ON f.id = c.source_file_id AND f.source_id = lf.source_id

@@ -267,6 +267,57 @@ func TestPersistentScanPublishesMissingOnlyAfterSuccessfulReconciliation(t *test
 	}
 }
 
+func TestPersistentScanReclassifiesLegacyMissingFilteredFiles(t *testing.T) {
+	f := newPersistentFixture(t)
+	transport := make([]byte, 565)
+	for _, offset := range []int{0, 188, 376, 564} {
+		transport[offset] = 0x47
+	}
+	f.write(t, "filtered.ts", string(transport))
+	if _, err := Run(t.Context(), 7, f.store, f.coord, f.claim(t), f.ownerResolve, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	f.write(t, "filtered.ts", "export const value = 1\n")
+	if _, err := Run(t.Context(), 7, f.store, f.coord, f.claim(t), f.ownerResolve, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	reason := func() string {
+		var value string
+		if err := f.store.WithTx(t.Context(), func(tx *sql.Tx) error {
+			return tx.QueryRow(`SELECT missing_reason FROM library_file WHERE locator=?`, []byte("/media/filtered.ts")).Scan(&value)
+		}); err != nil {
+			t.Fatal(err)
+		}
+		return value
+	}
+	if got := reason(); got != "filtered_non_media" {
+		t.Fatalf("filtered reason = %q", got)
+	}
+	if err := f.store.WithTx(t.Context(), func(tx *sql.Tx) error {
+		_, err := tx.Exec(`UPDATE library_file SET missing_reason='' WHERE locator=?`, []byte("/media/filtered.ts"))
+		return err
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(t.Context(), 7, f.store, f.coord, f.claim(t), f.ownerResolve, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := reason(); got != "filtered_non_media" {
+		t.Fatalf("legacy missing reason was not reclassified: %q", got)
+	}
+	transport = make([]byte, 565)
+	for _, offset := range []int{0, 188, 376, 564} {
+		transport[offset] = 0x47
+	}
+	f.write(t, "filtered.ts", string(transport))
+	if _, err := Run(t.Context(), 7, f.store, f.coord, f.claim(t), f.ownerResolve, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	if got := reason(); got != "" {
+		t.Fatalf("restored file retained filtered reason: %q", got)
+	}
+}
+
 func TestPersistentScanExternalCancellationFencesOldLease(t *testing.T) {
 	f := newPersistentFixture(t)
 	f.write(t, "a.mp4", "A")

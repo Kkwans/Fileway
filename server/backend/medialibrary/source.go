@@ -521,7 +521,7 @@ FROM library_file WHERE source_file_id = ?`, file.ID).Scan(&known, &live); err !
 	}
 	associationChanged := !associationExists || !bytes.Equal(oldLocator, input.Locator) || oldMissing != nil
 	if _, err := tx.ExecContext(ctx, `INSERT INTO library_file(library_id, source_file_id, source_id, root_locator, locator, observed_at,binding_epoch) VALUES (?, ?, ?, ?, ?, ?,?)
-ON CONFLICT(library_id, source_id, root_locator, source_file_id) DO UPDATE SET locator = excluded.locator, observed_at = excluded.observed_at, missing_since = NULL,binding_epoch=excluded.binding_epoch`, binding.LibraryID, file.ID, binding.SourceID, binding.RootLocator, input.Locator, now, binding.ProofEpoch); err != nil {
+ON CONFLICT(library_id, source_id, root_locator, source_file_id) DO UPDATE SET locator = excluded.locator, observed_at = excluded.observed_at, missing_since = NULL, missing_reason = '', binding_epoch=excluded.binding_epoch`, binding.LibraryID, file.ID, binding.SourceID, binding.RootLocator, input.Locator, now, binding.ProofEpoch); err != nil {
 		return nil, err
 	}
 	if err := tx.QueryRowContext(ctx, "SELECT locator_revision FROM library_file WHERE library_id=? AND source_id=? AND root_locator=? AND source_file_id=?", binding.LibraryID, binding.SourceID, binding.RootLocator, file.ID).Scan(&file.LocatorRevision); err != nil {
