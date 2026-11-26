@@ -1,7 +1,9 @@
 package io.github.kkwans.nasfilebrowser.ui.medialibrary
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -64,7 +66,7 @@ internal fun phoneMediaGridSpec(width: Dp): PhoneMediaGridSpec {
 /** Shares the project's 350ms delayed centered ring and placeholder geometry. Requests and
  * loader are supplied by the authorized image pipeline, never built from provider URLs here. */
 @Composable internal fun MediaImage(artwork: MediaArtwork?, loader: ImageLoader, modifier: Modifier,
-    description: String? = null, person: Boolean = false, fallbackTitle: String? = null) {
+    description: String? = null, person: Boolean = false) {
     val binding = LocalMediaArtworkBinding.current
     val context = LocalContext.current
     var leasedRequest by remember(artwork?.catalog, binding) { mutableStateOf<ImageRequest?>(null) }
@@ -90,23 +92,22 @@ internal fun phoneMediaGridSpec(width: Dp): PhoneMediaGridSpec {
         showLoading = false
         if (request != null && !loaded && !failed) { delay(350); showLoading = true }
     }
-    Box(modifier.clip(MaterialTheme.shapes.medium).background(MaterialTheme.colorScheme.surfaceContainer),
+    val colors = MaterialTheme.colorScheme
+    val shape = MaterialTheme.shapes.medium
+    Box(modifier.clip(shape).background(Brush.linearGradient(listOf(
+        colors.surfaceContainerHighest, colors.surfaceContainer, colors.surfaceContainerLow)))
+        .border(1.dp, colors.outlineVariant.copy(alpha = .45f), shape),
         contentAlignment = Alignment.Center) {
-        if (!loaded && !fallbackTitle.isNullOrBlank()) {
-            val colors = MaterialTheme.colorScheme
-            Box(Modifier.fillMaxSize().background(Brush.linearGradient(listOf(
-                colors.surfaceContainerHighest, colors.surfaceContainer, colors.surfaceContainerLow))))
-            Column(Modifier.fillMaxSize().padding(12.dp).clearAndSetSemantics {},
-                verticalArrangement = Arrangement.SpaceBetween) {
-                val unavailable = artwork == null || artwork.request == null && artwork.catalog == null || failed || leaseFailed
-                Text(if (unavailable) "暂无海报" else "正在加载", style = MaterialTheme.typography.labelSmall,
-                    color = colors.onSurfaceVariant)
-                Text(fallbackTitle, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold,
-                    color = colors.onSurface, maxLines = 3, overflow = TextOverflow.Ellipsis)
+        if (!loaded && !showLoading && (request == null || failed || leaseFailed)) {
+            Box(Modifier.size(if (person) 52.dp else 60.dp)
+                .background(colors.surface.copy(alpha = .58f), CircleShape)
+                .border(1.dp, colors.outlineVariant.copy(alpha = .55f), CircleShape),
+                contentAlignment = Alignment.Center) {
+                FilewayIcon(if (person) R.drawable.ic_person else R.drawable.ic_video, null,
+                    Modifier.size(if (person) 24.dp else 28.dp),
+                    tint = colors.onSurfaceVariant.copy(alpha = .72f))
             }
-        } else if (!loaded) FilewayIcon(if (person) R.drawable.ic_person else R.drawable.ic_video, null,
-            Modifier.size(if (showLoading) 18.dp else 32.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = if (showLoading) .22f else .4f))
+        }
         request?.let {
             AsyncImage(model = request, imageLoader = loader, contentDescription = description,
                 modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
@@ -169,7 +170,7 @@ internal fun phoneMediaGridSpec(width: Dp): PhoneMediaGridSpec {
     Card(onClick = onClick, shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.background)) {
         Box {
-            MediaImage(item.poster, loader, Modifier.fillMaxWidth().aspectRatio(2f / 3f), fallbackTitle = item.title)
+            MediaImage(item.poster, loader, Modifier.fillMaxWidth().aspectRatio(2f / 3f))
             item.primaryRating?.let { rating ->
                 Surface(Modifier.align(Alignment.TopEnd).padding(8.dp),
                     color = MaterialTheme.colorScheme.surface.copy(alpha = .96f), shape = MaterialTheme.shapes.small) {

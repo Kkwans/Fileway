@@ -38,8 +38,7 @@ internal fun PhoneMediaCollectionResult(collection: MediaCatalogCollection, imag
         Row(Modifier.fillMaxWidth().padding(FilewaySpace.content), horizontalArrangement = Arrangement.spacedBy(FilewaySpace.content),
             verticalAlignment = Alignment.CenterVertically) {
             collection.preview.first().backdrop?.let { artwork ->
-                MediaImage(MediaArtwork(catalog = artwork), imageLoader, Modifier.width(96.dp).aspectRatio(16f / 9f),
-                    fallbackTitle = collection.preview.first().title)
+                MediaImage(MediaArtwork(catalog = artwork), imageLoader, Modifier.width(96.dp).aspectRatio(16f / 9f))
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(collection.name, style = PhoneMediaType.itemTitle, maxLines = 2, overflow = TextOverflow.Ellipsis)

@@ -25,7 +25,7 @@ internal fun PhoneMediaFileResult(fileName: String, item: MediaPoster, imageLoad
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Row(Modifier.fillMaxWidth().padding(FilewaySpace.content), horizontalArrangement = Arrangement.spacedBy(FilewaySpace.content),
             verticalAlignment = Alignment.CenterVertically) {
-            MediaImage(item.poster, imageLoader, Modifier.width(64.dp).aspectRatio(2f / 3f), fallbackTitle = item.title)
+            MediaImage(item.poster, imageLoader, Modifier.width(64.dp).aspectRatio(2f / 3f))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(fileName, style = PhoneMediaType.itemTitle, maxLines = 3, overflow = TextOverflow.Ellipsis)
                 Text(item.title, style = PhoneMediaType.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
