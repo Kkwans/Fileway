@@ -91,6 +91,9 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 	}
 	input := automaticMatchInput(item, mediaAutoTitleMatchEnabled())
 	input.Region = policy.Region
+	if reason := automaticMatchSkipReason(input); reason != "" {
+		return fillMatchResult{State: "skipped", Reason: reason}, nil
+	}
 	request := medialibrary.ProviderMatchRequest{LibraryID: library.ID, ItemID: itemID, Kind: string(input.Kind),
 		ItemRevision: itemRevision, StructureRevision: structureRevision, Automatic: true}
 	if receipt, found, err := store.ReplayProviderMatch(ctx, d.user.ID, operationID, request); err != nil {
@@ -210,6 +213,13 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 
 func mediaAutoTitleMatchEnabled() bool {
 	return strings.TrimSpace(os.Getenv("FILEWAY_MEDIA_AUTO_TITLE_MATCH")) != "0"
+}
+
+func automaticMatchSkipReason(input mediaprovider.AutomaticMatchInput) string {
+	if slices.Contains(input.Ambiguities, "episode_requires_parent") {
+		return "episode_requires_parent"
+	}
+	return ""
 }
 
 func genericMediaDirectoryTitle(value string) bool {
