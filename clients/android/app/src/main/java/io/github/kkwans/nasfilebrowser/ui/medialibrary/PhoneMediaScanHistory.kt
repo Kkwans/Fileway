@@ -28,6 +28,8 @@ internal fun PhoneMediaScanHistory(
     onBack: () -> Unit,
     onReviewItem: (MediaCatalogRef) -> Unit,
     onCatalogChanged: () -> Unit,
+    reviewInitiallyOpen: Boolean = false,
+    onBrowse: () -> Unit,
 ) {
     var scans by remember(repository, libraryId) { mutableStateOf(emptyList<MediaScan>()) }
     var next by remember(repository, libraryId) { mutableStateOf<String?>(null) }
@@ -54,7 +56,8 @@ internal fun PhoneMediaScanHistory(
         if (reviewScanId == null) load()
     }
     if (reviewScanId != null) {
-        PhoneMediaScanProgress(repository, libraryId, reviewScanId, { onSelect(null) }, onReviewItem, onCatalogChanged)
+        PhoneMediaScanProgress(repository, libraryId, reviewScanId, { onSelect(null) }, onReviewItem, onCatalogChanged,
+            reviewInitiallyOpen = reviewInitiallyOpen, onBrowse = onBrowse)
     } else {
         ScanHistoryPage("扫描记录", onBack, refresh = { scope.launch { load() } }, busy = busy) {
             if (problem != null) item {
@@ -77,7 +80,8 @@ internal fun PhoneMediaScanHistory(
 
 @Composable
 private fun PhoneMediaScanProgress(repository: MediaLibraryRepository, libraryId: String, scanId: String,
-    onBack: () -> Unit, onReviewItem: (MediaCatalogRef) -> Unit, onCatalogChanged: () -> Unit) {
+    onBack: () -> Unit, onReviewItem: (MediaCatalogRef) -> Unit, onCatalogChanged: () -> Unit,
+    reviewInitiallyOpen: Boolean = false, onBrowse: () -> Unit) {
     var scan by remember(repository, scanId) { mutableStateOf<MediaScan?>(null) }
     var metadata by remember(repository, scanId) { mutableStateOf<MediaMetadataJob?>(null) }
     var problem by remember(repository, scanId) { mutableStateOf<String?>(null) }
@@ -88,7 +92,7 @@ private fun PhoneMediaScanProgress(repository: MediaLibraryRepository, libraryId
     var busy by remember { mutableStateOf(true) }
     var changing by remember { mutableStateOf(false) }
     var paging by remember { mutableStateOf(false) }
-    var reviewVisible by rememberSaveable(scanId) { mutableStateOf(false) }
+    var reviewVisible by rememberSaveable(scanId) { mutableStateOf(reviewInitiallyOpen) }
     val scope = rememberCoroutineScope()
     suspend fun loadReview(cursor: String? = null) {
         paging = true; reviewProblem = null
@@ -144,10 +148,14 @@ private fun PhoneMediaScanProgress(repository: MediaLibraryRepository, libraryId
     LaunchedEffect(repository, scanId, reviewVisible, reviewCount, refresh) {
         if (reviewVisible && metadata != null) loadReview()
     }
-    ScanHistoryPage("扫描进度", onBack, refresh = { refresh++ }, busy = busy || changing) {
+    val resultTitle = if (scan?.status == MediaScanStatus.COMPLETED) "扫描结果" else "扫描进度"
+    ScanHistoryPage(resultTitle, onBack, refresh = { refresh++ }, busy = busy || changing) {
         scan?.let { entry -> item {
-            SettingsGroup("目录扫描") {
+            SettingsGroup(if (entry.status == MediaScanStatus.COMPLETED) "目录扫描结果" else "目录扫描") {
                 ScanProgressText(directoryStatus(entry.status), "已处理 ${entry.processed} 项")
+                if (entry.status == MediaScanStatus.COMPLETED) {
+                    SettingsAction("浏览已收录影片", "返回媒体库并筛选当前媒体库", R.drawable.ic_library, action = onBrowse)
+                }
             }
         } }
         metadata?.let { job -> item {

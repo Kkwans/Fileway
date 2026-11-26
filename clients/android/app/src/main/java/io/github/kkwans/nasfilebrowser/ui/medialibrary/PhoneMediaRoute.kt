@@ -312,6 +312,10 @@ internal fun PhoneMediaRoute(
                     PhoneMediaLibraryManager(session, repository, { managing = false; settings = null }, route::refreshHome,
                         onProvider = { settings = "provider" },
                         onReviewItem = { ref -> reviewLibraryId = ref.libraryId; reviewItemId = ref.itemId },
+                        onBrowse = { id ->
+                            managing = false; settings = null; selectedLibrary = id; mediaTab = "libraries"
+                            route.chooseLibrary(id); route.refreshHome()
+                        },
                         createInitially = createLibrary)
                 }
             }

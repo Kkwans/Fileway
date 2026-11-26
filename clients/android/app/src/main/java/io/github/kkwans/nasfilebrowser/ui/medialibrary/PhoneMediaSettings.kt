@@ -31,11 +31,29 @@ import kotlinx.coroutines.launch
 @Composable
 internal fun PhoneMediaSettings(onBack: () -> Unit, onLibraries: () -> Unit, onProvider: () -> Unit) {
     MediaSettingsPage("影视设置", onBack) {
+        Text("管理媒体库、资料源与识别规则。所有扫描都在服务器后台执行，原文件保持只读。",
+            style = PhoneMediaType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
         SettingsGroup("媒体库") {
-            SettingsAction("管理媒体库", "添加目录、设置资料优先级、查看扫描进度", R.drawable.ic_library, action = onLibraries)
+            SettingsAction("管理媒体库", "创建媒体库、添加目录、查看扫描结果与待确认影片", R.drawable.ic_library, action = onLibraries)
         }
         SettingsGroup("数据源") {
-            SettingsAction("TMDB", "配置密钥并检测与服务器的连接", R.drawable.ic_settings, action = onProvider)
+            SettingsAction("TMDB", "保存密钥、检测连接，默认使用简体中文与中国大陆资料", R.drawable.ic_settings, action = onProvider)
+        }
+        SettingsGroup("识别与扫描") {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("多信号智能匹配", style = PhoneMediaType.itemTitle)
+                Text("结合片名、别名、年份、真实片长、目录结构与唯一候选；存在冲突时进入待确认。",
+                    style = PhoneMediaType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("电影默认低于 60 分钟、电视剧单集默认低于 10 分钟时不发送匹配请求。可在每个媒体库的“资料优先级”中调整。",
+                    style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+        SettingsGroup("文件安全") {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("源文件只读", style = PhoneMediaType.itemTitle)
+                Text("扫描不会改名、移动或回写视频、NFO 与图片。识别结果保存在媒体目录中。",
+                    style = PhoneMediaType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
@@ -176,31 +194,30 @@ internal fun PhoneMediaProviderSettings(repository: MediaLibraryRepository, onBa
             }
         }
     }
-    val checkConnection: () -> Unit = {
+    val checkConnection: () -> Unit = check@{
+        if (!canCheck) return@check
         val target = selected
-        if (canCheck && target != null) {
-            checking = true
-            actionError = null
-            feedback = null
-            actionJob = scope.launch {
-                try {
-                    when (val result = repository.checkProviderConnection(target.id)) {
-                        is MediaReadResult.Success -> if (result.scope == repository.scope) {
-                            feedback = if (result.value.revision != target.revision) {
-                                connections = null
-                                connectionsLoading = true
-                                connectionsRefresh++
-                                "TMDB 连接正常，连接配置已变化，正在刷新。"
-                            } else "TMDB 连接正常。"
-                            feedbackRevision++
-                        }
-                        is MediaReadResult.Failure -> if (result.scope == repository.scope) {
-                            actionError = if (result.error.status == 422) "TMDB 拒绝了已保存的密钥，请检查或更换后再检测。"
-                                else providerProblem(result.error)
-                        }
+        checking = true
+        actionError = null
+        feedback = null
+        actionJob = scope.launch {
+            try {
+                when (val result = repository.checkProviderConnection(target.id)) {
+                    is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                        feedback = if (result.value.revision != target.revision) {
+                            connections = null
+                            connectionsLoading = true
+                            connectionsRefresh++
+                            "TMDB 连接正常，连接配置已变化，正在刷新。"
+                        } else "TMDB 连接正常。"
+                        feedbackRevision++
                     }
-                } finally { checking = false }
-            }
+                    is MediaReadResult.Failure -> if (result.scope == repository.scope) {
+                        actionError = if (result.error.status == 422) "TMDB 拒绝了已保存的密钥，请检查或更换后再检测。"
+                            else providerProblem(result.error)
+                    }
+                }
+            } finally { checking = false }
         }
     }
 

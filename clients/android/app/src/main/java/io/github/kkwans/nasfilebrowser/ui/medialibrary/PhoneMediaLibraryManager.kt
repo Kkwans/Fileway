@@ -47,6 +47,7 @@ import kotlin.coroutines.coroutineContext
     onChanged: () -> Unit,
     onProvider: () -> Unit,
     onReviewItem: (MediaCatalogRef) -> Unit,
+    onBrowse: (String) -> Unit,
     createInitially: Boolean = false,
 ) {
     val health by session.api.sessionHealth.collectAsState()
@@ -88,6 +89,9 @@ import kotlin.coroutines.coroutineContext
         var scanId by rememberSaveable { mutableStateOf<String?>(null) }
         var batchIds by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
         var batchScans by remember { mutableStateOf<List<MediaScan>>(emptyList()) }
+        var scanMetadata by remember { mutableStateOf<Map<String, MediaMetadataJob>>(emptyMap()) }
+        var policy by remember { mutableStateOf<MediaProviderPolicy?>(null) }
+        var historyReviewOpen by rememberSaveable { mutableStateOf(false) }
         var loading by remember { mutableStateOf(false) }
         var paging by remember { mutableStateOf(false) }
         var busy by remember { mutableStateOf(false) }
@@ -125,7 +129,7 @@ import kotlin.coroutines.coroutineContext
                     name = ""; draftFolders = emptyList(); if (createInitially) onBack() else screen = "libraries"
                 }
                 "policy" -> screen = "library"
-                "history" -> { historyScanId = null; screen = "library" }
+                "history" -> { historyScanId = null; historyReviewOpen = false; screen = "library" }
                 "library" -> {
                     if (selectedId == draftLibraryId && draftLibraryId != null) setupPaused = true
                     screen = "libraries"; selectedId = null; selected = null
@@ -139,7 +143,8 @@ import kotlin.coroutines.coroutineContext
                 screen = "library"; notice = "资料优先级已保存。"; onChanged()
             }
         } else if (screen == "history" && selectedId != null) {
-            PhoneMediaScanHistory(repository, selectedId!!, historyScanId, { historyScanId = it }, ::leave, onReviewItem, onChanged)
+            PhoneMediaScanHistory(repository, selectedId!!, historyScanId, { historyScanId = it }, ::leave, onReviewItem, onChanged,
+                reviewInitiallyOpen = historyReviewOpen, onBrowse = { onBrowse(selectedId!!) })
         } else {
 
         LaunchedEffect(repository, screen, selectedId, refresh) {
@@ -164,6 +169,10 @@ import kotlin.coroutines.coroutineContext
                         }
                     }
                     if (selected?.id == id && selected?.role == MediaLibraryRole.OWNER) {
+                        when (val result = repository.metadataPolicy(id)) {
+                            is MediaReadResult.Success -> if (result.scope == repository.scope) policy = result.value
+                            is MediaReadResult.Failure -> if (result.scope == repository.scope) policy = null
+                        }
                         val preparingScan = draftLibraryId == id && setupScanRequested && draftFolders.isEmpty()
                         if (preparingScan) {
                             when (val result = readAllSetupSources(repository, id)) {
@@ -194,7 +203,22 @@ import kotlin.coroutines.coroutineContext
                                 }
                             }
                         }
-                    } else { sources = emptyList(); sourceCursor = null; support = null }
+                        when (val result = repository.listScans(id, limit = 10)) {
+                            is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                                val recent = result.value.items.sortedByDescending { it.updatedAt }
+                                val latest = recent.firstOrNull()
+                                if (latest != null && (scan?.libraryId != id || scan?.status !in setOf(MediaScanStatus.QUEUED, MediaScanStatus.RUNNING))) {
+                                    scan = latest; scanLibrary = id; scanId = latest.id
+                                }
+                                batchScans = recent.filter { it.bindingId != null && it.id != scan?.id }.take(3)
+                                batchIds = ArrayList(batchScans.map { it.id })
+                            }
+                            is MediaReadResult.Failure -> Unit
+                        }
+                    } else { sources = emptyList(); sourceCursor = null; support = null; policy = null }
+                }
+                if (screen == "libraries") {
+                    scan = null; scanId = null; scanLibrary = null; batchIds = arrayListOf(); batchScans = emptyList(); scanMetadata = emptyMap()
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (_: Exception) { error = "暂时无法读取媒体库，请检查连接后重试。" }
@@ -258,6 +282,24 @@ import kotlin.coroutines.coroutineContext
             }
         }
 
+        LaunchedEffect(repository, scanLibrary, scanId, scan?.status, scanRefresh) {
+            val libraryId = scanLibrary ?: return@LaunchedEffect
+            val id = scanId ?: return@LaunchedEffect
+            while (true) {
+                when (val result = repository.metadataJob(libraryId, id)) {
+                    is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                        scanMetadata = scanMetadata + (id to result.value)
+                        if (result.value.status !in setOf(MediaScanStatus.QUEUED, MediaScanStatus.RUNNING)) return@LaunchedEffect
+                    }
+                    is MediaReadResult.Failure -> if (result.scope == repository.scope) {
+                        if (result.error.kind != MediaFailureKind.NOT_FOUND ||
+                            scan?.status !in setOf(MediaScanStatus.QUEUED, MediaScanStatus.RUNNING)) return@LaunchedEffect
+                    }
+                }
+                delay(2_500)
+            }
+        }
+
         LaunchedEffect(repository, scanLibrary, batchIds, scanRefresh) {
             val id = scanLibrary ?: return@LaunchedEffect
             if (batchIds.isEmpty()) return@LaunchedEffect
@@ -266,6 +308,14 @@ import kotlin.coroutines.coroutineContext
                     (repository.getScan(id, job) as? MediaReadResult.Success)?.value
                 }
                 batchScans = current
+                current.filter { it.status == MediaScanStatus.COMPLETED }.forEach { value ->
+                    when (val result = repository.metadataJob(id, value.id)) {
+                        is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                            scanMetadata = scanMetadata + (value.id to result.value)
+                        }
+                        is MediaReadResult.Failure -> Unit
+                    }
+                }
                 if (current.size != batchIds.size) {
                     if (screen == "library" && selectedId == id) error = "有扫描任务暂时无法读取，可刷新后重试。"
                     return@LaunchedEffect
@@ -517,6 +567,13 @@ import kotlin.coroutines.coroutineContext
                         }
                     }
                     "create" -> {
+                        item(key = "intro") {
+                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("从已有目录开始", style = PhoneMediaType.pageTitle)
+                                Text("新媒体库默认仅自己可见。先填写名称并选择文件夹，再创建或直接扫描。",
+                                    style = PhoneMediaType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
                         item(key = "name") {
                             SettingsGroup("基本信息") {
                                 OutlinedTextField(name, { name = it }, label = { Text("媒体库名称") },
@@ -547,9 +604,14 @@ import kotlin.coroutines.coroutineContext
                             }
                         }
                         item(key = "default-policy") {
-                            SettingsGroup("资料") {
-                                Text("仅本地资料。创建后可在“资料优先级”中选择 TMDB 连接并修改。", Modifier.padding(16.dp),
-                                    style = PhoneMediaType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            SettingsGroup("信息获取") {
+                                SettingsAction("TMDB 数据源", "先保存并检测密钥，创建后可选择连接、语言与地区",
+                                    R.drawable.ic_settings, enabled = !busy && pendingId == null, action = onProvider)
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("默认仅本地资料", style = PhoneMediaType.itemTitle)
+                                    Text("创建后可在媒体库详情直接设置 TMDB 优先、本地优先或仅本地资料。默认语言为简体中文，地区为中国大陆。",
+                                        style = PhoneMediaType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
                             }
                         }
                     }
@@ -572,6 +634,14 @@ import kotlin.coroutines.coroutineContext
                                         }
                                     }
                                 }
+                                scan?.takeIf { it.libraryId == library.id }?.let { value -> item(key = "scan-summary") {
+                                    MediaScanSummaryCard(value, scanMetadata[value.id],
+                                        onOpen = { historyScanId = value.id; historyReviewOpen = false; screen = "history" },
+                                        onReview = { historyScanId = value.id; historyReviewOpen = true; screen = "history" },
+                                        onCancel = { submit("cancel") { repository.cancelScan(it, library.id, value.id, value.generation) } },
+                                        onRetry = { submit("retry") { repository.retryScan(it, library.id, value.id, value.generation) } },
+                                        enabled = !busy && pendingId == null)
+                                } }
                                 item(key = "add-source") {
                                     SettingsGroup("媒体文件夹") {
                                         SettingsAction("添加文件夹", "可关联多个当前服务器目录", R.drawable.ic_folder,
@@ -587,7 +657,7 @@ import kotlin.coroutines.coroutineContext
                                 }
                                 item(key = "metadata-policy") {
                                     SettingsGroup("资料") {
-                                        SettingsAction("资料优先级", "本地资料与 TMDB", R.drawable.ic_settings,
+                                        SettingsAction("资料优先级", metadataPolicySummary(policy), R.drawable.ic_settings,
                                             enabled = !busy && pendingId == null && (draftLibraryId == null || setupPaused)) { screen = "policy" }
                                     }
                                 }
@@ -643,40 +713,13 @@ import kotlin.coroutines.coroutineContext
                                         }
                                     }, modifier = Modifier.fillMaxWidth()) { Text("加载更多来源") }
                                 }
-                                scan?.takeIf { it.libraryId == library.id }?.let { value -> item(key = "scan") {
-                                    Text("${scanStatusLabel(value.status)} · 已处理 ${value.processed} 项", style = PhoneMediaType.body)
-                                        TextButton(onClick = { historyScanId = value.id; screen = "history" }) { Text("查看进度") }
-                                        when (value.status) {
-                                            MediaScanStatus.QUEUED, MediaScanStatus.RUNNING ->
-                                                TextButton(onClick = {
-                                                    submit("cancel") { repository.cancelScan(it, library.id, value.id, value.generation) }
-                                                }, enabled = !busy && pendingId == null) { Text("取消扫描") }
-                                            MediaScanStatus.FAILED, MediaScanStatus.CANCELED, MediaScanStatus.INTERRUPTED ->
-                                                TextButton(onClick = {
-                                                    submit("retry") { repository.retryScan(it, library.id, value.id, value.generation) }
-                                                }, enabled = !busy && pendingId == null) { Text("重试扫描") }
-                                            else -> Unit
-                                        }
-                                } }
                                 items(batchScans.filter { it.libraryId == library.id }, key = { "batch/${it.id}" }) { value ->
-                                    Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium) {
-                                        Row(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                            Column(Modifier.weight(1f)) {
-                                                Text(sources.firstOrNull { it.id == value.bindingId }?.displayRoot ?: "媒体文件夹", style = PhoneMediaType.itemTitle)
-                                                Text("${scanStatusLabel(value.status)} · 已处理 ${value.processed} 项", style = PhoneMediaType.secondary)
-                                            }
-                                            TextButton(onClick = { historyScanId = value.id; screen = "history" }) { Text("进度") }
-                                            when (value.status) {
-                                                MediaScanStatus.QUEUED, MediaScanStatus.RUNNING -> TextButton(onClick = {
-                                                    submit("cancel") { repository.cancelScan(it, library.id, value.id, value.generation) }
-                                                }, enabled = !busy && pendingId == null) { Text("取消") }
-                                                MediaScanStatus.FAILED, MediaScanStatus.CANCELED, MediaScanStatus.INTERRUPTED -> TextButton(onClick = {
-                                                    submit("retry") { repository.retryScan(it, library.id, value.id, value.generation) }
-                                                }, enabled = !busy && pendingId == null) { Text("重试") }
-                                                else -> Unit
-                                            }
-                                        }
-                                    }
+                                    MediaScanSummaryCard(value, scanMetadata[value.id],
+                                        onOpen = { historyScanId = value.id; historyReviewOpen = false; screen = "history" },
+                                        onReview = { historyScanId = value.id; historyReviewOpen = true; screen = "history" },
+                                        onCancel = { submit("cancel") { repository.cancelScan(it, library.id, value.id, value.generation) } },
+                                        onRetry = { submit("retry") { repository.retryScan(it, library.id, value.id, value.generation) } },
+                                        enabled = !busy && pendingId == null)
                                 }
                             }
                         }
@@ -714,10 +757,10 @@ import kotlin.coroutines.coroutineContext
                                     style = PhoneMediaType.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                             if (creating) {
-                                Text("创建时会添加所选文件夹；仅创建不会启动扫描。", style = PhoneMediaType.secondary,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                if (draftFolders.isEmpty() || draftFolders.size > 60) Text(
-                                    if (draftFolders.isEmpty()) "选择文件夹后可以创建并扫描。" else "一次最多扫描 60 个文件夹，可以先创建媒体库。",
+                                Text(if (draftFolders.isEmpty()) "可先创建媒体库，之后再添加文件夹。"
+                                    else "将创建媒体库并添加 ${draftFolders.size} 个文件夹；创建后可立即设置资料策略。",
+                                    style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (draftFolders.size > 60) Text("一次最多扫描 60 个文件夹，可以先创建媒体库。",
                                     style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 FilewayButton(onClick = { createLibrary(andScan = true) },
                                     enabled = canCreate && draftFolders.size in 1..60,
@@ -752,6 +795,82 @@ import kotlin.coroutines.coroutineContext
         }
         }
     }
+}
+
+@Composable
+private fun MediaScanSummaryCard(scan: MediaScan, metadata: MediaMetadataJob?, onOpen: () -> Unit, onReview: () -> Unit,
+    onCancel: () -> Unit, onRetry: () -> Unit, enabled: Boolean) {
+    Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                FilewayIcon(R.drawable.ic_search, null, Modifier.size(24.dp), tint = MaterialTheme.colorScheme.primary)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(scan.sourceLabel ?: "最近扫描", style = PhoneMediaType.itemTitle)
+                    Text("${scanStatusLabel(scan.status)} · 已处理 ${scan.processed} 项", style = PhoneMediaType.secondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (scan.status == MediaScanStatus.RUNNING || scan.status == MediaScanStatus.QUEUED) {
+                LinearProgressIndicator(Modifier.fillMaxWidth())
+            }
+            metadata?.let { job ->
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    MediaScanStat("已匹配", job.matched, Modifier.weight(1f))
+                    MediaScanStat("待确认", job.review, Modifier.weight(1f))
+                    MediaScanStat("待处理", job.pending, Modifier.weight(1f))
+                }
+                val secondary = buildList {
+                    if (job.skipped > 0) add("已跳过 ${job.skipped}")
+                    if (job.failed > 0) add("失败 ${job.failed}")
+                }.joinToString(" · ")
+                if (secondary.isNotEmpty()) Text(secondary, style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            FilewayButton(onClick = onOpen, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                Text("查看扫描结果", style = PhoneMediaType.action)
+            }
+            if ((metadata?.review ?: 0) > 0) {
+                FilewayOutlinedButton(onClick = onReview, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                    Text("处理待确认 · ${metadata?.review ?: 0}", style = PhoneMediaType.action)
+                }
+            }
+            if (scan.status in setOf(MediaScanStatus.QUEUED, MediaScanStatus.RUNNING, MediaScanStatus.FAILED,
+                    MediaScanStatus.CANCELED, MediaScanStatus.INTERRUPTED)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = if (scan.status == MediaScanStatus.QUEUED || scan.status == MediaScanStatus.RUNNING) onCancel else onRetry,
+                        enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) {
+                        Text(if (scan.status == MediaScanStatus.QUEUED || scan.status == MediaScanStatus.RUNNING) "取消扫描" else "重试扫描",
+                            style = PhoneMediaType.action)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MediaScanStat(label: String, value: Long, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(value.toString(), style = PhoneMediaType.sectionTitle)
+        Text(label, style = PhoneMediaType.badge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+private fun metadataPolicySummary(policy: MediaProviderPolicy?): String {
+    if (policy == null) return "读取后可配置语言、地区与时长过滤"
+    val mode = when (policy.mode) {
+        MediaProviderPolicyMode.LOCAL_ONLY -> "仅本地资料"
+        MediaProviderPolicyMode.LOCAL_FIRST_ONLINE -> "本地优先，TMDB 补缺"
+        MediaProviderPolicyMode.ONLINE_FIRST -> "TMDB 优先"
+        MediaProviderPolicyMode.UNKNOWN -> "资料策略未知"
+    }
+    val language = when (policy.language) {
+        "zh-CN" -> "简体中文"
+        "zh-TW" -> "繁体中文"
+        "en-US" -> "English"
+        "ja-JP" -> "日本語"
+        else -> policy.language.ifBlank { "语言未设置" }
+    }
+    return "$mode · $language · ${policy.region.ifBlank { "地区未设置" }}"
 }
 
 /** Scan setup only after every source page has been read and no continuation remains. */
