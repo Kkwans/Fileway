@@ -314,6 +314,17 @@ func TestSeriesFilenameAliasesComeFromMappedEpisodes(t *testing.T) {
 	}
 }
 
+func TestSeriesFilenameAliasNormalizationRemovesReleaseTags(t *testing.T) {
+	for alias, want := range map[string]string{
+		"Euphoria US BDE4":             "Euphoria",
+		"人生切割术 Severance ATVP -MiniTV": "人生切割术 Severance",
+	} {
+		if got := normalizeSeriesFilenameAlias(alias); got != want {
+			t.Fatalf("alias %q: got %q want %q", alias, got, want)
+		}
+	}
+}
+
 func TestBindingEpochFenceDoesNotReviveOldMapping(t *testing.T) {
 	store, library, first, lease, file, variant := playbackFixture(t)
 	ctx := t.Context()

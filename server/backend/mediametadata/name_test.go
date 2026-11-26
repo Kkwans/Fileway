@@ -376,6 +376,14 @@ func TestParseNameEpisodeYearAndReleaseTags(t *testing.T) {
 	if parsed.Title != "热点" || parsed.Year == nil || *parsed.Year != 2025 || len(parsed.AbsoluteEpisodes) != 10 || parsed.AbsoluteEpisodes[0] != 1 || parsed.AbsoluteEpisodes[9] != 10 {
 		t.Fatalf("episode range title/year not cleaned: %+v", parsed)
 	}
+	for filename, want := range map[string]string{
+		"Euphoria.US.S01E01.HD1080P.X264.AAC.English.CHS-ENG.BDE4.mkv":               "Euphoria",
+		"人生切割术.Severance.S02E01.2025.2160p.ATVP.WEB-DL.DDP5.1.Atmos.H265-MiniTV.mkv": "人生切割术 Severance",
+	} {
+		if got := ParseName(filename).Title; got != want {
+			t.Fatalf("release tag remained in %q: got %q want %q", filename, got, want)
+		}
+	}
 }
 
 func FuzzParseNameEvidence(f *testing.F) {

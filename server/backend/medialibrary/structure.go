@@ -1478,6 +1478,14 @@ type FileIdentification struct {
 	Revision   int64
 }
 
+func normalizeSeriesFilenameAlias(alias string) string {
+	parsed := mediametadata.ParseName(alias + ".mkv")
+	if parsed.Title != "" {
+		return parsed.Title
+	}
+	return alias
+}
+
 func (store *Store) GetSeriesFilenameAliases(ctx context.Context, actor uint, libraryID, seriesID string) ([]string, error) {
 	if _, err := activeCatalogLibrary(ctx, store.db, actor, libraryID); err != nil {
 		return nil, err
@@ -1498,11 +1506,20 @@ ORDER BY 1 LIMIT 6`, libraryID, seriesID, seriesTitle)
 	}
 	defer func() { _ = rows.Close() }()
 	aliases := []string{}
+	seen := make(map[string]struct{})
 	for rows.Next() {
 		var alias string
 		if err := rows.Scan(&alias); err != nil {
 			return nil, err
 		}
+		alias = normalizeSeriesFilenameAlias(alias)
+		if alias == "" || alias == seriesTitle {
+			continue
+		}
+		if _, exists := seen[alias]; exists {
+			continue
+		}
+		seen[alias] = struct{}{}
 		aliases = append(aliases, alias)
 	}
 	return aliases, rows.Err()
