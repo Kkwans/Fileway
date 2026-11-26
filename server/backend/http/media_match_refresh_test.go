@@ -13,6 +13,13 @@ import (
 	"github.com/Kkwans/nas-file-browser/backend/mediaprovider"
 )
 
+func TestMetadataRefreshPartsIncludeSeriesAlternatives(t *testing.T) {
+	parts := metadataRefreshParts("series")
+	if !slices.Contains(parts, mediaprovider.AlternativeTitles) {
+		t.Fatalf("series refresh parts = %v", parts)
+	}
+}
+
 func TestMediaMetadataRefreshPreviewApplyAndUndo(t *testing.T) {
 	f := newMediaScanHTTPFixture(t)
 	catalogFixtureWrite(t, f, "film.mkv", "video")

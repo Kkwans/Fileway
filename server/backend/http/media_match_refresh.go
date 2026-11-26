@@ -42,6 +42,14 @@ func mediaMetadataLibraryRefreshPreviewHandler() handleFunc {
 	})
 }
 
+func metadataRefreshParts(kind string) []mediaprovider.Part {
+	parts := []mediaprovider.Part{mediaprovider.Credits, mediaprovider.ExternalIDs}
+	if kind == "series" {
+		parts = append(parts, mediaprovider.AlternativeTitles)
+	}
+	return parts
+}
+
 func mediaMetadataRefreshHandler(preview bool, slots chan struct{}, starts <-chan time.Time) handleFunc {
 	return providerConfig(func(w http.ResponseWriter, r *http.Request, d *data) (int, error) {
 		var body metadataRefreshBody
@@ -133,7 +141,7 @@ func mediaMetadataRefreshHandler(preview bool, slots chan struct{}, starts <-cha
 			return d.store.MediaProviderVault.Open(scope, sealed)
 		})
 		document, err := client.Fetch(ctx, mediaprovider.EntityRef{Provider: "tmdb", Kind: mediaprovider.Kind(match.Kind), ID: match.ExternalID},
-			mediaprovider.FetchOptions{Language: policy.Language, Parts: []mediaprovider.Part{mediaprovider.Credits, mediaprovider.ExternalIDs}})
+			mediaprovider.FetchOptions{Language: policy.Language, Parts: metadataRefreshParts(match.Kind)})
 		if err != nil {
 			return matchProviderError(w, err)
 		}
