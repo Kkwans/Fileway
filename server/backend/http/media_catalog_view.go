@@ -49,11 +49,12 @@ type catalogView struct {
 	budget         *catalogBudget
 	checks         map[catalogSourceKey]*catalogSourceCheck
 	coverage       map[catalogCoverageKey]catalogEpisodePlayback
+	counts         map[catalogCountsKey]*catalogEpisodeCounts
 	metadataChecks map[catalogMetadataKey]catalogMetadataCheck
 }
 
 func newCatalogView(d *data) *catalogView {
-	return &catalogView{d: d, budget: &catalogBudget{remaining: catalogCandidateBudget}, checks: map[catalogSourceKey]*catalogSourceCheck{}, coverage: map[catalogCoverageKey]catalogEpisodePlayback{}, metadataChecks: map[catalogMetadataKey]catalogMetadataCheck{}}
+	return &catalogView{d: d, budget: &catalogBudget{remaining: catalogCandidateBudget}, checks: map[catalogSourceKey]*catalogSourceCheck{}, coverage: map[catalogCoverageKey]catalogEpisodePlayback{}, counts: map[catalogCountsKey]*catalogEpisodeCounts{}, metadataChecks: map[catalogMetadataKey]catalogMetadataCheck{}}
 }
 
 type catalogSourceKey struct {
@@ -69,6 +70,9 @@ type catalogSourceCheck struct {
 type catalogCoverageKey struct {
 	LibraryID, SeriesID, BindingID, FileID, Role string
 	Epoch                                        int64
+}
+type catalogCountsKey struct {
+	LibraryID, SeriesID, SeasonID string
 }
 type catalogMetadataKey struct {
 	ID, BindingID, SourceKey                                            string
@@ -802,10 +806,17 @@ func (v *catalogView) projectCard(ctx context.Context, library *medialibrary.Lib
 }
 
 func (v *catalogView) cardCounts(ctx context.Context, library *medialibrary.Library, seriesID, seasonID string) *catalogEpisodeCounts {
+	key := catalogCountsKey{LibraryID: library.ID, SeriesID: seriesID, SeasonID: seasonID}
+	if prior, ok := v.counts[key]; ok {
+		return prior
+	}
 	allowance := min(64, v.budget.remaining)
-	child := &catalogView{d: v.d, budget: &catalogBudget{remaining: allowance}, checks: v.checks, coverage: v.coverage, metadataChecks: v.metadataChecks}
+	child := &catalogView{d: v.d, budget: &catalogBudget{remaining: allowance}, checks: v.checks, coverage: v.coverage, counts: v.counts, metadataChecks: v.metadataChecks}
 	counts := child.seriesCounts(ctx, library, seriesID, seasonID)
 	v.budget.remaining -= allowance - child.budget.remaining
+	if counts.CountState == "ready" {
+		v.counts[key] = counts
+	}
 	return counts
 }
 

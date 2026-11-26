@@ -493,6 +493,20 @@ ELSE 500 END WHERE item_id IN (SELECT episode_id FROM episode_position)`)
 	}
 }
 
+func TestCatalogReadyEpisodeCountsAreReusedWithinRequest(t *testing.T) {
+	prior := &catalogEpisodeCounts{CountState: "ready"}
+	view := &catalogView{
+		budget: &catalogBudget{remaining: 10},
+		counts: map[catalogCountsKey]*catalogEpisodeCounts{
+			{LibraryID: "lib", SeriesID: "series"}: prior,
+		},
+	}
+	got := view.cardCounts(t.Context(), &medialibrary.Library{ID: "lib"}, "series", "")
+	if got != prior || view.budget.remaining != 10 {
+		t.Fatalf("ready counts were recomputed: got=%p prior=%p remaining=%d", got, prior, view.budget.remaining)
+	}
+}
+
 func TestCatalogCandidatePageLimitIsBatchedAndBounded(t *testing.T) {
 	for _, test := range []struct {
 		remaining int
