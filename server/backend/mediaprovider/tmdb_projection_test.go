@@ -147,6 +147,43 @@ func TestProjectTMDBMovieCollection(t *testing.T) {
 	}
 }
 
+func TestProjectTMDBSeasonEpisodes(t *testing.T) {
+	document := projectionDocument(t, Season, `{
+		"id": 101, "season_number": 1, "name": "第一季",
+		"episodes": [
+			{"id": 201, "episode_number": 1, "name": "你好", "overview": "第一集", "air_date": "2024-03-01", "episode_runtime": 52, "still_path": "/still1.jpg"},
+			{"id": 202, "episode_number": 2, "name": "再见", "episode_runtime": 0}
+		]
+	}`)
+	episodes, err := ProjectTMDBSeasonEpisodes(document)
+	if err != nil || len(episodes) != 2 {
+		t.Fatalf("season episodes = %+v err=%v", episodes, err)
+	}
+	if episodes[0].SeasonNumber != 1 || episodes[0].Number != 1 || episodes[0].Title != "你好" || episodes[0].Overview != "第一集" || episodes[0].AirDate != "2024-03-01" || episodes[0].RuntimeMinutes != 52 || episodes[0].StillPath != "/still1.jpg" || episodes[1].RuntimeMinutes != 0 {
+		t.Fatalf("season episode projection = %+v", episodes)
+	}
+}
+
+func TestProjectTMDBSeasonEpisodesRejectsInvalidEvidence(t *testing.T) {
+	for _, test := range []struct{ name, payload string }{
+		{"id mismatch", `{"id": 101, "season_number": 1, "episodes": [{"id": 201, "episode_number": 1}]}`},
+		{"duplicate number", `{"id": 101, "season_number": 1, "episodes": [{"id": 201, "episode_number": 1}, {"id": 202, "episode_number": 1}]}`},
+		{"duplicate id", `{"id": 101, "season_number": 1, "episodes": [{"id": 201, "episode_number": 1}, {"id": 201, "episode_number": 2}]}`},
+		{"invalid date", `{"id": 101, "season_number": 1, "episodes": [{"id": 201, "episode_number": 1, "air_date": "2024-99-99"}]}`},
+		{"invalid still", `{"id": 101, "season_number": 1, "episodes": [{"id": 201, "episode_number": 1, "still_path": "https://example.com/still.jpg"}]}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			document := projectionDocument(t, Season, test.payload)
+			if test.name == "id mismatch" {
+				document.Entity.ID = 102
+			}
+			if _, err := ProjectTMDBSeasonEpisodes(document); err == nil {
+				t.Fatal("invalid season evidence accepted")
+			}
+		})
+	}
+}
+
 func TestProjectTMDBRejectsInvalidEvidence(t *testing.T) {
 	for _, test := range []struct {
 		name, payload string

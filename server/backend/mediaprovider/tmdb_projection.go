@@ -168,6 +168,77 @@ func ProjectTMDB(document Document) (TMDBProjection, error) {
 	return result, nil
 }
 
+type TMDBEpisodeMetadata struct {
+	SeasonNumber   int
+	Number         int
+	Title          string
+	OriginalTitle  string
+	Overview       string
+	AirDate        string
+	RuntimeMinutes int
+	StillPath      string
+}
+
+func ProjectTMDBSeasonEpisodes(document Document) ([]TMDBEpisodeMetadata, error) {
+	if document.Entity.Provider != "tmdb" || document.Entity.Kind != Season {
+		return nil, &Error{Code: InvalidRequest}
+	}
+	encoded, err := json.Marshal(document.Fields)
+	if err != nil {
+		return nil, &Error{Code: InvalidResponse}
+	}
+	var source struct {
+		ID           *int64 `json:"id"`
+		SeasonNumber *int   `json:"season_number"`
+		Episodes     []struct {
+			ID             *int64 `json:"id"`
+			EpisodeNumber  int    `json:"episode_number"`
+			Name           string `json:"name"`
+			OriginalName   string `json:"original_name"`
+			Overview       string `json:"overview"`
+			AirDate        string `json:"air_date"`
+			EpisodeRuntime int    `json:"episode_runtime"`
+			StillPath      string `json:"still_path"`
+		} `json:"episodes"`
+	}
+	if err := json.Unmarshal(encoded, &source); err != nil || source.ID == nil || *source.ID <= 0 || *source.ID != document.Entity.ID ||
+		source.SeasonNumber == nil || *source.SeasonNumber < 0 || len(source.Episodes) > 1000 {
+		return nil, &Error{Code: InvalidResponse}
+	}
+	result := make([]TMDBEpisodeMetadata, 0, len(source.Episodes))
+	ids := make(map[int64]struct{}, len(source.Episodes))
+	numbers := make(map[int]struct{}, len(source.Episodes))
+	for _, episode := range source.Episodes {
+		if episode.ID == nil || *episode.ID <= 0 || episode.EpisodeNumber < 0 || episode.EpisodeNumber > 9999 || episode.EpisodeRuntime < 0 || episode.EpisodeRuntime > 24*60 {
+			return nil, &Error{Code: InvalidResponse}
+		}
+		if _, duplicate := ids[*episode.ID]; duplicate {
+			return nil, &Error{Code: InvalidResponse}
+		}
+		if _, duplicate := numbers[episode.EpisodeNumber]; duplicate {
+			return nil, &Error{Code: InvalidResponse}
+		}
+		ids[*episode.ID], numbers[episode.EpisodeNumber] = struct{}{}, struct{}{}
+		airDate := strings.TrimSpace(episode.AirDate)
+		if airDate != "" {
+			if _, err := time.Parse(time.DateOnly, airDate); err != nil {
+				return nil, &Error{Code: InvalidResponse}
+			}
+		}
+		if episode.StillPath != "" {
+			if _, err := tmdbImageURL(tmdbImageBase, "w300", episode.StillPath); err != nil {
+				return nil, &Error{Code: InvalidResponse}
+			}
+		}
+		result = append(result, TMDBEpisodeMetadata{
+			SeasonNumber: *source.SeasonNumber, Number: episode.EpisodeNumber, Title: strings.TrimSpace(episode.Name),
+			OriginalTitle: strings.TrimSpace(episode.OriginalName), Overview: strings.TrimSpace(episode.Overview), AirDate: airDate,
+			RuntimeMinutes: episode.EpisodeRuntime, StillPath: episode.StillPath,
+		})
+	}
+	return result, nil
+}
+
 func chineseSeriesTitle(document Document, title string) string {
 	if !strings.HasPrefix(strings.ToLower(document.Language), "zh") || containsHan(title) {
 		return title
