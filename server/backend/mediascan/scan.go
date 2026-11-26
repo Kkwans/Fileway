@@ -268,6 +268,10 @@ func (w *walker) video(ctx context.Context, locator, name string) error {
 }
 
 func (w *walker) videoInContext(ctx context.Context, locator, name string, directory medialibrary.DirectoryContextRef) (resultErr error) {
+	fileNameEvidence := mediametadata.ParseName(name)
+	if fileNameEvidence.Title == "" && slices.Contains(fileNameEvidence.Ambiguities, "promotional_filename") {
+		return nil
+	}
 	file, err := w.source.Open(ctx, locator, false)
 	if err != nil {
 		return err
@@ -352,9 +356,6 @@ func (w *walker) videoInContext(ctx context.Context, locator, name string, direc
 		return err
 	}
 	parsedName := mediametadata.ParseNameInDirectory(name, path.Base(path.Dir(locator)))
-	if parsedName.Title == "" && slices.Contains(parsedName.Ambiguities, "promotional_filename") {
-		return nil
-	}
 	var durationMs int64
 	if technical != nil {
 		durationMs = technical.DurationMs

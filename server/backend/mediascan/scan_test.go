@@ -125,6 +125,7 @@ func TestScanLocalSkipsPromotionalSampleClips(t *testing.T) {
 	f := newScanFixture(t)
 	f.write(t, "movie/film.mkv", "video")
 	f.write(t, "movie/【更多无水印蓝光原盘请访问 www.BBQDDQ.com】【更多无水印蓝光原盘请访问 www.BBQDDQ.com】.MP4", "sample")
+	f.write(t, "Real.Movie.2020/【更多无水印高清电影请访问 www.HDBTHD.com】【更多无水印高清电影请访问 www.HDBTHD.com】.MP4", "sample")
 	sink := &observationSink{}
 	result, err := ScanLocal(t.Context(), 7, f.binding, f.resolve, sink, Options{})
 	if err != nil {
