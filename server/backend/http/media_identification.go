@@ -35,6 +35,7 @@ type mediaIdentificationFile struct {
 type mediaIdentificationResponse struct {
 	Ref                 catalogRef                        `json:"ref"`
 	Title               string                            `json:"title"`
+	Year                int                               `json:"year,omitempty"`
 	StructureKind       string                            `json:"structureKind"`
 	MatchState          string                            `json:"matchState"`
 	StructureRevision   int64                             `json:"structureRevision"`
@@ -117,6 +118,9 @@ func identifyCatalogItem(ctx context.Context, d *data, library *medialibrary.Lib
 		StructureRevision: card.structureRevision, ItemRevision: card.Revision,
 		ExternalIDs: ids.Items, ExternalIDsCursor: ids.NextCursor,
 		incompleteEvidence: access.metadataState == "restricted" || access.metadataState == "offline" || access.metadataState == "partial",
+	}
+	if card.Year != nil {
+		result.Year = *card.Year
 	}
 	// A container's accessible descendant proves visibility. Its filename
 	// cannot supply the container's own candidate query or explicit IDs.

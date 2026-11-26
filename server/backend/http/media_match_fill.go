@@ -5,7 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"os"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -210,8 +212,10 @@ func mediaAutoTitleMatchEnabled() bool {
 	return strings.TrimSpace(os.Getenv("FILEWAY_MEDIA_AUTO_TITLE_MATCH")) != "0"
 }
 
+var embeddedTitleYearSuffix = regexp.MustCompile(`(?i)[ ._\-]+((?:18|19|20|21)[0-9]{2})$`)
+
 func automaticMatchInput(item mediaIdentificationResponse, allowTitleMatch bool) mediaprovider.AutomaticMatchInput {
-	input := mediaprovider.AutomaticMatchInput{Kind: mediaprovider.Kind(item.StructureKind), Incomplete: item.ExternalIDsCursor != "" || item.incompleteEvidence, AllowTitleMatch: allowTitleMatch}
+	input := mediaprovider.AutomaticMatchInput{Kind: mediaprovider.Kind(item.StructureKind), Year: item.Year, Incomplete: item.ExternalIDsCursor != "" || item.incompleteEvidence, AllowTitleMatch: allowTitleMatch}
 	if item.StructureKind == "video" {
 		input.Kind = mediaprovider.Movie
 	}
@@ -253,8 +257,15 @@ func automaticMatchInput(item mediaIdentificationResponse, allowTitleMatch bool)
 			input.DurationMs = technical.DurationMs
 			if strings.TrimSpace(technical.FormatTitle) != "" {
 				embedded := mediametadata.ParseName(technical.FormatTitle)
-				if embedded.Title != "" && embedded.Year != nil && (input.Year == 0 || *embedded.Year == input.Year) {
-					input.FallbackTitle, input.FallbackYear = embedded.Title, *embedded.Year
+				fallbackTitle := embedded.Title
+				if embedded.Year != nil {
+					year := strconv.Itoa(*embedded.Year)
+					if match := embeddedTitleYearSuffix.FindStringSubmatch(fallbackTitle); len(match) == 2 && match[1] == year && strings.Count(technical.FormatTitle, year) > 1 {
+						fallbackTitle = strings.TrimSpace(embeddedTitleYearSuffix.ReplaceAllString(fallbackTitle, ""))
+					}
+				}
+				if fallbackTitle != "" && embedded.Year != nil && (input.Year == 0 || *embedded.Year == input.Year) {
+					input.FallbackTitle, input.FallbackYear = fallbackTitle, *embedded.Year
 				}
 			}
 		}

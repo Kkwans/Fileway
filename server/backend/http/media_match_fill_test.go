@@ -45,10 +45,23 @@ func TestAutomaticMatchInputUsesEmbeddedTitleAsFallback(t *testing.T) {
 	if input.FallbackTitle != "本杰明·巴顿奇事" || input.FallbackYear != 2008 || input.Title != "b杰m·b顿q事" {
 		t.Fatalf("embedded title fallback missing: %+v", input)
 	}
+	item.File.Technical.FormatTitle = "本杰明·巴顿奇事.2008.CC.1080p.国英双语.2008.CC.BD1080p.国英双语.中英双字"
+	input = automaticMatchInput(item, true)
+	if input.FallbackTitle != "本杰明·巴顿奇事" || input.FallbackYear != 2008 {
+		t.Fatalf("repeated embedded year contaminated fallback title: %+v", input)
+	}
 	item.File.Technical.FormatTitle = "本杰明·巴顿奇事.2009.BD1080p"
 	input = automaticMatchInput(item, true)
 	if input.FallbackTitle != "" || input.FallbackYear != 0 {
 		t.Fatalf("conflicting embedded year was accepted: %+v", input)
+	}
+}
+
+func TestAutomaticMatchInputUsesContainerYear(t *testing.T) {
+	item := mediaIdentificationResponse{StructureKind: "series", Title: "信号", Year: 2016}
+	input := automaticMatchInput(item, true)
+	if input.Year != 2016 || input.Title != "信号" {
+		t.Fatalf("container year was not retained: %+v", input)
 	}
 }
 
