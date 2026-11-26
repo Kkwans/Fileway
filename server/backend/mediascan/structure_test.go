@@ -59,6 +59,22 @@ func TestDirectoryEpisodeEvidenceCoversSeasonEncodedFiles(t *testing.T) {
 	if secretForest == nil || secretForest.Title != "秘密森林" || secretForest.Season != 1 || len(secretForest.Numbers) != 2 {
 		t.Fatalf("english filename directory evidence: %+v", secretForest)
 	}
+	hdrEuphoria := directoryEpisodeEvidence("【高清剧集网发布 www.DDHDTV.com】亢奋 第一季[HDR+杜比视界双版本][全8集][简繁英字幕].2019.Repack.2160p.MAX.WEB-DL.x265.DV.HDR.DDP5.1-ZeroTV", []string{
+		"Euphoria.S01E01.2019.2160p.MAX.WEB-DL.x265.DV.HDR.DDP5.1-ZeroTV.mkv",
+		"Euphoria.S01E02.2019.2160p.MAX.WEB-DL.x265.DV.HDR.DDP5.1-ZeroTV.mkv",
+		"Other.Show.S01E03.1080p.mkv",
+	})
+	if hdrEuphoria == nil || hdrEuphoria.Title != "亢奋" || hdrEuphoria.Season != 1 || len(hdrEuphoria.Numbers) != 2 {
+		t.Fatalf("hdr directory evidence: %+v", hdrEuphoria)
+	}
+	dongbei := directoryEpisodeEvidence("【高清剧集网发布 www.BPHDTV.com】东北插班生[全24集][国语配音+中文字幕].Dong.Bei.Cha.Ban.Sheng.S01.2022.1080p.KKTV.WEB-DL.AAC.H264-ParkTV", []string{
+		"东北插班生.Dong.Bei.Cha.Ban.Sheng.S01E01.2022.1080p.KKTV.WEB-DL.AAC.H264-ParkTV.mkv",
+		"东北插班生.Dong.Bei.Cha.Ban.Sheng.S01E02.2022.1080p.KKTV.WEB-DL.AAC.H264-ParkTV.mkv",
+		"Other.Show.S01E03.1080p.mkv",
+	})
+	if dongbei == nil || dongbei.Title != "东北插班生" || dongbei.Season != 1 || len(dongbei.Numbers) != 2 {
+		t.Fatalf("long promotional directory evidence: %+v", dongbei)
+	}
 }
 
 func TestPersistentScanBuildsLocalSeriesFromAbsoluteEpisodesWithoutDeclaredCount(t *testing.T) {
@@ -152,6 +168,32 @@ func TestPersistentScanIgnoresDirectoryRangeNoiseForSingleEpisodes(t *testing.T)
 	}
 	if episodes != 2 || videos != 0 {
 		t.Fatalf("directory range noise blocked episodes: episodes=%d videos=%d", episodes, videos)
+	}
+}
+
+func TestPersistentScanAggregatesHdrSeasonDirectory(t *testing.T) {
+	f := newPersistentFixture(t)
+	directory := "【高清剧集网发布 www.DDHDTV.com】亢奋 第一季[HDR+杜比视界双版本][全8集][简繁英字幕].2019.Repack.2160p.MAX.WEB-DL.x265.DV.HDR.DDP5.1-ZeroTV"
+	f.write(t, directory+"/Euphoria.S01E01.2019.2160p.MAX.WEB-DL.x265.DV.HDR.DDP5.1-ZeroTV.mkv", "one")
+	f.write(t, directory+"/Euphoria.S01E02.2019.2160p.MAX.WEB-DL.x265.DV.HDR.DDP5.1-ZeroTV.mkv", "two")
+	if _, err := Run(t.Context(), 7, f.store, f.coord, f.claim(t), f.ownerResolve, Options{ReadBatch: 2}); err != nil {
+		t.Fatal(err)
+	}
+	var seriesID, title string
+	var episodes, videos int
+	if err := f.store.WithTx(t.Context(), func(tx *sql.Tx) error {
+		if err := tx.QueryRowContext(t.Context(), `SELECT id,title FROM library_item WHERE library_id=? AND kind='series'`, f.binding.LibraryID).Scan(&seriesID, &title); err != nil {
+			return err
+		}
+		if err := tx.QueryRowContext(t.Context(), `SELECT count(*) FROM episode_position ep JOIN episode_order eo ON eo.id=ep.order_id WHERE eo.series_id=?`, seriesID).Scan(&episodes); err != nil {
+			return err
+		}
+		return tx.QueryRowContext(t.Context(), `SELECT count(*) FROM library_item WHERE library_id=? AND kind='video'`, f.binding.LibraryID).Scan(&videos)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if title != "亢奋" || episodes != 2 || videos != 0 {
+		t.Fatalf("hdr local series: title=%q episodes=%d videos=%d", title, episodes, videos)
 	}
 }
 

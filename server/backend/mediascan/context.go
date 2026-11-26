@@ -116,27 +116,17 @@ func directoryEpisodeEvidence(directory string, names []string) *medialibrary.Di
 	if title == "" || len(names) < 2 {
 		return nil
 	}
-	parsedDirectory := mediametadata.ParseDirectoryName(directory)
-	year := parsedDirectory.Year
-	season := localSeriesDirectorySeason(directory)
-	numbers := make(map[int]struct{})
-	fileTitle := ""
+	type episodeRecord struct {
+		title           string
+		year            *int
+		season, episode int
+	}
+	records := make([]episodeRecord, 0, len(names))
 	for _, name := range names {
 		parsed := mediametadata.ParseNameInDirectory(name, directory)
-		if fileTitle == "" {
-			fileTitle = parsed.Title
-		} else if !localSeriesFileTitlesMatch(fileTitle, parsed.Title) && !localSeriesTitleMatches(directory, title, parsed.Title) {
-			return nil
-		}
-		var episode int
+		var season, episode int
 		if len(parsed.SeasonEpisodes) == 1 {
-			position := parsed.SeasonEpisodes[0]
-			if season == 0 {
-				season = position.Season
-			} else if season != position.Season {
-				return nil
-			}
-			episode = position.Episode
+			season, episode = parsed.SeasonEpisodes[0].Season, parsed.SeasonEpisodes[0].Episode
 		} else if len(parsed.AbsoluteEpisodes) == 1 {
 			episode = parsed.AbsoluteEpisodes[0]
 		} else {
@@ -145,12 +135,59 @@ func directoryEpisodeEvidence(directory string, names []string) *medialibrary.Di
 		if episode < 1 || episode > 9999 {
 			continue
 		}
-		if year == nil && parsed.Year != nil {
-			year = parsed.Year
-		} else if year != nil && parsed.Year != nil && *year != *parsed.Year {
+		records = append(records, episodeRecord{title: parsed.Title, year: parsed.Year, season: season, episode: episode})
+	}
+	if len(records) < 2 {
+		return nil
+	}
+	counts := make(map[string]int, len(records))
+	for _, record := range records {
+		counts[record.title]++
+	}
+	baseline := ""
+	best := 0
+	for _, record := range records {
+		if counts[record.title] > best {
+			baseline, best = record.title, counts[record.title]
+		}
+	}
+	directoryMatches := make([]episodeRecord, 0, len(records))
+	for _, record := range records {
+		if localSeriesTitleMatches(directory, title, record.title) {
+			directoryMatches = append(directoryMatches, record)
+		}
+	}
+	selected := directoryMatches
+	if len(selected) < 2 {
+		if best*2 <= len(records) {
 			return nil
 		}
-		numbers[episode] = struct{}{}
+		selected = selected[:0]
+		for _, record := range records {
+			if localSeriesFileTitlesMatch(baseline, record.title) {
+				selected = append(selected, record)
+			}
+		}
+	}
+	if len(selected) < 2 {
+		return nil
+	}
+	parsedDirectory := mediametadata.ParseDirectoryName(directory)
+	year := parsedDirectory.Year
+	season := localSeriesDirectorySeason(directory)
+	numbers := make(map[int]struct{})
+	for _, record := range selected {
+		if season == 0 {
+			season = record.season
+		} else if record.season != 0 && season != record.season {
+			return nil
+		}
+		if year == nil && record.year != nil {
+			year = record.year
+		} else if year != nil && record.year != nil && *year != *record.year {
+			return nil
+		}
+		numbers[record.episode] = struct{}{}
 	}
 	if len(numbers) < 2 || len(numbers) > mediametadata.MaxEpisodeHints {
 		return nil
