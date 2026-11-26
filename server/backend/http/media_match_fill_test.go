@@ -87,7 +87,7 @@ func TestMediaIdentificationCarriesLocalSeriesYear(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := f.store.WithTx(t.Context(), func(tx *sql.Tx) error {
-		_, err := tx.Exec(`UPDATE item_field SET source='filename',input_id=NULL,source_binding_id=?,source_binding_epoch=? WHERE library_id=? AND item_id=? AND field='year'`,
+		_, err := tx.Exec(`UPDATE item_field SET source='filename',input_id=NULL,source_binding_id=?,source_binding_epoch=? WHERE library_id=? AND item_id=? AND field IN ('title','year')`,
 			binding.ID, binding.ProofEpoch, library.ID, seriesID)
 		return err
 	}); err != nil {
@@ -103,10 +103,10 @@ func TestMediaIdentificationCarriesLocalSeriesYear(t *testing.T) {
 	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &identification) != nil {
 		t.Fatalf("identification: %d %s", response.Code, response.Body)
 	}
-	if identification.Year != 2016 || identification.File != nil {
-		t.Fatalf("local series year lost: %+v", identification)
+	if identification.Title != "信号" || identification.Year != 2016 || identification.File != nil {
+		t.Fatalf("local series identity lost: %+v", identification)
 	}
-	if input := automaticMatchInput(identification, true); input.Year != 2016 || input.Kind != mediaprovider.Series {
+	if input := automaticMatchInput(identification, true); input.Year != 2016 || input.Title != "信号" || input.Kind != mediaprovider.Series {
 		t.Fatalf("automatic series input lost year: %+v", input)
 	}
 }

@@ -95,11 +95,15 @@ func itemDetailFields(ctx context.Context, d *data, library *medialibrary.Librar
 	for name, field := range detail.Fields {
 		if field.InputID == "" && field.Source == "filename" {
 			if name == "title" {
-				// Stored filename evidence may belong to another binding whose
-				// permission was revoked. Reconstruct only from the selected,
-				// currently authorized video's basename.
-				field.Values = []string{access.fallbackTitle}
-				fields[name] = field
+				if detail.Item.Kind == "series" {
+					fields[name] = field
+				} else {
+					// Stored filename evidence may belong to another binding whose
+					// permission was revoked. Reconstruct only from the selected,
+					// currently authorized video's basename.
+					field.Values = []string{access.fallbackTitle}
+					fields[name] = field
+				}
 			}
 			if name == "year" && detail.Item.Kind == "series" {
 				fields[name] = field
