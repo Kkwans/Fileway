@@ -231,7 +231,7 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 		}
 	}
 	fetchParts := []Part{Credits, ExternalIDs}
-	if input.Kind == Series && input.Year <= 0 {
+	if input.Kind == Series {
 		fetchParts = append(fetchParts, AlternativeTitles)
 	}
 	alternativeSearch := alternativeTitleSearchTitle(title) || len(input.Parts) > 0 && romanizedTitle(title)

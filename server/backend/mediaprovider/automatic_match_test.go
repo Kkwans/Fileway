@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"testing"
 )
 
@@ -224,9 +225,15 @@ func TestResolveAutomaticMatchSeriesVerifiesLocalizedCandidates(t *testing.T) {
 			want:    AutoMatched, calls: 2,
 		},
 		{
+			name: "year candidate verifies alternative title", title: "Meet Yourself", year: 2023,
+			search:  `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":42,"name":"去有风的地方","original_name":"去有风的地方","first_air_date":"2023-01-03"}]}`,
+			details: map[string]string{"/3/tv/42": `{"id":42,"name":"去有风的地方","original_name":"去有风的地方","first_air_date":"2023-01-03","alternative_titles":{"titles":[{"title":"Meet Yourself"}]}}`},
+			want:    AutoMatched, calls: 2,
+		},
+		{
 			name: "chinese title verifies original name", title: "人生切割术", year: 2022,
 			search:  `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":42,"name":"Severance","first_air_date":"2022-02-18"}]}`,
-			details: map[string]string{"/3/tv/42": `{"id":42,"name":"人生切割术","original_name":"Severance","first_air_date":"2022-02-18"}`},
+			details: map[string]string{"/3/tv/42": `{"id":42,"name":"Severance","original_name":"Severance","first_air_date":"2022-02-18","alternative_titles":{"titles":[{"title":"人生切割术"}]}}`},
 			want:    AutoMatched, calls: 2,
 		},
 		{
@@ -265,6 +272,9 @@ func TestResolveAutomaticMatchSeriesVerifiesLocalizedCandidates(t *testing.T) {
 					return response(200, tc.search), nil
 				}
 				if detail, ok := tc.details[request.URL.Path]; ok {
+					if !strings.Contains(request.URL.Query().Get("append_to_response"), "alternative_titles") {
+						t.Error("series detail omitted alternative titles", request.URL)
+					}
 					return response(200, detail), nil
 				}
 				t.Fatalf("unexpected outbound request %s", request.URL.Path)
