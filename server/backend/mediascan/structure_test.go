@@ -189,6 +189,29 @@ func TestPersistentScanAggregatesLooseRootEpisodes(t *testing.T) {
 	}
 }
 
+func TestPersistentScanLooseRootSeriesDoesNotCaptureChildDirectories(t *testing.T) {
+	f := newPersistentFixture(t)
+	f.write(t, "Meet.Yourself.2023.E01.WEB-DL.2160p.H265.AAC-Xiaomi(1).mp4", "one")
+	f.write(t, "Meet.Yourself.S01E02.2023.2160p.IQ.WEB-DL.H265.DDP2.0-LelveTV.mkv", "two")
+	f.write(t, "Other.Show/Other.Show.S01E01.2024.WEB-DL.mkv", "three")
+	f.write(t, "Other.Show/Other.Show.S01E02.2024.WEB-DL.mkv", "four")
+	if _, err := Run(t.Context(), 7, f.store, f.coord, f.claim(t), f.ownerResolve, Options{ReadBatch: 2}); err != nil {
+		t.Fatal(err)
+	}
+	var series, episodes int
+	if err := f.store.WithTx(t.Context(), func(tx *sql.Tx) error {
+		if err := tx.QueryRowContext(t.Context(), `SELECT count(*) FROM library_item WHERE library_id=? AND kind='series'`, f.binding.LibraryID).Scan(&series); err != nil {
+			return err
+		}
+		return tx.QueryRowContext(t.Context(), `SELECT count(*) FROM episode_position`).Scan(&episodes)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if series != 2 || episodes != 4 {
+		t.Fatalf("root series captured child directories: series=%d episodes=%d", series, episodes)
+	}
+}
+
 func TestPersistentScanIgnoresDirectoryRangeNoiseForSingleEpisodes(t *testing.T) {
 	f := newPersistentFixture(t)
 	directory := "[哔嘀影视-bde4.com]迷醉.第一季.Euphoria.US.S01E04-08.HD1080P"

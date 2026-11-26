@@ -295,7 +295,7 @@ func (store *Store) CommitScanContext(ctx context.Context, actor uint, lease Sca
 		current.SeriesID, current.SeasonID = "", ""
 		current.SeasonNumber = sql.NullInt64{}
 		current.SeriesProblem, current.SeasonProblem = "", ""
-		if parent != nil {
+		if parent != nil && (parent.LocalSeriesID == "" || parent.TVStatus != "missing") {
 			current.SeriesID, current.SeasonID, current.SeasonNumber = parent.SeriesID, parent.SeasonID, parent.SeasonNumber
 			current.SeriesProblem, current.SeasonProblem = parent.SeriesProblem, parent.SeasonProblem
 		}
