@@ -252,6 +252,49 @@ func TestScanObservationPersistsProbedDurationEvidence(t *testing.T) {
 	}
 }
 
+func TestMetadataDurationsIgnoreStaleBindingEpochs(t *testing.T) {
+	store := openTestStore(t)
+	ctx := t.Context()
+	library := createLibrary(t, store, 7, "Duration epochs")
+	binding := createBoundSource(t, store, library)
+	_, lease := testScan(t, store, binding, "duration-old-epoch")
+	input := testObservation("duration-file", "/videos/duration.mkv")
+	parsed := mediametadata.ParseName("duration.mkv")
+	input.ParsedName = &parsed
+	input.NFOStatus = "missing"
+	first, err := store.CommitScanObservation(ctx, 7, *lease, input, testCheckpoint(input, 1, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	finishEmptyReconcile(t, store, 7, *lease, 1)
+	proof := BindingProof{Version: 1, MappingDigest: bytes.Repeat([]byte{43}, 32), RootIdentityKind: "native", RootIdentity: []byte(binding.ID)}
+	if _, err := store.AttestSourceBindingWithOperation(ctx, 7, binding.ID, binding.Revision, "duration-new-epoch", proof); err != nil {
+		t.Fatal(err)
+	}
+	binding, err = store.GetLibrarySourceByID(ctx, 7, binding.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, lease = testScan(t, store, binding, "duration-current-epoch")
+	revision, err := store.GetObservationRevision(ctx, 7, binding.Ref(), input.ObjectKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	input.ExpectedRevision, input.ExpectedLocatorRevision = revision.FileRevision, revision.LocatorRevision
+	input.DurationMs = 51 * 60_000
+	second, err := store.CommitScanObservation(ctx, 7, *lease, input, testCheckpoint(input, 1, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.ItemID != first.ItemID {
+		t.Fatalf("filename-only item was not retained: first=%s second=%s", first.ItemID, second.ItemID)
+	}
+	kind, durations, err := store.MetadataDurationsForItem(ctx, 7, library.ID, first.ItemID)
+	if err != nil || kind != "video" || len(durations) != 1 || durations[0] != input.DurationMs {
+		t.Fatalf("stale binding duration contaminated current evidence: kind=%q durations=%v err=%v", kind, durations, err)
+	}
+}
+
 func TestScanMissingIsStagedUntilAtomicCompletionAndBoundToRoot(t *testing.T) {
 	store := openTestStore(t)
 	library := createLibrary(t, store, 7, "Films")

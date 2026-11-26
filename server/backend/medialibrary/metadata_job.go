@@ -63,12 +63,14 @@ func (store *Store) MetadataDurationsForItem(ctx context.Context, actor uint, li
 		return "", nil, err
 	}
 	query := `SELECT DISTINCT CASE WHEN json_extract(ie.evidence_json,'$.durationSourceVersion')=sf.source_version THEN COALESCE(CAST(json_extract(ie.evidence_json,'$.durationMs') AS INTEGER),0) ELSE 0 END
-FROM file_item_mapping m LEFT JOIN identification_evidence ie ON ie.id=m.evidence_id LEFT JOIN source_file sf ON sf.id=m.source_file_id
+FROM file_item_mapping m JOIN library_source ls ON ls.library_id=m.library_id AND ls.binding_id=m.binding_id AND ls.proof_epoch=m.binding_epoch AND ls.active_proof_version=1
+LEFT JOIN identification_evidence ie ON ie.id=m.evidence_id LEFT JOIN source_file sf ON sf.id=m.source_file_id
 WHERE m.library_id=? AND m.item_id=? AND m.active=1 ORDER BY 1`
 	args := []any{libraryID, itemID}
 	if kind == "series" {
 		query = `SELECT DISTINCT CASE WHEN json_extract(ie.evidence_json,'$.durationSourceVersion')=sf.source_version THEN COALESCE(CAST(json_extract(ie.evidence_json,'$.durationMs') AS INTEGER),0) ELSE 0 END
 FROM item_structure s JOIN file_item_mapping m ON m.library_id=s.library_id AND m.item_id=s.item_id AND m.active=1
+JOIN library_source ls ON ls.library_id=m.library_id AND ls.binding_id=m.binding_id AND ls.proof_epoch=m.binding_epoch AND ls.active_proof_version=1
 LEFT JOIN identification_evidence ie ON ie.id=m.evidence_id LEFT JOIN source_file sf ON sf.id=m.source_file_id
 WHERE s.library_id=? AND s.series_id=? AND s.superseded_by IS NULL ORDER BY 1`
 		args = []any{libraryID, itemID}
