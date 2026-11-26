@@ -33,6 +33,30 @@ type catalogCollectionPage struct {
 }
 
 func (v *catalogView) collectionSourceAllowed(ctx context.Context, library *medialibrary.Library, inputID, itemID string) (bool, error) {
+	if inputID == "" {
+		revision, _, superseded, err := v.d.store.MediaLibrary.GetBrowseItemFence(ctx, v.d.user.ID, library.ID, itemID)
+		if err != nil || superseded {
+			return false, err
+		}
+		match, err := v.d.store.MediaLibrary.VisibleProviderMatch(ctx, v.d.user.ID, library.ID, itemID, revision)
+		if err != nil || match == nil {
+			return false, err
+		}
+		structure, err := v.d.store.MediaLibrary.GetItemStructure(ctx, v.d.user.ID, library.ID, itemID)
+		if err != nil {
+			return false, err
+		}
+		if structure.Kind == "series" || structure.Kind == "season" {
+			seriesID, seasonID := itemID, ""
+			if structure.Kind == "season" {
+				seriesID, seasonID = structure.SeriesID, itemID
+			}
+			_, visible, complete, _, err := v.containerAccess(ctx, library, itemID, seriesID, seasonID, nil)
+			return visible && complete, err
+		}
+		_, visible, complete, _, err := v.leafAccess(ctx, library, itemID, "")
+		return visible && complete, err
+	}
 	entry, err := v.d.store.MediaLibrary.GetItemMetadataSourceAccess(ctx, v.d.user.ID, library.ID, itemID, inputID)
 	if err != nil {
 		if errors.Is(err, medialibrary.ErrNotFound) {

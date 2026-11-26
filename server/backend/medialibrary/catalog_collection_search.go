@@ -22,6 +22,19 @@ FROM metadata_input x,json_each(x.evidence_json,'$.items') doc_item,json_each(do
 LEFT JOIN json_each(c.value,'$.externalIds') e ON lower(json_extract(e.value,'$.provider'))='tmdb'
 WHERE x.is_current=1 AND x.source_type='nfo' AND x.status IN ('candidate','applied')
 AND EXISTS(SELECT 1 FROM library_source ls WHERE ls.binding_id=x.binding_id AND ls.library_id=x.library_id AND ls.proof_epoch=x.binding_epoch AND ls.proof_epoch>0 AND ls.active_proof_version=1)
+UNION ALL
+SELECT pm.library_id,pm.item_id,'',c.key,
+lower(trim(json_extract(c.value,'$.fields.name[0]'))),
+trim(json_extract(c.value,'$.fields.name[0]')),
+CASE WHEN json_extract(e.value,'$.value') IS NOT NULL
+ AND length(json_extract(e.value,'$.value')) BETWEEN 1 AND 256
+ AND json_extract(e.value,'$.value') NOT GLOB '*[!A-Za-z0-9_.:-]*'
+ THEN json_extract(e.value,'$.value') ELSE NULL END
+FROM item_provider_match pm
+JOIN library_item i ON i.library_id=pm.library_id AND i.id=pm.item_id AND i.revision=pm.revision
+JOIN item_structure st ON st.library_id=i.library_id AND st.item_id=i.id AND st.superseded_by IS NULL
+JOIN json_each(pm.document_json,'$.item.collections') c
+LEFT JOIN json_each(c.value,'$.externalIds') e ON lower(json_extract(e.value,'$.provider'))='tmdb'
 ),identity AS (
 SELECT library_id,name_key,min(name) name,external_id FROM declaration
 WHERE name_key IS NOT NULL AND name_key<>'' AND length(name_key)<=1024

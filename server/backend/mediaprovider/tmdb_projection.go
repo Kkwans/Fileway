@@ -54,12 +54,18 @@ type tmdbProjectionFields struct {
 	ExternalIDs *struct {
 		IMDbID string `json:"imdb_id"`
 	} `json:"external_ids"`
-	VoteAverage      *float64               `json:"vote_average"`
-	VoteCount        *int64                 `json:"vote_count"`
-	PosterPath       string                 `json:"poster_path"`
-	BackdropPath     string                 `json:"backdrop_path"`
-	Credits          *tmdbProjectionCredits `json:"credits"`
-	AggregateCredits *tmdbProjectionCredits `json:"aggregate_credits"`
+	VoteAverage         *float64               `json:"vote_average"`
+	VoteCount           *int64                 `json:"vote_count"`
+	PosterPath          string                 `json:"poster_path"`
+	BackdropPath        string                 `json:"backdrop_path"`
+	Credits             *tmdbProjectionCredits `json:"credits"`
+	AggregateCredits    *tmdbProjectionCredits `json:"aggregate_credits"`
+	BelongsToCollection *struct {
+		ID           int64  `json:"id"`
+		Name         string `json:"name"`
+		PosterPath   string `json:"poster_path"`
+		BackdropPath string `json:"backdrop_path"`
+	} `json:"belongs_to_collection"`
 }
 
 // ProjectTMDB converts a fetched movie or series document into the existing
@@ -132,6 +138,19 @@ func ProjectTMDB(document Document) (TMDBProjection, error) {
 	}
 	if credits != nil {
 		result.Item.Credits = projectTMDBCredits(*credits)
+	}
+	if source.BelongsToCollection != nil {
+		collection := source.BelongsToCollection
+		if collection.ID <= 0 || strings.TrimSpace(collection.Name) == "" {
+			return TMDBProjection{}, &Error{Code: InvalidResponse}
+		}
+		result.Item.Collections = append(result.Item.Collections, mediametadata.CollectionDeclaration{
+			Tag:    "set",
+			Fields: map[string][]string{"name": {strings.TrimSpace(collection.Name)}},
+			ExternalIDs: []mediametadata.ExternalID{{
+				Provider: "tmdb", Value: strconv.FormatInt(collection.ID, 10), Tag: "collection_id",
+			}},
+		})
 	}
 	// Reuse the importer's existing path validation, without retaining its URL.
 	for _, image := range []struct {

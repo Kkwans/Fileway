@@ -165,21 +165,69 @@ func visibleExternalIDs(ctx context.Context, d *data, library *medialibrary.Libr
 	}, func(item medialibrary.MetadataExternalID) string { return item.Cursor })
 }
 
-func visibleCollections(ctx context.Context, d *data, library *medialibrary.Library, itemID string, revision int64, access *mediaItemAccess, after string, limit int) (visibleMetadataPage[medialibrary.MetadataCollection], error) {
-	return visibleMetadataPageFor(ctx, revision, limit, after, func(ctx context.Context, after string, n int) ([]medialibrary.MetadataCollection, string, int64, error) {
-		page, err := d.store.MediaLibrary.ListItemCollections(ctx, d.user.ID, library.ID, itemID, after, n)
-		if err != nil {
-			return nil, "", 0, err
+func visibleCollections(ctx context.Context, d *data, library *medialibrary.Library, itemID string, revision int64, access *mediaItemAccess, match *medialibrary.ProviderMatch, after string, limit int) (visibleMetadataPage[medialibrary.MetadataCollection], error) {
+	local := func(after string, limit int) (visibleMetadataPage[medialibrary.MetadataCollection], error) {
+		return visibleMetadataPageFor(ctx, revision, limit, after, func(ctx context.Context, after string, n int) ([]medialibrary.MetadataCollection, string, int64, error) {
+			page, err := d.store.MediaLibrary.ListItemCollections(ctx, d.user.ID, library.ID, itemID, after, n)
+			if err != nil {
+				return nil, "", 0, err
+			}
+			return page.Items, page.NextCursor, page.ItemRevision, nil
+		}, func(item medialibrary.MetadataCollection) (bool, error) {
+			valid := strings.TrimSpace(item.Name) != "" && strings.IndexFunc(item.Name, unicode.IsControl) < 0 &&
+				strings.IndexFunc(item.Number, unicode.IsControl) < 0
+			if !valid {
+				return false, nil
+			}
+			return metadataInputAllowed(ctx, d, library, itemID, access, item.InputID)
+		}, func(item medialibrary.MetadataCollection) string { return item.Cursor })
+	}
+	const prefix = "tmdb-collections:"
+	continuation := strings.HasPrefix(after, prefix)
+	page := visibleMetadataPage[medialibrary.MetadataCollection]{Items: []medialibrary.MetadataCollection{}, Revision: revision}
+	if !continuation && (match == nil || !match.OnlineFirst || len(match.Document.Item.Collections) == 0) {
+		var err error
+		page, err = local(after, limit)
+		if err != nil || len(page.Items) != 0 || after != "" || match == nil || len(match.Document.Item.Collections) == 0 {
+			return page, err
 		}
-		return page.Items, page.NextCursor, page.ItemRevision, nil
-	}, func(item medialibrary.MetadataCollection) (bool, error) {
-		valid := strings.TrimSpace(item.Name) != "" && strings.IndexFunc(item.Name, unicode.IsControl) < 0 &&
-			strings.IndexFunc(item.Number, unicode.IsControl) < 0
-		if !valid {
-			return false, nil
+	}
+	if match == nil || len(match.Document.Item.Collections) == 0 {
+		return page, medialibrary.ErrRevisionConflict
+	}
+	tokenBase := prefix + strconv.FormatInt(match.PolicyRevision, 10) + ":"
+	start := 0
+	if after != "" {
+		if !strings.HasPrefix(after, tokenBase) {
+			return page, medialibrary.ErrRevisionConflict
 		}
-		return metadataInputAllowed(ctx, d, library, itemID, access, item.InputID)
-	}, func(item medialibrary.MetadataCollection) string { return item.Cursor })
+		var err error
+		start, err = strconv.Atoi(strings.TrimPrefix(after, tokenBase))
+		if err != nil || start < 1 || start >= len(match.Document.Item.Collections) {
+			return page, medialibrary.ErrInvalid
+		}
+	}
+	for position, collection := range match.Document.Item.Collections[start:] {
+		name := collection.Fields["name"]
+		if len(name) != 1 || strings.TrimSpace(name[0]) == "" || strings.IndexFunc(name[0], unicode.IsControl) >= 0 {
+			continue
+		}
+		position += start
+		if len(page.Items) == limit {
+			page.NextCursor = tokenBase + strconv.Itoa(position)
+			break
+		}
+		number := collection.Fields["collectionnumber"]
+		if len(number) > 1 || len(number) == 1 && strings.IndexFunc(number[0], unicode.IsControl) >= 0 {
+			return page, medialibrary.ErrInvalid
+		}
+		value := ""
+		if len(number) == 1 {
+			value = number[0]
+		}
+		page.Items = append(page.Items, medialibrary.MetadataCollection{Name: name[0], Number: value})
+	}
+	return page, nil
 }
 
 func visibleIssues(ctx context.Context, d *data, library *medialibrary.Library, itemID string, revision int64, access *mediaItemAccess, after string, limit int) (visibleMetadataPage[medialibrary.MetadataIssueSource], error) {
@@ -221,7 +269,7 @@ func loadVisibleItemDetail(ctx context.Context, d *data, library *medialibrary.L
 	if err != nil {
 		return result, err
 	}
-	collections, err := visibleCollections(ctx, d, library, id, revision, access, "", 20)
+	collections, err := visibleCollections(ctx, d, library, id, revision, access, match, "", 20)
 	if err != nil {
 		return result, err
 	}
@@ -320,7 +368,11 @@ func mediaItemCollectionHandler(kind string) handleFunc {
 		case "external-ids":
 			response, err = visibleExternalIDs(r.Context(), d, library, itemID, detail.Item.Revision, &access, after, limit)
 		case "collections":
-			response, err = visibleCollections(r.Context(), d, library, itemID, detail.Item.Revision, &access, after, limit)
+			var match *medialibrary.ProviderMatch
+			match, err = d.store.MediaLibrary.VisibleProviderMatch(r.Context(), d.user.ID, library.ID, itemID, detail.Item.Revision)
+			if err == nil {
+				response, err = visibleCollections(r.Context(), d, library, itemID, detail.Item.Revision, &access, match, after, limit)
+			}
 		case "issues":
 			var page visibleMetadataPage[medialibrary.MetadataIssueSource]
 			page, err = visibleIssues(r.Context(), d, library, itemID, detail.Item.Revision, &access, after, limit)

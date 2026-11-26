@@ -132,6 +132,21 @@ func TestProjectTMDBSeriesPrefersChineseAlternativeForChineseLanguage(t *testing
 	}
 }
 
+func TestProjectTMDBMovieCollection(t *testing.T) {
+	document := projectionDocument(t, Movie, `{
+		"id": 123, "title": "海风", "original_title": "Sea Wind", "release_date": "2022-04-03",
+		"belongs_to_collection": {"id": 456, "name": "海岸故事", "poster_path": "/collection.jpg", "backdrop_path": "/collection-bg.jpg"}
+	}`)
+	projection, err := ProjectTMDB(document)
+	if err != nil || len(projection.Item.Collections) != 1 {
+		t.Fatalf("movie collection = %+v err=%v", projection.Item.Collections, err)
+	}
+	collection := projection.Item.Collections[0]
+	if !reflect.DeepEqual(collection.Fields["name"], []string{"海岸故事"}) || len(collection.ExternalIDs) != 1 || collection.ExternalIDs[0].Provider != "tmdb" || collection.ExternalIDs[0].Value != "456" {
+		t.Fatalf("collection projection = %+v", collection)
+	}
+}
+
 func TestProjectTMDBRejectsInvalidEvidence(t *testing.T) {
 	for _, test := range []struct {
 		name, payload string
