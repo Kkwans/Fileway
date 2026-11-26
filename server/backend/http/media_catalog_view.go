@@ -16,8 +16,13 @@ import (
 
 const (
 	catalogCandidateBudget     = 1000
+	catalogCandidatePageSize   = 100
 	catalogContinuationReserve = 32
 )
+
+func catalogCandidatePageLimit(remaining int) int {
+	return min(catalogCandidatePageSize, max(1, remaining))
+}
 
 type catalogBudget struct{ remaining int }
 

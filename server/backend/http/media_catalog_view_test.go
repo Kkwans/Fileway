@@ -493,6 +493,24 @@ ELSE 500 END WHERE item_id IN (SELECT episode_id FROM episode_position)`)
 	}
 }
 
+func TestCatalogCandidatePageLimitIsBatchedAndBounded(t *testing.T) {
+	for _, test := range []struct {
+		remaining int
+		want      int
+	}{
+		{remaining: 0, want: 1},
+		{remaining: 1, want: 1},
+		{remaining: 32, want: 32},
+		{remaining: 99, want: 99},
+		{remaining: 100, want: 100},
+		{remaining: 1000, want: 100},
+	} {
+		if got := catalogCandidatePageLimit(test.remaining); got != test.want {
+			t.Fatalf("candidate page limit(%d) = %d, want %d", test.remaining, got, test.want)
+		}
+	}
+}
+
 func TestCatalogCursorPartialAndScopeBinding(t *testing.T) {
 	f := newMediaScanHTTPFixture(t)
 	catalogFixtureWrite(t, f, "visible.mkv", "visible")
@@ -518,6 +536,14 @@ func TestCatalogCursorPartialAndScopeBinding(t *testing.T) {
 	}
 	if strings.Contains(page.NextCursor, "000hidden") || strings.Contains(first.Body.String(), "000hidden") {
 		t.Fatalf("hidden cursor leaked: %s", first.Body)
+	}
+	homeResponse := f.call(t, f.owner.ID, http.MethodGet, "/api/media-library/v1/home", nil)
+	var home catalogHome
+	if homeResponse.Code != http.StatusOK || json.Unmarshal(homeResponse.Body.Bytes(), &home) != nil || home.State != "partial" {
+		t.Fatalf("home partial page: %d %s", homeResponse.Code, homeResponse.Body)
+	}
+	if strings.Contains(homeResponse.Body.String(), "000hidden") {
+		t.Fatalf("home leaked hidden candidates: %s", homeResponse.Body)
 	}
 	second := f.call(t, f.owner.ID, http.MethodGet, urlPath+"&cursor="+url.QueryEscape(page.NextCursor), nil)
 	var final catalogCardPage

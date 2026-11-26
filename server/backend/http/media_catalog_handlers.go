@@ -106,6 +106,7 @@ func (v *catalogView) browse(ctx context.Context, snapshot catalogSnapshot, req 
 		page.PageState = "preparing"
 		return page, nil
 	}
+candidates:
 	for {
 		if v.budget.remaining <= 0 {
 			page.PageState = "partial"
@@ -116,7 +117,7 @@ func (v *catalogView) browse(ctx context.Context, snapshot catalogSnapshot, req 
 		if req.Kind == "series" {
 			candidateKind = "series"
 		}
-		options := medialibrary.BrowseCandidateOptions{LibraryID: req.LibraryID, OnlyOwned: mediaSharingDisabled(v.d), Sort: req.Sort, Kind: candidateKind, Query: req.Query, AfterID: cursor.AfterID, AfterValue: cursor.AfterValue, Limit: 1}
+		options := medialibrary.BrowseCandidateOptions{LibraryID: req.LibraryID, OnlyOwned: mediaSharingDisabled(v.d), Sort: req.Sort, Kind: candidateKind, Query: req.Query, AfterID: cursor.AfterID, AfterValue: cursor.AfterValue, Limit: catalogCandidatePageLimit(v.budget.remaining)}
 		candidatePage, err := v.d.store.MediaLibrary.ListBrowseCandidates(ctx, v.d.user.ID, options)
 		if err != nil {
 			return page, err
@@ -124,101 +125,107 @@ func (v *catalogView) browse(ctx context.Context, snapshot catalogSnapshot, req 
 		if len(candidatePage.Items) == 0 {
 			break
 		}
-		candidate := candidatePage.Items[0]
-		before := cursor
-		if cursor.Pending != nil {
-			pending := *cursor.Pending
-			before.Pending = &pending
-		}
-		if cursor.Pending != nil && cursor.Pending.ItemID != candidate.ID {
-			return page, errCatalogCursorStale
-		}
-		if cursor.Pending != nil && (cursor.Pending.ItemRevision != candidate.Revision || cursor.Pending.StructureRevision != candidate.StructureRevision) {
-			return page, errCatalogCursorStale
-		}
-		if cursor.Pending == nil {
-			if !v.budget.take() {
+		for _, candidate := range candidatePage.Items {
+			if v.budget.remaining <= 0 {
 				page.PageState = "partial"
 				page.HasMore = true
-				break
+				break candidates
 			}
-			cursor.Pending = &catalogVisibilityCursor{ItemID: candidate.ID, ItemRevision: candidate.Revision, StructureRevision: candidate.StructureRevision}
-		}
-		library, err := v.d.store.MediaLibrary.GetLibrary(ctx, v.d.user.ID, candidate.LibraryID)
-		if err != nil {
-			return page, err
-		}
-		if !mediaLibraryAccessAllowed(v.d, library) {
-			return page, medialibrary.ErrNotFound
-		}
-		var access catalogAccess
-		var visible, complete bool
-		if candidate.Kind == "series" {
-			if cursor.Pending.Stage == "" {
-				cursor.Pending.Stage = "episodes"
-				cursor.Pending.Season = -1
-				cursor.Pending.Episode = -1
+			before := cursor
+			if cursor.Pending != nil {
+				pending := *cursor.Pending
+				before.Pending = &pending
 			}
-			access, visible, complete, cursor.Pending, err = v.containerAccess(ctx, library, candidate.ID, candidate.ID, "", cursor.Pending)
-		} else {
-			var next string
-			access, visible, complete, next, err = v.leafAccess(ctx, library, candidate.ID, cursor.Pending.SourceAfter)
-			if !complete {
-				cursor.Pending.SourceAfter = next
-			} else {
-				cursor.Pending = nil
+			if cursor.Pending != nil && cursor.Pending.ItemID != candidate.ID {
+				return page, errCatalogCursorStale
 			}
-		}
-		if err != nil {
-			return page, err
-		}
-		if !complete {
-			page.PageState = "partial"
-			page.HasMore = true
-			break
-		}
-		cursor.Pending = nil
-		cursor.AfterID = candidate.ID
-		if req.Sort == "newest" {
-			value := candidate.FirstAddedAt
-			cursor.AfterValue = &value
-		}
-		if req.Sort == "updated" {
-			value := int64(0)
-			if candidate.SeriesUpdatedAt != nil {
-				value = *candidate.SeriesUpdatedAt
+			if cursor.Pending != nil && (cursor.Pending.ItemRevision != candidate.Revision || cursor.Pending.StructureRevision != candidate.StructureRevision) {
+				return page, errCatalogCursorStale
 			}
-			cursor.AfterValue = &value
-		}
-		if req.Sort == "updated" && candidate.SeriesUpdatedAt == nil {
-			visible = false
-		}
-		if visible {
-			card, err := v.projectCard(ctx, library, candidate, access, false)
-			if err != nil {
-				if errors.Is(err, errCatalogWorkPending) {
-					page.PageState = "deferred"
-					break
+			if cursor.Pending == nil {
+				if !v.budget.take() {
+					page.PageState = "partial"
+					page.HasMore = true
+					break candidates
 				}
+				cursor.Pending = &catalogVisibilityCursor{ItemID: candidate.ID, ItemRevision: candidate.Revision, StructureRevision: candidate.StructureRevision}
+			}
+			library, err := v.d.store.MediaLibrary.GetLibrary(ctx, v.d.user.ID, candidate.LibraryID)
+			if err != nil {
 				return page, err
 			}
-			if card.classificationIncomplete {
-				page.PageState = "deferred"
-				break
+			if !mediaLibraryAccessAllowed(v.d, library) {
+				return page, medialibrary.ErrNotFound
 			}
-			if req.Sort == "updated" && card.SeriesUpdatedAt == nil {
+			var access catalogAccess
+			var visible, complete bool
+			if candidate.Kind == "series" {
+				if cursor.Pending.Stage == "" {
+					cursor.Pending.Stage = "episodes"
+					cursor.Pending.Season = -1
+					cursor.Pending.Episode = -1
+				}
+				access, visible, complete, cursor.Pending, err = v.containerAccess(ctx, library, candidate.ID, candidate.ID, "", cursor.Pending)
+			} else {
+				var next string
+				access, visible, complete, next, err = v.leafAccess(ctx, library, candidate.ID, cursor.Pending.SourceAfter)
+				if !complete {
+					cursor.Pending.SourceAfter = next
+				} else {
+					cursor.Pending = nil
+				}
+			}
+			if err != nil {
+				return page, err
+			}
+			if !complete {
+				page.PageState = "partial"
+				page.HasMore = true
+				break candidates
+			}
+			cursor.Pending = nil
+			cursor.AfterID = candidate.ID
+			if req.Sort == "newest" {
+				value := candidate.FirstAddedAt
+				cursor.AfterValue = &value
+			}
+			if req.Sort == "updated" {
+				value := int64(0)
+				if candidate.SeriesUpdatedAt != nil {
+					value = *candidate.SeriesUpdatedAt
+				}
+				cursor.AfterValue = &value
+			}
+			if req.Sort == "updated" && candidate.SeriesUpdatedAt == nil {
 				visible = false
 			}
-			if visible && (!req.Hero || (card.MatchState == "local_confirmed" || card.MatchState == "provider_confirmed") && (card.StructureKind == "movie" || card.StructureKind == "series") && card.Title != "") && (req.Kind == "" || req.Kind == card.StructureKind) && (req.MatchState == "" || req.MatchState == card.MatchState) && catalogSearchMatches(req.Query, card.Title, card.OriginalTitle) {
-				if len(page.Items) == req.Limit {
-					cursor = before
-					page.HasMore = true
-					break
+			if visible {
+				card, err := v.projectCard(ctx, library, candidate, access, false)
+				if err != nil {
+					if errors.Is(err, errCatalogWorkPending) {
+						page.PageState = "deferred"
+						break candidates
+					}
+					return page, err
 				}
-				page.Items = append(page.Items, card)
+				if card.classificationIncomplete {
+					page.PageState = "deferred"
+					break candidates
+				}
+				if req.Sort == "updated" && card.SeriesUpdatedAt == nil {
+					visible = false
+				}
+				if visible && (!req.Hero || (card.MatchState == "local_confirmed" || card.MatchState == "provider_confirmed") && (card.StructureKind == "movie" || card.StructureKind == "series") && card.Title != "") && (req.Kind == "" || req.Kind == card.StructureKind) && (req.MatchState == "" || req.MatchState == card.MatchState) && catalogSearchMatches(req.Query, card.Title, card.OriginalTitle) {
+					if len(page.Items) == req.Limit {
+						cursor = before
+						page.HasMore = true
+						break candidates
+					}
+					page.Items = append(page.Items, card)
+				}
+			} else {
+				page.sawHidden = true
 			}
-		} else {
-			page.sawHidden = true
 		}
 		if !candidatePage.HasMore {
 			break
