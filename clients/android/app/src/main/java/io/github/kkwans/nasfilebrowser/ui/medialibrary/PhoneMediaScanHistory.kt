@@ -13,8 +13,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.data.*
-import io.github.kkwans.nasfilebrowser.ui.SettingsAction
-import io.github.kkwans.nasfilebrowser.ui.SettingsGroup
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -67,7 +65,7 @@ internal fun PhoneMediaScanHistory(
             if (!busy && problem == null && scans.isEmpty()) item { Text("这里还没有扫描任务。") }
             items(scans, key = { it.id }) { scan ->
                 Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
-                    SettingsAction(scan.sourceLabel ?: "媒体文件夹",
+                    MediaSettingsAction(scan.sourceLabel ?: "媒体文件夹",
                         "${directoryStatus(scan.status)} · 已处理 ${scan.processed} 项", R.drawable.ic_folder) { onSelect(scan.id) }
                 }
             }
@@ -151,15 +149,15 @@ private fun PhoneMediaScanProgress(repository: MediaLibraryRepository, libraryId
     val resultTitle = if (scan?.status == MediaScanStatus.COMPLETED) "扫描结果" else "扫描进度"
     ScanHistoryPage(resultTitle, onBack, refresh = { refresh++ }, busy = busy || changing) {
         scan?.let { entry -> item {
-            SettingsGroup(if (entry.status == MediaScanStatus.COMPLETED) "目录扫描结果" else "目录扫描") {
+            MediaSettingsGroup(if (entry.status == MediaScanStatus.COMPLETED) "目录扫描结果" else "目录扫描") {
                 ScanProgressText(directoryStatus(entry.status), "已处理 ${entry.processed} 项")
                 if (entry.status == MediaScanStatus.COMPLETED) {
-                    SettingsAction("浏览已收录影片", "返回媒体库并筛选当前媒体库", R.drawable.ic_library, action = onBrowse)
+                    MediaSettingsAction("浏览已收录影片", "返回媒体库并筛选当前媒体库", R.drawable.ic_library, action = onBrowse)
                 }
             }
         } }
         metadata?.let { job -> item {
-            SettingsGroup("TMDB 资料补全") {
+            MediaSettingsGroup("TMDB 资料补全") {
                 val details = listOf("已匹配 ${job.matched}", "待确认 ${job.review}", "待处理 ${job.pending}") +
                     listOfNotNull(job.skipped.takeIf { it > 0 }?.let { "已跳过 $it" }, job.failed.takeIf { it > 0 }?.let { "失败 $it" })
                 ScanProgressText(metadataStatus(job), details.joinToString(" · "))
@@ -177,7 +175,7 @@ private fun PhoneMediaScanProgress(repository: MediaLibraryRepository, libraryId
                         }
                     }, enabled = !changing && !busy, modifier = Modifier.padding(horizontal = 8.dp)) { Text(if (cancel) "取消补全" else "重试补全") }
                 }
-                if (reviewCount > 0 && !reviewVisible) SettingsAction("待确认", "$reviewCount 项记录，打开仍待匹配的影片",
+                if (reviewCount > 0 && !reviewVisible) MediaSettingsAction("待确认", "$reviewCount 项记录，打开仍待匹配的影片",
                     R.drawable.ic_search, action = { reviewVisible = true })
             }
         } }
@@ -191,7 +189,7 @@ private fun PhoneMediaScanProgress(repository: MediaLibraryRepository, libraryId
             } }
             items(items, key = { it.ref.itemId }) { item ->
                 Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
-                    SettingsAction(item.title.ifBlank { "待确认影片" }, reviewReason(item.reason), R.drawable.ic_video) { onReviewItem(item.ref) }
+                    MediaSettingsAction(item.title.ifBlank { "待确认影片" }, reviewReason(item.reason), R.drawable.ic_video) { onReviewItem(item.ref) }
                 }
             }
             if (next != null) item {

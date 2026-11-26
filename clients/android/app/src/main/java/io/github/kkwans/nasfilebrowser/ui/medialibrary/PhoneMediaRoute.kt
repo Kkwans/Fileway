@@ -355,7 +355,7 @@ internal fun PhoneMediaRoute(
             }
         } else {
             val home = route.home
-            val hasLibrary = home != null && home.state != MediaCatalogHomeState.NO_LIBRARIES
+            val hasLibrary = route.catalog.isNotEmpty() || home != null && home.state != MediaCatalogHomeState.NO_LIBRARIES
             val page = when (mediaTab) { "libraries" -> PhoneMediaPage.LIBRARIES; "categories" -> PhoneMediaPage.CATEGORIES; else -> PhoneMediaPage.HOME }
             val grid = when (page) { PhoneMediaPage.HOME -> homeGrid; PhoneMediaPage.LIBRARIES -> libraryGrid; PhoneMediaPage.CATEGORIES -> categoryGrid }
             Column(Modifier.fillMaxSize()) {
@@ -367,7 +367,7 @@ internal fun PhoneMediaRoute(
                } else if (route.checking) {
                 Column(safe) {
                     FilewayTopAppBar("影视中心", leadingIcon = Art.drawable.fileway_ic_arrow_back, leadingDescription = "返回", onLeadingClick = onExit)
-                    MediaLoading("正在读取影视目录")
+                    MediaLoading("正在读取影视目录", Modifier.weight(1f))
                 }
                } else PhoneMediaHome(PhoneMediaHomeState(
                 scopeKey = session.owner,

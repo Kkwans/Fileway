@@ -392,6 +392,7 @@ internal class TvMediaRouteState(
                     catalog = (if (reset) page.items else catalog + page.items).distinctBy { tvMediaKey(it.ref) }
                     catalogCursor = page.nextCursor; catalogError = tvPageError(page.state, page.nextCursor != null)
                     retryCatalogPage = false
+                    if (page.items.isNotEmpty()) checking = false
                 }
                 is MediaReadResult.Failure -> if (result.scope == repository.scope) {
                     if (result.error.invalidatesTvData()) { catalog = emptyList(); catalogCursor = null }

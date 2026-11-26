@@ -469,6 +469,7 @@ internal class PhoneMediaRouteState(
                     catalogPageState = page.state
                     retryCatalogPage = false
                     catalogProblem = pageProblem(page.state, page.nextCursor != null)
+                    if (page.items.isNotEmpty()) checking = false
                 }
                 is MediaReadResult.Failure -> if (result.scope == repository.scope) {
                     if (result.error.invalidatesVisibleData()) { catalog = emptyList(); catalogCursor = null; catalogPageState = null }

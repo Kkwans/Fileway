@@ -141,10 +141,23 @@ internal fun phoneMediaGridSpec(width: Dp): PhoneMediaGridSpec {
 }
 
 @Composable internal fun MediaLoading(label: String, modifier: Modifier = Modifier) {
-    Row(modifier.fillMaxWidth().padding(24.dp).semantics { liveRegion = LiveRegionMode.Polite },
-        horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-        CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
-        Text(label, style = PhoneMediaType.secondary)
+    Column(modifier.fillMaxWidth().padding(vertical = 48.dp).semantics { liveRegion = LiveRegionMode.Polite },
+        horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+        CircularProgressIndicator(Modifier.size(36.dp), strokeWidth = 3.dp)
+        Spacer(Modifier.height(16.dp))
+        Text(label, style = PhoneMediaType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable internal fun MediaSearchEntry(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(onClick = onClick, modifier = modifier.fillMaxWidth().heightIn(min = 52.dp),
+        shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer) {
+        Row(Modifier.padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            FilewayIcon(R.drawable.ic_search, null, Modifier.size(21.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("搜索影片、剧集、人物", Modifier.weight(1f), style = PhoneMediaType.body,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 

@@ -58,8 +58,10 @@ internal enum class PhoneMediaPage { HOME, LIBRARIES, CATEGORIES }
                         if (page == PhoneMediaPage.LIBRARIES && state.canManage)
                             MediaIconAction(R.drawable.ic_settings, "管理媒体库", { onAction(PhoneMediaAction.ManageLibraries) })
                         if (state.canSearchCollections) MediaIconAction(Art.drawable.fileway_ic_library, "合集", { onAction(PhoneMediaAction.Collections) })
-                        if (state.canSearch) MediaIconAction(R.drawable.ic_search, "搜索影视", { onAction(PhoneMediaAction.Search) })
                     }
+                }
+                if (state.canSearch) item(key = "search-entry", span = { GridItemSpan(maxLineSpan) }) {
+                    MediaSearchEntry(onClick = { onAction(PhoneMediaAction.Search) })
                 }
                 state.problem?.let { problem -> item(key = "problem", span = { GridItemSpan(maxLineSpan) }) {
                     MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("home")) })
@@ -115,7 +117,7 @@ internal enum class PhoneMediaPage { HOME, LIBRARIES, CATEGORIES }
                         }
                     }
                 }
-                if (page == PhoneMediaPage.CATEGORIES && state.categories.isNotEmpty()) item(key = "categories", span = { GridItemSpan(maxLineSpan) }) {
+                if (page != PhoneMediaPage.LIBRARIES && state.categories.isNotEmpty()) item(key = "categories", span = { GridItemSpan(maxLineSpan) }) {
                     LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         items(state.categories, key = { it.id }) { category ->
                             FilterChip(selected = state.selectedCategory == category.id,

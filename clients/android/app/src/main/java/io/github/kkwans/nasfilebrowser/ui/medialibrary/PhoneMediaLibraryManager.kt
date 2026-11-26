@@ -23,8 +23,6 @@ import io.github.kkwans.nasfilebrowser.app.SessionContext
 import io.github.kkwans.nasfilebrowser.data.*
 import io.github.kkwans.nasfilebrowser.data.MediaSourceRoot as LibrarySourceRoot
 import io.github.kkwans.nasfilebrowser.data.archiveAbsoluteWire
-import io.github.kkwans.nasfilebrowser.ui.SettingsAction
-import io.github.kkwans.nasfilebrowser.ui.SettingsGroup
 import io.github.kkwans.nasfilebrowser.ui.DirectoryBreadcrumbItem
 import io.github.kkwans.nasfilebrowser.ui.DirectoryBreadcrumbs
 import io.github.kkwans.nasfilebrowser.ui.FilewayButton
@@ -533,8 +531,8 @@ import kotlin.coroutines.coroutineContext
                 when (screen) {
                     "libraries" -> {
                         if (draftLibraryId != null) item(key = "setup-pending") {
-                            SettingsGroup("未完成的媒体库") {
-                                SettingsAction("继续设置 ${setupLibraryName.ifBlank { "媒体库" }}",
+                            MediaSettingsGroup("未完成的媒体库") {
+                                MediaSettingsAction("继续设置 ${setupLibraryName.ifBlank { "媒体库" }}",
                                     "已添加 ${setupCompleted.size}/${setupTotal} 个文件夹", R.drawable.ic_library, enabled = !busy) {
                                     selectedId = draftLibraryId; selected = null; screen = "library"
                                 }
@@ -545,7 +543,7 @@ import kotlin.coroutines.coroutineContext
                         }
                         items(libraries, key = { it.id }) { library ->
                             Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
-                                SettingsAction(library.name, if (library.role == MediaLibraryRole.OWNER) "管理目录与资料" else "共享媒体库",
+                                MediaSettingsAction(library.name, if (library.role == MediaLibraryRole.OWNER) "管理目录与资料" else "共享媒体库",
                                     R.drawable.ic_library, enabled = !busy) { selectedId = library.id; selected = null; screen = "library"; notice = null }
                             }
                         }
@@ -575,7 +573,7 @@ import kotlin.coroutines.coroutineContext
                             }
                         }
                         item(key = "name") {
-                            SettingsGroup("基本信息") {
+                            MediaSettingsGroup("基本信息") {
                                 OutlinedTextField(name, { name = it }, label = { Text("媒体库名称") },
                                     placeholder = { Text("例如：电影、电视剧") },
                                     enabled = !busy && pendingId == null, singleLine = true,
@@ -588,7 +586,7 @@ import kotlin.coroutines.coroutineContext
                             }
                         }
                         item(key = "draft-folders") {
-                            SettingsGroup("媒体文件夹") {
+                            MediaSettingsGroup("媒体文件夹") {
                                 draftFolders.forEach { folder ->
                                     ListItem(headlineContent = { Text(folder.name, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                                         supportingContent = { Text(folder.path, maxLines = 2, overflow = TextOverflow.Ellipsis) },
@@ -599,13 +597,13 @@ import kotlin.coroutines.coroutineContext
                                                 enabled = !busy && pendingId == null) { Text("移除") }
                                         })
                                 }
-                                SettingsAction("添加文件夹", if (draftFolders.isEmpty()) "可选，也可以创建后再添加" else "${draftFolders.size} 个文件夹已选",
+                                MediaSettingsAction("添加文件夹", if (draftFolders.isEmpty()) "可选，也可以创建后再添加" else "${draftFolders.size} 个文件夹已选",
                                     R.drawable.ic_folder, enabled = !busy && pendingId == null) { openDirectory("create") }
                             }
                         }
                         item(key = "default-policy") {
-                            SettingsGroup("信息获取") {
-                                SettingsAction("TMDB 数据源", "先保存并检测密钥，创建后可选择连接、语言与地区",
+                            MediaSettingsGroup("信息获取") {
+                                MediaSettingsAction("TMDB 数据源", "先保存并检测密钥，创建后可选择连接、语言与地区",
                                     R.drawable.ic_settings, enabled = !busy && pendingId == null, action = onProvider)
                                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                     Text("默认仅本地资料", style = PhoneMediaType.itemTitle)
@@ -619,7 +617,7 @@ import kotlin.coroutines.coroutineContext
                         selected?.let { library ->
                             if (library.role == MediaLibraryRole.OWNER) {
                                 if (draftLibraryId == library.id) item(key = "setup-progress") {
-                                    SettingsGroup("创建进度") {
+                                    MediaSettingsGroup("创建进度") {
                                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                             Text("已添加 ${setupCompleted.size}/${setupTotal} 个文件夹", style = PhoneMediaType.itemTitle)
                                             setupCompleted.forEach { Text("已添加 · ${it.path}", style = PhoneMediaType.secondary) }
@@ -643,21 +641,21 @@ import kotlin.coroutines.coroutineContext
                                         enabled = !busy && pendingId == null)
                                 } }
                                 item(key = "add-source") {
-                                    SettingsGroup("媒体文件夹") {
-                                        SettingsAction("添加文件夹", "可关联多个当前服务器目录", R.drawable.ic_folder,
+                                    MediaSettingsGroup("媒体文件夹") {
+                                        MediaSettingsAction("添加文件夹", "可关联多个当前服务器目录", R.drawable.ic_folder,
                                             enabled = !busy && pendingId == null && draftLibraryId == null) { openDirectory("library") }
                                     }
                                 }
                                 item(key = "scan-history") {
-                                    SettingsGroup("扫描与补全") {
-                                        SettingsAction("扫描记录", "查看目录扫描、TMDB 补全和待确认影片", R.drawable.ic_search, enabled = !busy) {
+                                    MediaSettingsGroup("扫描与补全") {
+                                        MediaSettingsAction("扫描记录", "查看目录扫描、TMDB 补全和待确认影片", R.drawable.ic_search, enabled = !busy) {
                                             historyScanId = null; screen = "history"
                                         }
                                     }
                                 }
                                 item(key = "metadata-policy") {
-                                    SettingsGroup("资料") {
-                                        SettingsAction("资料优先级", metadataPolicySummary(policy), R.drawable.ic_settings,
+                                    MediaSettingsGroup("资料") {
+                                        MediaSettingsAction("资料优先级", metadataPolicySummary(policy), R.drawable.ic_settings,
                                             enabled = !busy && pendingId == null && (draftLibraryId == null || setupPaused)) { screen = "policy" }
                                     }
                                 }
@@ -672,10 +670,10 @@ import kotlin.coroutines.coroutineContext
                                     FilewayEmptyState(R.drawable.ic_folder, "还没有来源", "选择你有权访问的服务器目录。")
                                 }
                                 if (sources.size > 1 && sourceCursor == null && sources.size <= 60 && sources.all { it.access == MediaSourceAccess.AVAILABLE }) item(key = "scan-all-sources") {
-                                    SettingsGroup("扫描") {
-                                        SettingsAction("扫描全部目录", "${sources.size} 个目录 · 在服务器后台运行", R.drawable.ic_search,
+                                    MediaSettingsGroup("扫描") {
+                                        MediaSettingsAction("扫描全部目录", "${sources.size} 个目录 · 在服务器后台运行", R.drawable.ic_search,
                                             enabled = !busy && pendingId == null && draftLibraryId == null && support?.available == true && !loading, navigation = false) {
-                                            val rules = support?.localRulesRevision ?: return@SettingsAction
+                                            val rules = support?.localRulesRevision ?: return@MediaSettingsAction
                                             val activeSources = sources
                                             submit("scan") { repository.startScanBatch(it, library.id, activeSources, rules) }
                                         }
@@ -757,18 +755,25 @@ import kotlin.coroutines.coroutineContext
                                     style = PhoneMediaType.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                             if (creating) {
-                                Text(if (draftFolders.isEmpty()) "可先创建媒体库，之后再添加文件夹。"
+                                Text(if (draftFolders.isEmpty()) "可以先创建媒体库，之后再添加文件夹。"
                                     else "将创建媒体库并添加 ${draftFolders.size} 个文件夹；创建后可立即设置资料策略。",
                                     style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 if (draftFolders.size > 60) Text("一次最多扫描 60 个文件夹，可以先创建媒体库。",
                                     style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                FilewayButton(onClick = { createLibrary(andScan = true) },
-                                    enabled = canCreate && draftFolders.size in 1..60,
-                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                                    Text(if (busy) "正在保存…" else "创建并扫描")
+                                if (draftFolders.isEmpty()) {
+                                    FilewayButton(onClick = { createLibrary(andScan = false) }, enabled = canCreate,
+                                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("创建媒体库") }
+                                } else {
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        FilewayOutlinedButton(onClick = { createLibrary(andScan = false) }, enabled = canCreate,
+                                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("仅创建") }
+                                        FilewayButton(onClick = { createLibrary(andScan = true) },
+                                            enabled = canCreate && draftFolders.size in 1..60,
+                                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                                            Text(if (busy) "正在保存…" else "创建并扫描")
+                                        }
+                                    }
                                 }
-                                FilewayOutlinedButton(onClick = { createLibrary(andScan = false) }, enabled = canCreate,
-                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("仅创建") }
                             } else FilewayButton(onClick = {
                                 if (verifiedBrowse == (browseStack.last().wirePath to browseRefresh) && browseStack.last() == currentDirectory) {
                                     if (directoryReturn == "create") {

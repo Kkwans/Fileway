@@ -2,6 +2,7 @@ package io.github.kkwans.nasfilebrowser.ui.medialibrary
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -10,16 +11,19 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.data.*
 import io.github.kkwans.nasfilebrowser.ui.FilewayIcon
 import io.github.kkwans.nasfilebrowser.ui.FilewayIconButton
-import io.github.kkwans.nasfilebrowser.ui.SettingsAction
-import io.github.kkwans.nasfilebrowser.ui.SettingsGroup
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusBanner
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayStatusKind
@@ -28,31 +32,82 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+@Composable internal fun MediaSettingsGroup(title: String, subtitle: String? = null,
+    content: @Composable ColumnScope.() -> Unit) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, Modifier.padding(start = 4.dp).semantics { heading() }, style = PhoneMediaType.action,
+            color = MaterialTheme.colorScheme.primary)
+        if (!subtitle.isNullOrBlank()) Text(subtitle, Modifier.padding(start = 4.dp),
+            style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Surface(Modifier.fillMaxWidth().semantics { contentDescription = "${title}设置分组" },
+            shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+            Column(content = content)
+        }
+    }
+}
+
+@Composable internal fun MediaSettingsAction(title: String, subtitle: String, icon: Int,
+    enabled: Boolean = true, navigation: Boolean = true, action: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    val contentAlpha = if (enabled) 1f else .38f
+    Row(Modifier.fillMaxWidth().clickable(enabled = enabled, role = Role.Button, onClick = action)
+        .heightIn(min = 76.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        Box(Modifier.size(42.dp).background(if (enabled) colors.primaryContainer else colors.surfaceContainerHighest,
+            MaterialTheme.shapes.small), contentAlignment = Alignment.Center) {
+            FilewayIcon(icon, null, Modifier.size(21.dp),
+                tint = (if (enabled) colors.onPrimaryContainer else colors.onSurface).copy(alpha = contentAlpha))
+        }
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(title, style = PhoneMediaType.body, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                color = colors.onSurface.copy(alpha = contentAlpha), maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Text(subtitle, style = PhoneMediaType.secondary, color = colors.onSurfaceVariant.copy(alpha = contentAlpha),
+                maxLines = 3, overflow = TextOverflow.Ellipsis)
+        }
+        if (navigation) FilewayIcon(R.drawable.ic_arrow_forward, null, Modifier.size(20.dp),
+            tint = colors.onSurfaceVariant.copy(alpha = contentAlpha))
+    }
+}
+
+@Composable internal fun MediaSettingsChip(label: String, selected: Boolean, enabled: Boolean = true,
+    onClick: () -> Unit) {
+    FilterChip(selected = selected, onClick = onClick, enabled = enabled, label = { Text(label) },
+        modifier = Modifier.heightIn(min = 44.dp), shape = MaterialTheme.shapes.medium)
+}
+
 @Composable
 internal fun PhoneMediaSettings(onBack: () -> Unit, onLibraries: () -> Unit, onProvider: () -> Unit) {
     MediaSettingsPage("影视设置", onBack) {
-        Text("管理媒体库、资料源与识别规则。所有扫描都在服务器后台执行，原文件保持只读。",
-            style = PhoneMediaType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        SettingsGroup("媒体库") {
-            SettingsAction("管理媒体库", "创建媒体库、添加目录、查看扫描结果与待确认影片", R.drawable.ic_library, action = onLibraries)
+        Text("管理媒体库、资料源与识别规则。扫描在服务器后台执行，源文件保持只读。",
+            style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        MediaSettingsGroup("媒体库") {
+            MediaSettingsAction("管理媒体库", "创建媒体库、添加目录、查看扫描结果与待确认影片",
+                R.drawable.ic_library, action = onLibraries)
         }
-        SettingsGroup("数据源") {
-            SettingsAction("TMDB", "保存密钥、检测连接，默认使用简体中文与中国大陆资料", R.drawable.ic_settings, action = onProvider)
+        MediaSettingsGroup("资料源") {
+            MediaSettingsAction("TMDB 数据源", "密钥与连接检测 · 默认简体中文、中国大陆资料",
+                R.drawable.ic_settings, action = onProvider)
         }
-        SettingsGroup("识别与扫描") {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("多信号智能匹配", style = PhoneMediaType.itemTitle)
+        MediaSettingsGroup("识别与扫描") {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("多信号智能匹配", style = PhoneMediaType.body,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
                 Text("结合片名、别名、年份、真实片长、目录结构与唯一候选；存在冲突时进入待确认。",
-                    style = PhoneMediaType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text("电影默认低于 60 分钟、电视剧单集默认低于 10 分钟时不发送匹配请求。可在每个媒体库的“资料优先级”中调整。",
                     style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    MediaSettingsChip("电影 ≥ 60 分钟", selected = true, enabled = false) {}
+                    MediaSettingsChip("单集 ≥ 10 分钟", selected = true, enabled = false) {}
+                }
+                Text("可在每个媒体库的“资料优先级”中调整。", style = PhoneMediaType.secondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        SettingsGroup("文件安全") {
+        MediaSettingsGroup("文件安全") {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text("源文件只读", style = PhoneMediaType.itemTitle)
-                Text("扫描不会改名、移动或回写视频、NFO 与图片。识别结果保存在媒体目录中。",
-                    style = PhoneMediaType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text("源文件只读", style = PhoneMediaType.body,
+                    fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+                Text("不会改名、移动或回写视频、NFO 与图片。识别结果只保存在媒体目录中。",
+                    style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }
@@ -227,7 +282,7 @@ internal fun PhoneMediaProviderSettings(repository: MediaLibraryRepository, onBa
             modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(16.dp).heightIn(min = 48.dp),
             shape = MaterialTheme.shapes.medium) { Text(if (saving) "正在保存" else if (unknownSave) "重新保存密钥" else "保存密钥", style = PhoneMediaType.action) }
     }) {
-        SettingsGroup("TMDB API 密钥") {
+        MediaSettingsGroup("TMDB API 密钥") {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text("输入或粘贴 TMDB API 密钥或读取访问令牌。保存后密钥不会回显。", style = PhoneMediaType.secondary,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -247,7 +302,7 @@ internal fun PhoneMediaProviderSettings(repository: MediaLibraryRepository, onBa
                     shape = MaterialTheme.shapes.medium)
             }
         }
-        SettingsGroup("服务端状态") {
+        MediaSettingsGroup("服务端状态") {
             when {
                 statusLoading -> MediaLoading("正在读取服务端状态")
                 statusError != null -> MediaProblemCard(MediaProblem("无法读取服务端状态", providerProblem(statusError!!),
@@ -260,7 +315,7 @@ internal fun PhoneMediaProviderSettings(repository: MediaLibraryRepository, onBa
                 else -> Text("服务端状态未知，请重新读取。", Modifier.padding(16.dp), style = PhoneMediaType.body)
             }
         }
-        SettingsGroup("个人连接") {
+        MediaSettingsGroup("个人连接") {
             when {
                 connectionsLoading -> MediaLoading("正在读取完整连接列表")
                 connectionsError != null -> MediaProblemCard(MediaProblem("无法读取完整连接列表", providerConnectionsProblem(connectionsError!!),
@@ -281,8 +336,8 @@ internal fun PhoneMediaProviderSettings(repository: MediaLibraryRepository, onBa
                 else -> Text("连接状态未知，请重新读取。", Modifier.padding(16.dp), style = PhoneMediaType.body)
             }
         }
-        SettingsGroup("连接") {
-            SettingsAction("检测连接", if (checking) "正在检测" else "使用保存在当前服务器上的密钥", R.drawable.ic_settings,
+        MediaSettingsGroup("连接") {
+            MediaSettingsAction("检测连接", if (checking) "正在检测" else "使用保存在当前服务器上的密钥", R.drawable.ic_settings,
                 enabled = canCheck, navigation = false, action = checkConnection)
         }
         if (saving) MediaLoading("正在保存密钥")
@@ -437,21 +492,46 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
         }, enabled = !busy && !libraryRefreshBusy && (valid || pending != null), modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth().padding(16.dp).heightIn(min = 48.dp),
             shape = MaterialTheme.shapes.medium) { Text(if (pending != null) "确认上次保存" else "保存设置", style = PhoneMediaType.action) }
     }) {
-        SettingsGroup("资料来源") {
-            listOf(MediaProviderPolicyMode.LOCAL_ONLY to "仅本地资料", MediaProviderPolicyMode.LOCAL_FIRST_ONLINE to "本地优先，TMDB 补缺",
-                MediaProviderPolicyMode.ONLINE_FIRST to "TMDB 优先").forEach { (value, label) ->
-                FilewaySelectionRow(label, selected = mode == value, enabled = !busy && pending == null, onClick = { mode = value })
+        MediaSettingsGroup("资料来源", "决定本地资料与 TMDB 的使用顺序") {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    listOf(MediaProviderPolicyMode.LOCAL_ONLY to "仅本地资料",
+                        MediaProviderPolicyMode.LOCAL_FIRST_ONLINE to "本地优先，TMDB 补缺",
+                        MediaProviderPolicyMode.ONLINE_FIRST to "TMDB 优先").forEach { (value, label) ->
+                        MediaSettingsChip(label, mode == value, !busy && pending == null) { mode = value }
+                    }
+                }
+                Text(when (mode) {
+                    MediaProviderPolicyMode.LOCAL_ONLY -> "只使用目录中已有资料，不发送 TMDB 匹配请求。"
+                    MediaProviderPolicyMode.LOCAL_FIRST_ONLINE -> "优先保留本地资料，缺失字段由 TMDB 补全。"
+                    MediaProviderPolicyMode.ONLINE_FIRST -> "优先采用 TMDB 资料，人工锁定与显式清空字段仍会保留。"
+                    MediaProviderPolicyMode.UNKNOWN -> "当前资料策略未知，请重新读取后再选择。"
+                }, style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        SettingsGroup("语言与地区") {
-            listOf("zh-CN" to "简体中文", "zh-TW" to "繁体中文", "en-US" to "English", "ja-JP" to "日本語").forEach { (value, label) ->
-                FilewaySelectionRow(label, selected = language == value, enabled = !busy && pending == null, onClick = { language = value })
-            }
-            listOf("CN" to "中国大陆", "TW" to "台湾", "HK" to "香港", "US" to "美国", "JP" to "日本").forEach { (value, label) ->
-                FilewaySelectionRow(label, subtitle = "发行地区", selected = region == value, enabled = !busy && pending == null, onClick = { region = value })
+        MediaSettingsGroup("语言与地区", "旧资料刷新也使用这里的目标语言") {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("资料语言", style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("zh-CN" to "简体中文", "zh-TW" to "繁体中文", "en-US" to "English", "ja-JP" to "日本語")
+                            .forEach { (value, label) ->
+                                MediaSettingsChip(label, language == value, !busy && pending == null) { language = value }
+                            }
+                    }
+                }
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("发行地区", style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        listOf("CN" to "中国大陆", "TW" to "台湾", "HK" to "香港", "US" to "美国", "JP" to "日本")
+                            .forEach { (value, label) ->
+                                MediaSettingsChip(label, region == value, !busy && pending == null) { region = value }
+                            }
+                    }
+                }
             }
         }
-        SettingsGroup("刮削时长过滤") {
+        MediaSettingsGroup("刮削时长过滤") {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("低于阈值的视频不会发送 TMDB 匹配请求；无法读取时长时进入待复核。", style = PhoneMediaType.secondary,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -467,7 +547,7 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), shape = MaterialTheme.shapes.medium)
             }
         }
-        if (mode != MediaProviderPolicyMode.LOCAL_ONLY && policy != null) SettingsGroup("资料语言刷新") {
+        if (mode != MediaProviderPolicyMode.LOCAL_ONLY && policy != null) MediaSettingsGroup("资料语言刷新") {
             Text("预览只统计影响，不会修改资料。", style = PhoneMediaType.secondary,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             Button(onClick = ::previewLibraryRefresh, enabled = !busy && !libraryRefreshBusy && !dirty,
@@ -508,7 +588,7 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
             PhoneMediaRefreshJobSection(repository, libraryId, libraryRefreshPreview?.takeIf { !dirty && it.policyRevision == currentPolicy?.revision }, dirty,
                 enabled = !busy && !libraryRefreshBusy && pending == null)
         }
-        if (mode != MediaProviderPolicyMode.LOCAL_ONLY) SettingsGroup("TMDB 连接") {
+        if (mode != MediaProviderPolicyMode.LOCAL_ONLY) MediaSettingsGroup("TMDB 连接") {
             when {
                 connectionsLoading -> MediaLoading("正在读取完整连接列表")
                 connectionsError != null -> MediaProblemCard(MediaProblem("无法读取完整连接列表", providerConnectionsProblem(connectionsError!!),
@@ -518,8 +598,8 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
                         FilewaySelectionRow(if (item.owner == MediaProviderOwner.USER) "个人连接 ${index + 1}" else "服务器共享连接 ${index + 1}",
                             selected = chosen == item.id, enabled = !busy && pending == null, onClick = { chosen = item.id })
                     }
-                    if (connections.orEmpty().isEmpty()) SettingsAction("配置 TMDB", "保存个人密钥后选择连接", R.drawable.ic_settings, enabled = !busy, action = onProvider)
-                    else SettingsAction("管理密钥", "保存新密钥或检测连接", R.drawable.ic_settings, enabled = !busy, action = onProvider)
+                    if (connections.orEmpty().isEmpty()) MediaSettingsAction("配置 TMDB", "保存个人密钥后选择连接", R.drawable.ic_settings, enabled = !busy, action = onProvider)
+                    else MediaSettingsAction("管理密钥", "保存新密钥或检测连接", R.drawable.ic_settings, enabled = !busy, action = onProvider)
                 }
             }
         }

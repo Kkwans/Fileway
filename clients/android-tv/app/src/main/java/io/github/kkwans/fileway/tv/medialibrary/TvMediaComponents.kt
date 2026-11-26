@@ -1,6 +1,12 @@
 package io.github.kkwans.fileway.tv.medialibrary
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -14,17 +20,22 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -274,7 +285,37 @@ internal fun MediaStatus(message: String, onRetry: (() -> Unit)? = null, compact
 internal fun MediaLoadingStatus(message: String, compact: Boolean = false) {
     var visible by remember(message) { mutableStateOf(false) }
     LaunchedEffect(message) { delay(300); visible = true }
-    if (visible) MediaStatus(message, compact = compact)
+    if (!visible) return
+    val colors = LocalMediaColors.current
+    Box(Modifier.fillMaxWidth().heightIn(min = if (compact) 88.dp else 360.dp)
+        .padding(horizontal = MediaLayout.pageInset, vertical = 24.dp)
+        .semantics { liveRegion = LiveRegionMode.Polite }, contentAlignment = Alignment.Center) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            MediaLoadingRing(if (compact) 28.dp else 44.dp)
+            Text(message, style = if (compact) MediaType.body else MediaType.sectionTitle, color = colors.text)
+        }
+    }
+}
+
+@Composable private fun MediaLoadingRing(size: Dp) {
+    val colors = LocalMediaColors.current
+    val rotation = rememberInfiniteTransition(label = "media-loading").animateFloat(
+        initialValue = 0f, targetValue = 360f,
+        animationSpec = infiniteRepeatable(animation = tween(900, easing = LinearEasing)),
+        label = "media-loading-rotation",
+    )
+    Canvas(Modifier.size(size).rotate(rotation.value)) {
+        val stroke = 3.dp.toPx()
+        val inset = stroke / 2f
+        drawArc(color = colors.secondary.copy(alpha = .18f), startAngle = 0f, sweepAngle = 360f,
+            useCenter = false, topLeft = androidx.compose.ui.geometry.Offset(inset, inset),
+            size = androidx.compose.ui.geometry.Size(this.size.width - stroke, this.size.height - stroke),
+            style = Stroke(stroke, cap = StrokeCap.Round))
+        drawArc(color = colors.accent, startAngle = 0f, sweepAngle = 270f,
+            useCenter = false, topLeft = androidx.compose.ui.geometry.Offset(inset, inset),
+            size = androidx.compose.ui.geometry.Size(this.size.width - stroke, this.size.height - stroke),
+            style = Stroke(stroke, cap = StrokeCap.Round))
+    }
 }
 
 /** Supply only destinations that are actually wired. Selection is not keyboard focus. */
