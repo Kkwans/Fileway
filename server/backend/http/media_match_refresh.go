@@ -100,7 +100,7 @@ func mediaMetadataRefreshHandler(preview bool, slots chan struct{}, starts <-cha
 			if item.ItemRevision != body.ItemRevision || item.StructureRevision != body.StructureRevision {
 				return catalogError(w, medialibrary.ErrRevisionConflict)
 			}
-			if match.Audit.Language == policy.Language {
+			if match.Kind != "series" && match.Audit.Language == policy.Language {
 				return renderJSON(w, r, map[string]string{"state": "already_current", "language": policy.Language})
 			}
 		}
@@ -149,23 +149,32 @@ func mediaMetadataRefreshHandler(preview bool, slots chan struct{}, starts <-cha
 		if err != nil {
 			return matchProviderError(w, err)
 		}
+		matchDocument, err := withProviderEpisodeDocuments(ctx, store, d.user.ID, library.ID, item.Ref.ItemID, match.ExternalID, client, policy.Language,
+			medialibrary.ProviderMatchDocument{Item: projection.Item, PosterPath: projection.PosterPath, BackdropPath: projection.BackdropPath})
+		if err != nil {
+			return matchProviderError(w, err)
+		}
 		if err := verifyCatalogSnapshot(ctx, d, snapshot); err != nil {
 			return catalogError(w, err)
 		}
 		if err = view.revalidateSources(ctx); err != nil {
 			return catalogError(w, err)
 		}
+		changed := changedMetadataFields(match.Document.Item.Fields, projection.Item.Fields)
+		if !reflect.DeepEqual(match.Document.Item.Credits, projection.Item.Credits) {
+			changed = append(changed, "credits")
+		}
+		if match.Document.PosterPath != projection.PosterPath || match.Document.BackdropPath != projection.BackdropPath {
+			changed = append(changed, "artwork")
+		}
+		episodesChanged := !reflect.DeepEqual(match.Document.Episodes, matchDocument.Episodes)
+		if episodesChanged {
+			changed = append(changed, "episodes")
+		}
 		if preview {
 			states, err := store.MetadataRefreshFieldStates(ctx, d.user.ID, library.ID, item.Ref.ItemID)
 			if err != nil {
 				return catalogError(w, err)
-			}
-			changed := changedMetadataFields(match.Document.Item.Fields, projection.Item.Fields)
-			if !reflect.DeepEqual(match.Document.Item.Credits, projection.Item.Credits) {
-				changed = append(changed, "credits")
-			}
-			if match.Document.PosterPath != projection.PosterPath || match.Document.BackdropPath != projection.BackdropPath {
-				changed = append(changed, "artwork")
 			}
 			protected, preserved := []string{}, []string{}
 			for name, state := range states {
@@ -187,16 +196,8 @@ func mediaMetadataRefreshHandler(preview bool, slots chan struct{}, starts <-cha
 				CanRefresh      bool     `json:"canRefresh"`
 			}{match.Audit.Language, policy.Language, changed, protected, preserved, true})
 		}
-		matchDocument, err := withProviderEpisodeDocuments(ctx, store, d.user.ID, library.ID, item.Ref.ItemID, match.ExternalID, client, policy.Language,
-			medialibrary.ProviderMatchDocument{Item: projection.Item, PosterPath: projection.PosterPath, BackdropPath: projection.BackdropPath})
-		if err != nil {
-			return matchProviderError(w, err)
-		}
-		if err := verifyCatalogSnapshot(ctx, d, snapshot); err != nil {
-			return catalogError(w, err)
-		}
-		if err = view.revalidateSources(ctx); err != nil {
-			return catalogError(w, err)
+		if len(changed) == 0 {
+			return renderJSON(w, r, map[string]string{"state": "already_current", "language": policy.Language})
 		}
 		receipt, err := store.ConfirmProviderMatch(ctx, d.user.ID, body.OperationID, request, *fence, document.Language, document.FetchedAt.UnixMilli(),
 			matchDocument,

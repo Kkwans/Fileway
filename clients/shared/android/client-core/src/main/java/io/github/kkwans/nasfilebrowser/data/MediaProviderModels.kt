@@ -145,7 +145,7 @@ data class MediaMetadataRefreshPreview(
 data class MediaMetadataRefreshLibraryPreview(
     val libraryId: String, val targetLanguage: String, val region: String, val mode: String,
     val policyRevision: Long, val matchedItems: Int, val languageMismatchItems: Int,
-    val alreadyCurrentItems: Int, val lockedItems: Int, val explicitClearItems: Int,
+    val episodeMetadataItems: Int, val alreadyCurrentItems: Int, val lockedItems: Int, val explicitClearItems: Int,
     val nfoPreservedItems: Int, val protectedFields: Map<String, Int>, val preservedFields: Map<String, Int>,
     val currentLanguages: Map<String, Int>, val fieldChangesRequireItemPreview: Boolean, val canRefresh: Boolean,
 )
@@ -373,7 +373,8 @@ private fun JSONObject.providerCountMap(key: String): Map<String, Int> {
 internal fun parseMetadataRefreshLibraryPreview(row: JSONObject): MediaMetadataRefreshLibraryPreview = MediaMetadataRefreshLibraryPreview(
     row.providerText("libraryId", 200).also(::requireMediaRouteId), row.providerText("targetLanguage", 64),
     row.providerText("region", 2), row.providerText("mode", 32), row.providerLong("policyRevision"),
-    row.providerCount("matchedItems"), row.providerCount("languageMismatchItems"), row.providerCount("alreadyCurrentItems"),
+    row.providerCount("matchedItems"), row.providerCount("languageMismatchItems"),
+    if (row.has("episodeMetadataItems")) row.providerCount("episodeMetadataItems") else 0, row.providerCount("alreadyCurrentItems"),
     row.providerCount("lockedItems"), row.providerCount("explicitClearItems"), row.providerCount("nfoPreservedItems"),
     row.providerCountMap("protectedFields"), row.providerCountMap("preservedFields"), row.providerCountMap("currentLanguages"),
     row.providerBoolean("fieldChangesRequireItemPreview"), row.providerBoolean("canRefresh"),

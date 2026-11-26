@@ -187,7 +187,8 @@ func newMetadataRefreshWorker(store *storage.Storage, server *settings.Server, s
 					effective = append(effective, name)
 				}
 			}
-			if len(effective) == 0 {
+			episodesChanged := !reflect.DeepEqual(match.Document.Episodes, matchDocument.Episodes)
+			if len(effective) == 0 && !episodesChanged {
 				outcome := "already_current"
 				if len(changed) != 0 {
 					outcome = "preserved"

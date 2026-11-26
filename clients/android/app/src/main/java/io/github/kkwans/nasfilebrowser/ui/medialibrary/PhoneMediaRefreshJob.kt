@@ -120,7 +120,7 @@ internal fun PhoneMediaRefreshJobSection(repository: MediaLibraryRepository, lib
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         job?.let { current ->
             Text(refreshJobStatusLabel(current), style = PhoneMediaType.itemTitle)
-            Text("共 ${current.total} 条；已刷新 ${current.refreshed}，已是目标语言 ${current.alreadyCurrent}，保留 ${current.preserved}，失败 ${current.failed}，待处理 ${current.pending}。",
+            Text("共 ${current.total} 条；已刷新 ${current.refreshed}，已是目标资料 ${current.alreadyCurrent}，保留 ${current.preserved}，失败 ${current.failed}，待处理 ${current.pending}。",
                 style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
             current.failureCode.takeIf(String::isNotBlank)?.let { Text("原因：$it", style = PhoneMediaType.secondary,
                 color = MaterialTheme.colorScheme.error) }
@@ -143,7 +143,7 @@ internal fun PhoneMediaRefreshJobSection(repository: MediaLibraryRepository, lib
         } ?: run {
             if (preview != null) Button(onClick = ::start, enabled = enabled && !dirty && preview.canRefresh && preview.languageMismatchItems > 0 && !busy,
                 modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text("开始刷新资料", style = PhoneMediaType.action) }
-            if (preview?.languageMismatchItems == 0) Text("没有需要刷新语言的条目。", style = PhoneMediaType.secondary)
+            if (preview?.languageMismatchItems == 0) Text("没有需要刷新的条目。", style = PhoneMediaType.secondary)
         }
         error?.let { message ->
             if (preview == null && pending == null && job == null) Text(message, style = PhoneMediaType.secondary,

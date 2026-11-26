@@ -18,6 +18,7 @@ type MetadataRefreshLibraryPreview struct {
 	PolicyRevision             int64          `json:"policyRevision"`
 	MatchedItems               int            `json:"matchedItems"`
 	LanguageMismatchItems      int            `json:"languageMismatchItems"`
+	EpisodeMetadataItems       int            `json:"episodeMetadataItems"`
 	AlreadyCurrentItems        int            `json:"alreadyCurrentItems"`
 	LockedItems                int            `json:"lockedItems"`
 	ExplicitClearItems         int            `json:"explicitClearItems"`
@@ -44,6 +45,7 @@ func (store *Store) MetadataRefreshLibraryPreview(ctx context.Context, actor uin
 		FieldChangesRequirePreview: true,
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT pm.language,
+	CASE WHEN pm.entity_kind='series' AND COALESCE(json_array_length(pm.document_json,'$.episodes'),0)=0 THEN 1 ELSE 0 END,
 	EXISTS(SELECT 1 FROM item_field f WHERE f.library_id=pm.library_id AND f.item_id=pm.item_id AND f.locked=1),
 	EXISTS(SELECT 1 FROM item_field f WHERE f.library_id=pm.library_id AND f.item_id=pm.item_id AND f.explicit_clear=1),
 	EXISTS(SELECT 1 FROM item_field f WHERE f.library_id=pm.library_id AND f.item_id=pm.item_id AND f.source='nfo')
@@ -56,13 +58,14 @@ func (store *Store) MetadataRefreshLibraryPreview(ctx context.Context, actor uin
 	}
 	for rows.Next() {
 		var language string
-		var locked, cleared, nfo int
-		if err := rows.Scan(&language, &locked, &cleared, &nfo); err != nil {
+		var episodeMissing, locked, cleared, nfo int
+		if err := rows.Scan(&language, &episodeMissing, &locked, &cleared, &nfo); err != nil {
 			rows.Close()
 			return nil, err
 		}
 		preview.MatchedItems++
-		if language == targetLanguage {
+		preview.EpisodeMetadataItems += episodeMissing
+		if language == targetLanguage && episodeMissing == 0 {
 			preview.AlreadyCurrentItems++
 		} else {
 			preview.LanguageMismatchItems++

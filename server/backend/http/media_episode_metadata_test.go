@@ -56,6 +56,117 @@ func TestFetchProviderEpisodeDocumentsUsesOnlyLocalEpisodePositions(t *testing.T
 	}
 }
 
+func TestMetadataRefreshJobBackfillsEpisodesForSameLanguageSeries(t *testing.T) {
+	var testVault *mediaprovider.CredentialVault
+	f := newMediaScanHTTPFixture(t, func(h *trashHTTPHarness) {
+		var err error
+		testVault, err = mediaprovider.NewCredentialVault(bytes.Repeat([]byte{11}, 32))
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.storage.MediaProviderVault = testVault
+		client := &http.Client{Transport: matchTestTransport(func(r *http.Request) (*http.Response, error) {
+			switch r.URL.Path {
+			case "/3/tv/55":
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
+					`{"id":55,"name":"本地剧","first_air_date":"2024-01-01"}`))}, nil
+			case "/3/tv/55/season/1":
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
+					`{"id":101,"season_number":1,"episodes":[{"id":201,"episode_number":1,"name":"第一集","episode_runtime":52}]}`))}, nil
+			default:
+				t.Fatalf("unexpected refresh route: %s", r.URL.Path)
+				return nil, nil
+			}
+		})}
+		h.storage.TMDBHTTPClient = client
+	})
+	catalogFixtureWrite(t, f, "Show.S01E01.mkv", "video")
+	catalogFixtureWrite(t, f, "tvshow.nfo", `<tvshow><title>本地剧</title><year>2024</year></tvshow>`)
+	library, source := f.libraryAndSource(t)
+	scanFixtureLibrary(t, f, library, source, "episode-refresh-job-fixture")
+	seriesPage, err := f.store.ListCatalogItems(t.Context(), f.owner.ID, library.ID, medialibrary.CatalogListOptions{Kind: "series"})
+	if err != nil || len(seriesPage.Items) != 1 {
+		t.Fatalf("series fixture: %+v err=%v", seriesPage, err)
+	}
+	seriesID := seriesPage.Items[0].ID
+	seasons, err := f.store.ListStructureSeasons(t.Context(), f.owner.ID, library.ID, seriesID, nil, 20)
+	if err != nil || len(seasons.Items) != 1 {
+		t.Fatalf("season fixture: %+v err=%v", seasons, err)
+	}
+	episodes, err := f.store.ListStructureEpisodes(t.Context(), f.owner.ID, library.ID, seriesID, seasons.Items[0].SeasonID, nil, 20)
+	if err != nil || len(episodes.Items) != 1 {
+		t.Fatalf("episode fixture: %+v err=%v", episodes, err)
+	}
+	connection, err := medialibrary.ProviderConnectionID(f.owner.ID, "episode-refresh-job")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vault := testVault
+	scope, err := medialibrary.ProviderCredentialContext(connection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, fingerprint, err := vault.Seal(scope, "episode-refresh-job-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.PutProviderConnection(t.Context(), f.owner.ID, false, connection, "user", "episode-refresh-job", 0,
+		medialibrary.SealedProviderCredential{Ciphertext: sealed, Fingerprint: fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	policy, err := f.store.SetLibraryMetadataPolicy(t.Context(), f.owner.ID, library.ID, "episode-refresh-job-policy", 0,
+		medialibrary.LibraryMetadataPolicy{Mode: medialibrary.MetadataOnlineFirst, ConnectionID: connection, Language: "zh-CN", Region: "CN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := f.store.CheckProviderUse(t.Context(), f.owner.ID, library.ID, connection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	structure, err := f.store.GetItemStructure(t.Context(), f.owner.ID, library.ID, seriesID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	initial := medialibrary.ProviderMatchDocument{Item: mediametadata.Item{Kind: mediametadata.TVShow, Fields: map[string][]string{
+		"title": {"本地剧"}, "year": {"2024"},
+	}}}
+	request := medialibrary.ProviderMatchRequest{LibraryID: library.ID, ItemID: seriesID, ConnectionID: connection,
+		Kind: "series", ExternalID: 55, ItemRevision: seriesPage.Items[0].Revision, StructureRevision: structure.Revision}
+	if _, err := f.store.ConfirmProviderMatch(t.Context(), f.owner.ID, "episode-refresh-initial", request, *authority, "zh-CN", time.Now().UnixMilli(), initial,
+		medialibrary.ProviderMatchAudit{Source: "automatic", Region: "CN", AdapterVersion: "tmdb-v1"}); err != nil {
+		t.Fatal(err)
+	}
+	base := "/api/media-library/v1/libraries/" + library.ID
+	enqueue := f.call(t, f.owner.ID, http.MethodPost, base+"/metadata-refresh-jobs", map[string]any{
+		"operationId": "episode-refresh-enqueue", "mode": "refresh_unlocked", "expectedPolicyRevision": policy.Revision,
+	})
+	var job metadataRefreshJobResponse
+	if enqueue.Code != http.StatusAccepted || json.Unmarshal(enqueue.Body.Bytes(), &job) != nil || job.Total != 1 {
+		t.Fatalf("enqueue: %d %s", enqueue.Code, enqueue.Body)
+	}
+	deadline := time.Now().Add(12 * time.Second)
+	for {
+		response := f.call(t, f.owner.ID, http.MethodGet, base+"/metadata-refresh-jobs/"+job.JobID, nil)
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &job) != nil {
+			t.Fatal(response.Code, response.Body)
+		}
+		if job.Status != "queued" && job.Status != "running" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("refresh did not finish: %+v", job)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if job.Status != "completed" || job.Refreshed != 1 || job.AlreadyCurrent != 0 {
+		t.Fatalf("episode refresh job: %+v", job)
+	}
+	detail := fixtureDetail(t, f, f.owner.ID, library.ID, episodes.Items[0].EpisodeID)
+	if detail.Item.Title != "第一集" || detail.Fields["runtime"].Values[0] != "52" {
+		t.Fatalf("backfilled episode detail: %+v", detail)
+	}
+}
+
 func TestEpisodeDetailUsesSeriesProviderEpisodeMetadata(t *testing.T) {
 	f := newMediaScanHTTPFixture(t)
 	catalogFixtureWrite(t, f, "Show.S01E01.mkv", "video")

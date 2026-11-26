@@ -567,8 +567,10 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
             }
             libraryRefreshPreview?.takeIf { !dirty && it.policyRevision == currentPolicy?.revision }?.let { preview ->
                 Text("目标资料：${preview.targetLanguage} · ${preview.region}", style = PhoneMediaType.body)
-                Text("已匹配 ${preview.matchedItems} 条；${preview.languageMismatchItems} 条语言不同，${preview.alreadyCurrentItems} 条已是目标语言。",
+                Text("已匹配 ${preview.matchedItems} 条；${preview.languageMismatchItems} 条需要刷新，${preview.alreadyCurrentItems} 条已是目标资料。",
                     style = PhoneMediaType.body)
+                if (preview.episodeMetadataItems > 0) Text("其中 ${preview.episodeMetadataItems} 条剧集需要补全中文分集资料。",
+                    style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (preview.lockedItems > 0 || preview.explicitClearItems > 0) {
                     Text("${preview.lockedItems} 条含人工锁定，${preview.explicitClearItems} 条含显式清空；这些字段会保留。",
                         style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -584,7 +586,7 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
                 if (preview.fieldChangesRequireItemPreview) Text("具体变化字段请在条目详情中逐条预览。",
                     style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 when {
-                    preview.languageMismatchItems == 0 -> Text("没有需要刷新语言的条目。", style = PhoneMediaType.body)
+                    preview.languageMismatchItems == 0 -> Text("没有需要刷新的条目。", style = PhoneMediaType.body)
                     !preview.canRefresh -> Text("当前 TMDB 连接不可用，请先检查连接。", style = PhoneMediaType.body,
                         color = MaterialTheme.colorScheme.error)
                 }

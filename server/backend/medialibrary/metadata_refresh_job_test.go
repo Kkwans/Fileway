@@ -141,6 +141,48 @@ func TestMetadataRefreshEnqueueSnapshotsMismatchedMatchesAndReplays(t *testing.T
 	}
 }
 
+func TestMetadataRefreshIncludesSeriesWithoutEpisodeMetadata(t *testing.T) {
+	store := openTestStore(t)
+	ctx := t.Context()
+	library := createLibrary(t, store, 7, "分集回填")
+	connection := fixtureProvider(t, store, 7, false, "user", "episode-refresh-connection")
+	policy, err := store.SetLibraryMetadataPolicy(ctx, 7, library.ID, "episode-refresh-policy", 0,
+		LibraryMetadataPolicy{Mode: MetadataOnlineFirst, ConnectionID: connection.ID, Language: "zh-CN", Region: "CN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	series, err := store.CreateCatalogItem(ctx, 7, library.ID, NewCatalogItem{Kind: "series", Title: "本地剧"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var structureRevision int64
+	if err := store.db.QueryRow(`SELECT structure_revision FROM item_structure WHERE library_id=? AND item_id=?`, library.ID, series.ID).Scan(&structureRevision); err != nil {
+		t.Fatal(err)
+	}
+	document, err := json.Marshal(ProviderMatchDocument{Item: mediametadata.Item{Kind: mediametadata.TVShow, Fields: map[string][]string{"title": {"本地剧"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`INSERT INTO item_provider_match(library_id,item_id,connection_id,provider,entity_kind,external_id,language,document_json,fetched_at,revision)
+VALUES(?,?,?,'tmdb','series',55,'zh-CN',?,?,?)`, library.ID, series.ID, connection.ID, string(document), time.Now().UnixMilli(), series.Revision); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := store.MetadataRefreshLibraryPreview(ctx, 7, library.ID, "zh-CN", MetadataOnlineFirst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.EpisodeMetadataItems != 1 || preview.AlreadyCurrentItems != 0 || !preview.CanRefresh {
+		t.Fatalf("episode refresh preview: %+v", preview)
+	}
+	job, err := store.EnqueueMetadataRefreshJob(ctx, 7, "episode-refresh-enqueue", library.ID, policy.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Total != 1 || job.Pending != 1 {
+		t.Fatalf("episode refresh job: %+v", job)
+	}
+}
+
 func TestMetadataRefreshJobCancelRetryAndGenerationFence(t *testing.T) {
 	store := openTestStore(t)
 	ctx := t.Context()
