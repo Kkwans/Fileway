@@ -336,11 +336,11 @@ queries:
 	if input.Year <= 0 {
 		ranked = RankCandidates(MatchHint{Kind: input.Kind, Title: title}, documents)
 		exact := exactTitleCandidates(ranked, queries)
-		if len(exact) == 0 {
+		if len(exact) == 0 && input.Kind == Movie {
 			exact = numberedTitleCandidates(ranked, queries)
 			numberedTitle = len(exact) != 0
 		}
-		if len(exact) == 0 || input.Kind != Movie || input.DurationMs <= 0 || !searchComplete {
+		if len(exact) == 0 || !searchComplete || input.Kind == Movie && input.DurationMs <= 0 {
 			return review("year_required")
 		}
 		eligible = append(eligible, exact...)
@@ -508,7 +508,7 @@ queries:
 		}
 		evidence = append(evidence, "year_difference_runtime_verified")
 	}
-	if input.Year <= 0 && !runtimeDisambiguated {
+	if input.Year <= 0 && input.Kind != Series && !runtimeDisambiguated {
 		runtime := documentRuntimeMinutes(document)
 		if runtime == 0 {
 			return review("runtime_unknown")

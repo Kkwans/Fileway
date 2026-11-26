@@ -151,6 +151,60 @@ func TestResolveAutomaticMatchTitleEvidenceIsConservative(t *testing.T) {
 	}
 }
 
+func TestResolveAutomaticMatchAllowsUniqueExactSeriesWithoutYear(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		search string
+		want   AutomaticMatchState
+		reason string
+		calls  int
+	}{
+		{
+			name:   "unique exact series",
+			search: `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":42,"name":"秘密森林","original_name":"Stranger","first_air_date":"2017-06-10"}]}`,
+			want:   AutoMatched, calls: 2,
+		},
+		{
+			name:   "same title series remains ambiguous",
+			search: `{"page":1,"total_pages":1,"total_results":2,"results":[{"id":42,"name":"秘密森林","first_air_date":"2017-06-10"},{"id":43,"name":"秘密森林","first_air_date":"2020-08-15"}]}`,
+			want:   AutoNeedsReview, reason: "ambiguous_candidates", calls: 1,
+		},
+		{
+			name:   "incomplete search remains review",
+			search: `{"page":1,"total_pages":4,"total_results":80,"results":[{"id":42,"name":"秘密森林","first_air_date":"2017-06-10"}]}`,
+			want:   AutoNeedsReview, reason: "year_required", calls: 3,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+				calls++
+				switch request.URL.Path {
+				case "/3/search/tv":
+					if page := request.URL.Query().Get("page"); page != "" && page != "1" {
+						return response(200, `{"page":`+page+`,"total_pages":4,"total_results":80,"results":[]}`), nil
+					}
+					return response(200, tc.search), nil
+				case "/3/tv/42":
+					return response(200, `{"id":42,"name":"秘密森林","original_name":"Stranger","first_air_date":"2017-06-10"}`), nil
+				default:
+					t.Fatalf("unexpected outbound request %s", request.URL.Path)
+					return nil, nil
+				}
+			})
+			result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{
+				Kind: Series, Title: "秘密森林", AllowTitleMatch: true,
+			}, "zh-CN", func(context.Context) error { return nil })
+			if err != nil || result.State != tc.want || result.Reason != tc.reason || calls != tc.calls {
+				t.Fatalf("state=%s reason=%s calls=%d err=%v", result.State, result.Reason, calls, err)
+			}
+			if tc.want == AutoMatched && (result.Document.Entity.ID == 0 || !slices.Contains(result.Evidence, "exact_title_without_year")) {
+				t.Fatalf("series match lacks unique exact title evidence: %+v", result)
+			}
+		})
+	}
+}
+
 func TestResolveAutomaticMatchAllowsUniqueNumericMultipartMovieIdentity(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
