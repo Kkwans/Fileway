@@ -231,6 +231,9 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 		}
 	}
 	fetchParts := []Part{Credits, ExternalIDs}
+	if input.Kind == Series && input.Year <= 0 {
+		fetchParts = append(fetchParts, AlternativeTitles)
+	}
 	alternativeSearch := alternativeTitleSearchTitle(title) || len(input.Parts) > 0 && romanizedTitle(title)
 	for _, query := range queries {
 		if alternativeTitleSearchTitle(query) || len(input.Parts) > 0 && romanizedTitle(query) {
@@ -326,19 +329,24 @@ queries:
 			adultFallback = true
 		}
 	}
-	if len(eligible) == 0 && len(directCandidates) == 0 && input.Year > 0 && alternativeSearch && len(yearCandidates) != 0 {
+	if len(eligible) == 0 && len(directCandidates) == 0 && input.Year > 0 && (alternativeSearch || input.Kind == Series) && len(yearCandidates) != 0 {
 		eligible = append(eligible, yearCandidates[:min(len(yearCandidates), maxAutomaticTitleQueries)]...)
 	}
 	if len(documents) == 0 {
 		return AutomaticMatch{State: AutoNoMatch, Reason: "title_not_found"}, nil
 	}
 	numberedTitle := false
+	seriesFallback := false
 	if input.Year <= 0 {
 		ranked = RankCandidates(MatchHint{Kind: input.Kind, Title: title}, documents)
 		exact := exactTitleCandidates(ranked, queries)
 		if len(exact) == 0 && input.Kind == Movie {
 			exact = numberedTitleCandidates(ranked, queries)
 			numberedTitle = len(exact) != 0
+		}
+		if len(exact) == 0 && input.Kind == Series && searchComplete {
+			exact = append(exact, ranked[:min(len(ranked), maxAutomaticTitleQueries)]...)
+			seriesFallback = len(exact) != 0
 		}
 		if len(exact) == 0 || !searchComplete || input.Kind == Movie && input.DurationMs <= 0 {
 			return review("year_required")
@@ -367,7 +375,7 @@ queries:
 	runtimeDisambiguated := false
 	var closestRuntimeDifference int64
 	if len(eligible) > 1 {
-		if input.DurationMs <= 0 && len(input.Parts) == 0 {
+		if input.DurationMs <= 0 && len(input.Parts) == 0 && input.Kind != Series {
 			return review("ambiguous_candidates")
 		}
 		type compatibleCandidate struct {
@@ -400,7 +408,7 @@ queries:
 				continue
 			}
 			var difference int64
-			if len(input.Parts) == 0 {
+			if len(input.Parts) == 0 && input.Kind == Movie {
 				runtime := documentRuntimeMinutes(detail)
 				if runtime == 0 {
 					continue
@@ -410,7 +418,7 @@ queries:
 			compatible = append(compatible, compatibleCandidate{candidate: candidate, document: detail, projection: projected,
 				difference: difference})
 		}
-		if len(input.Parts) > 0 {
+		if input.Kind == Series || len(input.Parts) > 0 {
 			if len(compatible) > 1 {
 				return review("ambiguous_candidates")
 			}
@@ -431,6 +439,12 @@ queries:
 			compatible = []compatibleCandidate{best}
 		}
 		if len(compatible) == 0 {
+			if input.Kind == Series {
+				if input.Year > 0 {
+					return review("title_year_conflict")
+				}
+				return review("year_required")
+			}
 			if len(input.Parts) > 0 {
 				return review("title_year_conflict")
 			}
@@ -438,7 +452,7 @@ queries:
 		}
 		candidate = compatible[0].candidate
 		document, projection = compatible[0].document, compatible[0].projection
-		runtimeDisambiguated = len(input.Parts) == 0
+		runtimeDisambiguated = input.Kind == Movie && len(input.Parts) == 0
 		closestRuntimeDifference = compatible[0].difference
 	} else {
 		if len(eligible) != 1 {
@@ -480,6 +494,9 @@ queries:
 		}
 	}
 	if matchedQuery == "" {
+		if input.Year <= 0 && input.Kind == Series && seriesFallback {
+			return review("year_required")
+		}
 		if input.Year <= 0 {
 			return review("title_conflict")
 		}
@@ -528,7 +545,9 @@ queries:
 		}
 	}
 	if input.Year <= 0 {
-		if numberedTitle {
+		if seriesFallback {
+			evidence = append(evidence, "series_title_verified")
+		} else if numberedTitle {
 			evidence = append(evidence, "numbered_title_without_year")
 		} else {
 			evidence = append(evidence, "exact_title_without_year")
