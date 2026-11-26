@@ -45,8 +45,19 @@ func TestDirectoryEpisodeEvidenceCoversSeasonEncodedFiles(t *testing.T) {
 	if absolute == nil {
 		t.Fatalf("absolute directory evidence missing")
 	}
-	if absolute.Title != "秘密森林" || absolute.Season != 2 || len(absolute.Numbers) != 2 {
-		t.Fatalf("absolute directory evidence without year: title=%q season=%d numbers=%v", absolute.Title, absolute.Season, absolute.Numbers)
+	euphoria := directoryEpisodeEvidence("[哔嘀影视-bde4.com]迷醉.第一季.Euphoria.US.S01E04-08.HD1080P", []string{
+		"Euphoria.US.S01E01.HD1080P.X264.AAC.English.CHS-ENG.BDE4.mp4",
+		"Euphoria.US.S01E02.HD1080P.X264.AAC.English.CHS-ENG.BDE4.mp4",
+	})
+	if euphoria == nil || euphoria.Title != "迷醉" || euphoria.Season != 1 || len(euphoria.Numbers) != 2 {
+		t.Fatalf("mixed language directory evidence: %+v", euphoria)
+	}
+	secretForest := directoryEpisodeEvidence("【秘密森林S01】[1080P][小玩剧字幕组]", []string{
+		"[Secret.Forest][E01][1080P][小玩剧字幕组].mkv",
+		"[Secret.Forest][E02][1080P][小玩剧字幕组].mkv",
+	})
+	if secretForest == nil || secretForest.Title != "秘密森林" || secretForest.Season != 1 || len(secretForest.Numbers) != 2 {
+		t.Fatalf("english filename directory evidence: %+v", secretForest)
 	}
 }
 
@@ -115,6 +126,32 @@ func TestPersistentScanBuildsSeasonEncodedSeriesWithoutYear(t *testing.T) {
 	}
 	if title != "秘密森林" || season != 2 || episodes != 2 || videos != 0 {
 		t.Fatalf("season encoded structure: title=%q season=%d episodes=%d videos=%d", title, season, episodes, videos)
+	}
+}
+
+func TestPersistentScanIgnoresDirectoryRangeNoiseForSingleEpisodes(t *testing.T) {
+	f := newPersistentFixture(t)
+	directory := "[哔嘀影视-bde4.com]迷醉.第一季.Euphoria.US.S01E04-08.HD1080P"
+	f.write(t, directory+"/Euphoria.US.S01E01.HD1080P.X264.AAC.English.CHS-ENG.BDE4.mp4", "one")
+	f.write(t, directory+"/Euphoria.US.S01E02.HD1080P.X264.AAC.English.CHS-ENG.BDE4.mp4", "two")
+	if _, err := Run(t.Context(), 7, f.store, f.coord, f.claim(t), f.ownerResolve, Options{ReadBatch: 2}); err != nil {
+		t.Fatal(err)
+	}
+	var seriesID string
+	var episodes, videos int
+	if err := f.store.WithTx(t.Context(), func(tx *sql.Tx) error {
+		if err := tx.QueryRowContext(t.Context(), `SELECT id FROM library_item WHERE library_id=? AND kind='series'`, f.binding.LibraryID).Scan(&seriesID); err != nil {
+			return err
+		}
+		if err := tx.QueryRowContext(t.Context(), `SELECT count(*) FROM episode_position ep JOIN episode_order eo ON eo.id=ep.order_id WHERE eo.series_id=?`, seriesID).Scan(&episodes); err != nil {
+			return err
+		}
+		return tx.QueryRowContext(t.Context(), `SELECT count(*) FROM library_item WHERE library_id=? AND kind='video'`, f.binding.LibraryID).Scan(&videos)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if episodes != 2 || videos != 0 {
+		t.Fatalf("directory range noise blocked episodes: episodes=%d videos=%d", episodes, videos)
 	}
 }
 

@@ -839,14 +839,25 @@ WHERE x.library_id=? AND x.item_id=? AND x.provider=? AND x.entity_kind='tvshow'
 }
 
 func localEpisodeName(name mediametadata.ParsedName, current *directoryContext) mediametadata.ParsedName {
-	if current == nil || current.TVStatus != "missing" || current.LocalSeriesID == "" || !current.SeasonNumber.Valid ||
-		len(name.AbsoluteEpisodes) != 1 || len(name.SeasonEpisodes) != 0 {
+	if current == nil || current.TVStatus != "missing" || current.LocalSeriesID == "" || !current.SeasonNumber.Valid {
+		return name
+	}
+	if len(name.SeasonEpisodes) == 1 {
+		name.TypeHint = "episode"
+		name.Ambiguities = slices.DeleteFunc(name.Ambiguities, func(issue string) bool {
+			return issue == "directory_ambiguous_evidence"
+		})
+		return name
+	}
+	if len(name.AbsoluteEpisodes) != 1 || len(name.SeasonEpisodes) != 0 {
 		return name
 	}
 	name.SeasonEpisodes = []mediametadata.SeasonEpisode{{Season: int(current.SeasonNumber.Int64), Episode: name.AbsoluteEpisodes[0]}}
 	name.AbsoluteEpisodes = nil
 	name.TypeHint = "episode"
-	name.Ambiguities = slices.DeleteFunc(name.Ambiguities, func(issue string) bool { return issue == "absolute_episode_requires_mapping" })
+	name.Ambiguities = slices.DeleteFunc(name.Ambiguities, func(issue string) bool {
+		return issue == "absolute_episode_requires_mapping" || issue == "directory_ambiguous_evidence"
+	})
 	return name
 }
 

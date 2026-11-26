@@ -120,9 +120,12 @@ func directoryEpisodeEvidence(directory string, names []string) *medialibrary.Di
 	year := parsedDirectory.Year
 	season := localSeriesDirectorySeason(directory)
 	numbers := make(map[int]struct{})
+	fileTitle := ""
 	for _, name := range names {
 		parsed := mediametadata.ParseNameInDirectory(name, directory)
-		if !localSeriesTitleMatches(directory, title, parsed.Title) {
+		if fileTitle == "" {
+			fileTitle = parsed.Title
+		} else if !localSeriesFileTitlesMatch(fileTitle, parsed.Title) && !localSeriesTitleMatches(directory, title, parsed.Title) {
 			return nil
 		}
 		var episode int
@@ -207,6 +210,25 @@ func localSeriesDirectoryTitle(directory string) string {
 	cleaned = strings.TrimSpace(strings.TrimPrefix(cleaned, "韩剧"))
 	cleaned = strings.TrimSpace(localSeriesSeasonSuffixPattern.ReplaceAllString(cleaned, ""))
 	return strings.Trim(cleaned, " -_")
+}
+
+func localSeriesFileTitlesMatch(left, right string) bool {
+	if strings.TrimSpace(left) == "" || strings.TrimSpace(right) == "" {
+		return false
+	}
+	if strings.Contains(left, right) || strings.Contains(right, left) {
+		return true
+	}
+	leftAliases := mediametadata.TitleAliases(left)
+	rightAliases := mediametadata.TitleAliases(right)
+	for _, a := range leftAliases {
+		for _, b := range rightAliases {
+			if a == b {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func localSeriesTitleMatches(directory, title, fileTitle string) bool {
