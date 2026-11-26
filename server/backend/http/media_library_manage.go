@@ -103,7 +103,7 @@ func mediaLibraryChangeHandler(action string) handleFunc {
 		switch action {
 		case "update":
 			if body.ContentKind != "" {
-				library, err = d.store.MediaLibrary.SetLibraryContentKindWithOperation(r.Context(), d.user.ID, id, body.ExpectedRevision, body.OperationID, body.ContentKind)
+				library, err = d.store.MediaLibrary.UpdateLibraryDetailsWithOperation(r.Context(), d.user.ID, id, body.ExpectedRevision, body.OperationID, body.Name, body.ContentKind)
 			} else {
 				library, err = d.store.MediaLibrary.UpdateLibraryWithOperation(r.Context(), d.user.ID, id, body.ExpectedRevision, body.OperationID, body.Name)
 			}

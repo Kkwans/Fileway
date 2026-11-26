@@ -30,9 +30,13 @@ data class MediaOperation(val account: MediaAccountScope, val id: String) {
 
 enum class MediaLibraryRole { OWNER, EDITOR, VIEWER }
 enum class MediaMemberRole { EDITOR, VIEWER }
+enum class MediaLibraryKind(val wireValue: String) {
+    MIXED("mixed"), MOVIE("movie"), SERIES("series"), UNKNOWN(""),
+}
 
 data class MediaLibrarySummary(
     val id: String, val name: String, val revision: Long, val role: MediaLibraryRole, val archived: Boolean,
+    val contentKind: MediaLibraryKind = MediaLibraryKind.MIXED,
 )
 
 data class MediaMemberChange(
@@ -140,7 +144,13 @@ internal fun parseMediaLibrary(row: JSONObject): MediaLibrarySummary {
     }
     val name = row.mediaString("name")
     require(name.isNotBlank()) { "媒体库名称无效" }
-    return MediaLibrarySummary(row.mediaId("id"), name, row.mediaLong("revision", 1), role, row.mediaBoolean("archived"))
+    val contentKind = when (row.optionalMediaString("contentKind")) {
+        null, "mixed" -> MediaLibraryKind.MIXED
+        "movie" -> MediaLibraryKind.MOVIE
+        "series" -> MediaLibraryKind.SERIES
+        else -> MediaLibraryKind.UNKNOWN
+    }
+    return MediaLibrarySummary(row.mediaId("id"), name, row.mediaLong("revision", 1), role, row.mediaBoolean("archived"), contentKind)
 }
 
 internal fun parseMediaMember(row: JSONObject): MediaMemberChange = MediaMemberChange(

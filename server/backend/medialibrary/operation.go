@@ -260,6 +260,41 @@ func (store *Store) SetLibraryContentKindWithOperation(ctx context.Context, acto
 	})
 }
 
+func (store *Store) UpdateLibraryDetailsWithOperation(ctx context.Context, actor uint, id string, expectedRevision int64, operationID, name string, contentKind LibraryContentKind) (*Library, error) {
+	normalizedName := ""
+	if name != "" {
+		var err error
+		normalizedName, err = libraryName(name)
+		if err != nil {
+			return nil, err
+		}
+	}
+	normalizedKind, err := normalizeLibraryContentKind(contentKind)
+	if err != nil {
+		return nil, err
+	}
+	return operationTx(ctx, store, actor, "library.update", operationID, struct {
+		ID          string
+		Revision    int64
+		Name        string
+		ContentKind LibraryContentKind
+	}{id, expectedRevision, normalizedName, normalizedKind}, func(tx *sql.Tx) (*Library, error) {
+		return changeLibraryTx(ctx, tx, actor, id, expectedRevision, "library.updated", func(library *Library) (bool, error) {
+			if library.ArchivedAt != nil {
+				return false, ErrArchived
+			}
+			changed := false
+			if normalizedName != "" && library.Name != normalizedName {
+				library.Name, changed = normalizedName, true
+			}
+			if library.ContentKind != normalizedKind {
+				library.ContentKind, changed = normalizedKind, true
+			}
+			return changed, nil
+		})
+	})
+}
+
 func (store *Store) ArchiveLibraryWithOperation(ctx context.Context, actor uint, id string, expectedRevision int64, operationID string) (*Library, error) {
 	return operationTx(ctx, store, actor, "library.archive", operationID, struct {
 		ID       string

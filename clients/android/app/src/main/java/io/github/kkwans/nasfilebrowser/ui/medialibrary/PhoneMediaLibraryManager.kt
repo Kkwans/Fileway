@@ -62,6 +62,8 @@ import kotlin.coroutines.coroutineContext
         var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
         var historyScanId by rememberSaveable { mutableStateOf<String?>(null) }
         var name by rememberSaveable { mutableStateOf("") }
+        var contentKind by rememberSaveable { mutableStateOf(MediaLibraryKind.MIXED) }
+        var kindDraft by rememberSaveable { mutableStateOf(MediaLibraryKind.MIXED) }
         val focusManager = LocalFocusManager.current
         var draftFolders by rememberSaveable(stateSaver = mediaFolderSaver) { mutableStateOf(emptyList<ResourceRef>()) }
         var draftLibraryId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -125,7 +127,7 @@ import kotlin.coroutines.coroutineContext
                         error = "创建结果尚待确认。请先确认上次操作，已选文件夹会保留。"
                         return
                     }
-                    name = ""; draftFolders = emptyList(); if (createInitially) onBack() else screen = "libraries"
+                    name = ""; contentKind = MediaLibraryKind.MIXED; draftFolders = emptyList(); if (createInitially) onBack() else screen = "libraries"
                 }
                 "policy" -> screen = "library"
                 "history" -> { historyScanId = null; historyReviewOpen = false; screen = "library" }
@@ -146,6 +148,9 @@ import kotlin.coroutines.coroutineContext
                 reviewInitiallyOpen = historyReviewOpen, onBrowse = { onBrowse(selectedId!!) })
         } else {
 
+        LaunchedEffect(selected?.id, selected?.contentKind) {
+            selected?.let { kindDraft = it.contentKind }
+        }
         LaunchedEffect(repository, screen, selectedId, refresh) {
             if (screen != "libraries" && screen != "library") return@LaunchedEffect
             loading = true; error = null
@@ -330,14 +335,19 @@ import kotlin.coroutines.coroutineContext
         fun accept(result: MediaWriteResult<*>) {
             when (result) {
                 is MediaWriteResult.Success -> if (result.scope == repository.scope) {
+                    val submittedKind = pendingKind
                     pendingId = null; pendingKind = null
                     when (val value = result.value) {
                         is MediaLibrarySummary -> {
-                            name = ""
                             selected = value; selectedId = value.id; screen = "library"
-                            setupLibraryName = value.name
-                            if (draftFolders.isNotEmpty()) { draftLibraryId = value.id; loading = true }
-                            else { setupScanRequested = false; notice = "媒体库已创建，可继续设置资料优先级。" }
+                            if (submittedKind == "kind") {
+                                notice = "媒体库类型已更新。"
+                            } else {
+                                name = ""; contentKind = MediaLibraryKind.MIXED
+                                setupLibraryName = value.name
+                                if (draftFolders.isNotEmpty()) { draftLibraryId = value.id; loading = true }
+                                else { setupScanRequested = false; notice = "媒体库已创建，可继续设置资料优先级。" }
+                            }
                         }
                         is MediaLibrarySource -> {
                             selected = selected?.copy(revision = value.libraryRevision)
@@ -481,7 +491,7 @@ import kotlin.coroutines.coroutineContext
                 setupBindingIds = arrayListOf()
                 setupScanRequested = andScan
                 setupPaused = false
-                submit("create") { repository.createLibrary(it, trimmedName) }
+                submit("create") { repository.createLibrary(it, trimmedName, contentKind) }
             }
         }
 
@@ -550,7 +560,7 @@ import kotlin.coroutines.coroutineContext
                         }
                         items(libraries, key = { it.id }) { library ->
                             Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
-                                MediaSettingsAction(library.name, if (library.role == MediaLibraryRole.OWNER) "管理目录与资料" else "共享媒体库",
+                                MediaSettingsAction(library.name, "${mediaLibraryKindLabel(library.contentKind)} · ${if (library.role == MediaLibraryRole.OWNER) "管理目录与资料" else "共享媒体库"}",
                                     R.drawable.ic_library, enabled = !busy) { selectedId = library.id; selected = null; screen = "library"; notice = null }
                             }
                         }
@@ -590,6 +600,21 @@ import kotlin.coroutines.coroutineContext
                                     isError = name.isNotBlank() && !validName,
                                     supportingText = if (name.isNotBlank() && !validName)
                                         ({ Text("名称须为 1–200 个字符且不含控制字符") }) else null)
+                            }
+                        }
+                        item(key = "content-kind") {
+                            MediaSettingsGroup("媒体库类型") {
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                    Text("只展示所选类型，混入的电影或剧集不会进入待确认。",
+                                        style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        listOf(MediaLibraryKind.MOVIE to "电影", MediaLibraryKind.SERIES to "电视剧",
+                                            MediaLibraryKind.MIXED to "混合").forEach { (value, label) ->
+                                            MediaSettingsChip(label, contentKind == value, !busy && pendingId == null) { contentKind = value }
+                                        }
+                                    }
+                                }
                             }
                         }
                         item(key = "draft-folders") {
@@ -647,6 +672,28 @@ import kotlin.coroutines.coroutineContext
                                         onRetry = { submit("retry") { repository.retryScan(it, library.id, value.id, value.generation) } },
                                         enabled = !busy && pendingId == null)
                                 } }
+                                item(key = "library-kind") {
+                                    MediaSettingsGroup("媒体库类型") {
+                                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                            Text("类型决定首页与搜索展示哪些作品，不移动或删除源文件。",
+                                                style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                listOf(MediaLibraryKind.MOVIE to "电影", MediaLibraryKind.SERIES to "电视剧",
+                                                    MediaLibraryKind.MIXED to "混合").forEach { (value, label) ->
+                                                    MediaSettingsChip(label, kindDraft == value, !busy && pendingId == null) { kindDraft = value }
+                                                }
+                                            }
+                                            if (kindDraft != MediaLibraryKind.UNKNOWN && kindDraft != library.contentKind) {
+                                                FilewayButton(onClick = {
+                                                    submit("kind") { repository.updateLibrary(it, library.id, library.revision, library.name, kindDraft) }
+                                                }, enabled = !busy && pendingId == null, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                                                    Text("保存类型", style = PhoneMediaType.action)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                                 item(key = "add-source") {
                                     MediaSettingsGroup("媒体文件夹") {
                                         MediaSettingsAction("添加文件夹", "可关联多个当前服务器目录", R.drawable.ic_folder,
@@ -881,6 +928,13 @@ private fun MediaScanStat(label: String, value: Long, modifier: Modifier = Modif
         Text(value.toString(), style = PhoneMediaType.sectionTitle)
         Text(label, style = PhoneMediaType.badge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+private fun mediaLibraryKindLabel(kind: MediaLibraryKind): String = when (kind) {
+    MediaLibraryKind.MOVIE -> "电影"
+    MediaLibraryKind.SERIES -> "电视剧"
+    MediaLibraryKind.MIXED -> "混合"
+    MediaLibraryKind.UNKNOWN -> "类型未知"
 }
 
 private fun metadataPolicySummary(policy: MediaProviderPolicy?): String {

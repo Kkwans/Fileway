@@ -687,11 +687,17 @@ class MediaLibraryRepository(
         }
     }
 
-    suspend fun createLibrary(operation: MediaOperation, name: String): MediaWriteResult<MediaLibrarySummary> =
-        typedWrite(mutation(operation, MediaMutationKind.CREATE_LIBRARY, body = operationBody(operation).put("name", name)))
+    suspend fun createLibrary(operation: MediaOperation, name: String, contentKind: MediaLibraryKind = MediaLibraryKind.MIXED): MediaWriteResult<MediaLibrarySummary> {
+        require(contentKind != MediaLibraryKind.UNKNOWN)
+        return typedWrite(mutation(operation, MediaMutationKind.CREATE_LIBRARY, body = operationBody(operation).put("name", name).put("contentKind", contentKind.wireValue)))
+    }
 
-    suspend fun updateLibrary(operation: MediaOperation, libraryId: String, expectedRevision: Long, name: String): MediaWriteResult<MediaLibrarySummary> =
-        typedWrite(mutation(operation, MediaMutationKind.UPDATE_LIBRARY, libraryId, body = revisionBody(operation, expectedRevision).put("name", name)))
+    suspend fun updateLibrary(operation: MediaOperation, libraryId: String, expectedRevision: Long, name: String,
+        contentKind: MediaLibraryKind = MediaLibraryKind.MIXED): MediaWriteResult<MediaLibrarySummary> {
+        require(contentKind != MediaLibraryKind.UNKNOWN)
+        return typedWrite(mutation(operation, MediaMutationKind.UPDATE_LIBRARY, libraryId,
+            body = revisionBody(operation, expectedRevision).put("name", name).put("contentKind", contentKind.wireValue)))
+    }
 
     suspend fun archiveLibrary(operation: MediaOperation, libraryId: String, expectedRevision: Long): MediaWriteResult<MediaLibrarySummary> =
         typedWrite(mutation(operation, MediaMutationKind.ARCHIVE_LIBRARY, libraryId, body = revisionBody(operation, expectedRevision)))
