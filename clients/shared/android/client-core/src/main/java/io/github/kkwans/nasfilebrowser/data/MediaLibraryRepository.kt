@@ -821,7 +821,7 @@ class MediaLibraryRepository(
         }
         val started = try { withTimeout(2_000) { journal.begin(scope, request) } }
         catch (_: TimeoutCancellationException) { false }
-        if (!started) return MediaWriteResult.Failure(scope, request.operation, MediaFailure(MediaFailureKind.STORAGE), true)
+        if (!started) return MediaWriteResult.Failure(scope, request.operation, mediaStorageFailureBeforeDispatch())
         var acknowledgement: MediaWriteResult<Any>? = null
         try {
             // The account can change while the write-ahead record is being saved.
@@ -939,6 +939,9 @@ private fun <T> parsePage(row: JSONObject, limit: Int, cursor: String?, maxCurso
     next?.let { require(it.isNotEmpty() && it != cursor && it.toByteArray(Charsets.UTF_8).size <= maxCursorBytes) }
     return MediaPage((0 until items.length()).map { parse(items.getJSONObject(it)) }, next)
 }
+
+internal fun mediaStorageFailureBeforeDispatch(): MediaFailure =
+    MediaFailure(MediaFailureKind.STORAGE, mutationMayHaveCommitted = false)
 
 private fun mediaFailure(error: Exception, write: Boolean): MediaFailure {
     val status = (error as? ServiceException)?.status
