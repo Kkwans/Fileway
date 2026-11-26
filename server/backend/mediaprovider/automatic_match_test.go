@@ -249,6 +249,12 @@ func TestResolveAutomaticMatchSeriesVerifiesLocalizedCandidates(t *testing.T) {
 			want:    AutoMatched, calls: 2,
 		},
 		{
+			name: "tv alternative results verify yearless candidate", title: "迷醉",
+			search:  `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":42,"name":"Euphoria","first_air_date":"2019-06-16"}]}`,
+			details: map[string]string{"/3/tv/42": `{"id":42,"name":"亢奋","original_name":"Euphoria","first_air_date":"2019-06-16","alternative_titles":{"results":[{"title":"迷醉"}]}}`},
+			want:    AutoMatched, calls: 2,
+		},
+		{
 			name: "ambiguous alternative titles remain review", title: "迷醉",
 			search: `{"page":1,"total_pages":1,"total_results":2,"results":[{"id":42,"name":"Euphoria","first_air_date":"2019-06-16"},{"id":43,"name":"Euphoria","first_air_date":"2020-01-01"}]}`,
 			details: map[string]string{

@@ -1478,6 +1478,36 @@ type FileIdentification struct {
 	Revision   int64
 }
 
+func (store *Store) GetSeriesFilenameAliases(ctx context.Context, actor uint, libraryID, seriesID string) ([]string, error) {
+	if _, err := activeCatalogLibrary(ctx, store.db, actor, libraryID); err != nil {
+		return nil, err
+	}
+	var seriesTitle string
+	if err := store.db.QueryRowContext(ctx, `SELECT title FROM library_item WHERE library_id=? AND id=? AND kind='series'`, libraryID, seriesID).Scan(&seriesTitle); err != nil {
+		return nil, err
+	}
+	rows, err := store.db.QueryContext(ctx, `SELECT DISTINCT trim(json_extract(ie.evidence_json,'$.title'))
+FROM item_structure s JOIN file_item_mapping m ON m.library_id=s.library_id AND m.item_id=s.item_id AND m.active=1
+JOIN identification_evidence ie ON ie.id=m.evidence_id
+JOIN library_source ls ON ls.library_id=m.library_id AND ls.binding_id=m.binding_id AND ls.proof_epoch=m.binding_epoch AND ls.active_proof_version=1
+WHERE s.library_id=? AND s.series_id=? AND s.superseded_by IS NULL AND ie.match_state!='needs_review'
+AND trim(json_extract(ie.evidence_json,'$.title'))!='' AND trim(json_extract(ie.evidence_json,'$.title'))!=?
+ORDER BY 1 LIMIT 6`, libraryID, seriesID, seriesTitle)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	aliases := []string{}
+	for rows.Next() {
+		var alias string
+		if err := rows.Scan(&alias); err != nil {
+			return nil, err
+		}
+		aliases = append(aliases, alias)
+	}
+	return aliases, rows.Err()
+}
+
 // GetFileIdentification is source-scoped evidence for the calling service;
 // live source authorization must still be verified before exposing it.
 func (store *Store) GetFileIdentification(ctx context.Context, actor uint, libraryID, sourceFileID, bindingID string, bindingEpoch int64) (*FileIdentification, error) {

@@ -275,6 +275,45 @@ func TestLocalDirectorySeasonsShareOneSeries(t *testing.T) {
 	}
 }
 
+func TestSeriesFilenameAliasesComeFromMappedEpisodes(t *testing.T) {
+	store := openTestStore(t)
+	library := createLibrary(t, store, 7, "Fixture")
+	binding := createBoundSource(t, store, library)
+	_, lease := testScan(t, store, binding, "series-aliases")
+	root, err := store.CommitScanContext(t.Context(), 7, *lease, DirectoryContextObservation{
+		Locator: []byte("/videos/"), TVShow: DirectorySidecar{Status: "missing"}, Season: DirectorySidecar{Status: "missing"},
+	}, ScanCheckpoint{Version: 1, Sequence: 1, Phase: "enumerate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	year := 2019
+	ref, err := store.CommitScanContext(t.Context(), 7, *lease, DirectoryContextObservation{
+		Locator: []byte("/videos/迷醉.第一季.Euphoria.S01"), Parent: *root,
+		TVShow: DirectorySidecar{Status: "missing"}, Season: DirectorySidecar{Status: "missing"},
+		Episodes: &DirectoryEpisodeEvidence{Title: "迷醉", Year: &year, Season: 1, Numbers: []int{1, 2}},
+	}, ScanCheckpoint{Version: 1, Sequence: 2, Phase: "enumerate"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := mediametadata.ParseNameInDirectory("Euphoria.S01E01.mkv", "迷醉.第一季.Euphoria.S01")
+	file := testObservation("native", "/videos/迷醉.第一季.Euphoria.S01/Euphoria.S01E01.mkv")
+	file.NFOStatus = "missing"
+	file.InitialTitle = name.Title
+	file.DirectoryContext = *ref
+	file.ParsedName = &name
+	if _, err := store.CommitScanObservation(t.Context(), 7, *lease, file, testCheckpoint(file, 3, 1)); err != nil {
+		t.Fatal(err)
+	}
+	current, err := readDirectoryContext(store.db.QueryRowContext(t.Context(), `SELECT `+directoryContextColumns+` FROM directory_context WHERE id=?`, ref.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	aliases, err := store.GetSeriesFilenameAliases(t.Context(), 7, library.ID, current.SeriesID)
+	if err != nil || len(aliases) != 1 || aliases[0] != "Euphoria" {
+		t.Fatalf("series filename aliases: %v err=%v", aliases, err)
+	}
+}
+
 func TestBindingEpochFenceDoesNotReviveOldMapping(t *testing.T) {
 	store, library, first, lease, file, variant := playbackFixture(t)
 	ctx := t.Context()

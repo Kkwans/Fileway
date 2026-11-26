@@ -215,7 +215,7 @@ func mediaAutoTitleMatchEnabled() bool {
 var embeddedTitleYearSuffix = regexp.MustCompile(`(?i)[ ._\-]+((?:18|19|20|21)[0-9]{2})$`)
 
 func automaticMatchInput(item mediaIdentificationResponse, allowTitleMatch bool) mediaprovider.AutomaticMatchInput {
-	input := mediaprovider.AutomaticMatchInput{Kind: mediaprovider.Kind(item.StructureKind), Year: item.Year, Incomplete: item.ExternalIDsCursor != "" || item.incompleteEvidence, AllowTitleMatch: allowTitleMatch}
+	input := mediaprovider.AutomaticMatchInput{Kind: mediaprovider.Kind(item.StructureKind), Year: item.Year, Aliases: append([]string(nil), item.Aliases...), Incomplete: item.ExternalIDsCursor != "" || item.incompleteEvidence, AllowTitleMatch: allowTitleMatch}
 	if item.StructureKind == "video" {
 		input.Kind = mediaprovider.Movie
 	}

@@ -35,6 +35,7 @@ type mediaIdentificationFile struct {
 type mediaIdentificationResponse struct {
 	Ref                 catalogRef                        `json:"ref"`
 	Title               string                            `json:"title"`
+	Aliases             []string                          `json:"aliases,omitempty"`
 	Year                int                               `json:"year,omitempty"`
 	StructureKind       string                            `json:"structureKind"`
 	MatchState          string                            `json:"matchState"`
@@ -121,6 +122,13 @@ func identifyCatalogItem(ctx context.Context, d *data, library *medialibrary.Lib
 	}
 	if card.Year != nil {
 		result.Year = *card.Year
+	}
+	if card.StructureKind == "series" {
+		aliases, err := d.store.MediaLibrary.GetSeriesFilenameAliases(ctx, d.user.ID, library.ID, itemID)
+		if err != nil {
+			return result, nil, err
+		}
+		result.Aliases = aliases
 	}
 	// A container's accessible descendant proves visibility. Its filename
 	// cannot supply the container's own candidate query or explicit IDs.

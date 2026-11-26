@@ -111,6 +111,14 @@ func TestMediaIdentificationCarriesLocalSeriesYear(t *testing.T) {
 	}
 }
 
+func TestAutomaticMatchInputCarriesSeriesFilenameAliases(t *testing.T) {
+	item := mediaIdentificationResponse{StructureKind: "series", Title: "迷醉", Aliases: []string{"Euphoria"}}
+	input := automaticMatchInput(item, true)
+	if input.Title != "迷醉" || len(input.Aliases) != 1 || input.Aliases[0] != "Euphoria" {
+		t.Fatalf("series filename alias missing: %+v", input)
+	}
+}
+
 func TestAutomaticMatchInputIgnoresUnusedDirectoryIssues(t *testing.T) {
 	year := 2017
 	item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{

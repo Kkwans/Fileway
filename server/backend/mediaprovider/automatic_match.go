@@ -597,11 +597,21 @@ func alternativeTitleMatches(document Document, query string) bool {
 		Titles []struct {
 			Title string `json:"title"`
 		} `json:"titles"`
+		Results []struct {
+			Title string `json:"title"`
+		} `json:"results"`
 	}
-	if json.Unmarshal(document.Fields["alternative_titles"], &payload) != nil || len(payload.Titles) > 1000 {
+	if json.Unmarshal(document.Fields["alternative_titles"], &payload) != nil {
 		return false
 	}
-	for _, title := range payload.Titles {
+	titles := payload.Titles
+	if len(titles) == 0 {
+		titles = payload.Results
+	}
+	if len(titles) > 1000 {
+		return false
+	}
+	for _, title := range titles {
 		if matchTitle(title.Title) == query {
 			return true
 		}
