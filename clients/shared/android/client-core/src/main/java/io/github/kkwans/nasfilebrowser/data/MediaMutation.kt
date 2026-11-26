@@ -37,8 +37,14 @@ internal class MediaMutationRequest(
     init {
         val input = JSONObject(json)
         val keys = when (kind) {
-            MediaMutationKind.CREATE_LIBRARY -> setOf("operationId", "name")
-            MediaMutationKind.UPDATE_LIBRARY -> setOf("operationId", "expectedRevision", "name")
+            MediaMutationKind.CREATE_LIBRARY -> buildSet {
+                add("operationId"); add("name")
+                if (input.has("contentKind")) add("contentKind")
+            }
+            MediaMutationKind.UPDATE_LIBRARY -> buildSet {
+                add("operationId"); add("expectedRevision"); add("name")
+                if (input.has("contentKind")) add("contentKind")
+            }
             MediaMutationKind.ARCHIVE_LIBRARY, MediaMutationKind.RESTORE_LIBRARY, MediaMutationKind.REVOKE_MEMBER -> setOf("operationId", "expectedRevision")
             MediaMutationKind.GRANT_MEMBER -> setOf("operationId", "expectedRevision", "role")
             MediaMutationKind.CREATE_SOURCE, MediaMutationKind.ATTEST_SOURCE -> setOf("operationId", "expectedRevision", "wireRoot")
@@ -110,6 +116,10 @@ internal class MediaMutationRequest(
         if ("name" in keys) {
             val name = input.strictString("name").trim()
             require(name.isNotEmpty() && name.codePointCount(0, name.length) <= 200 && name.none(Char::isISOControl))
+        }
+        if ("contentKind" in keys) {
+            require(input.strictString("contentKind") in setOf(MediaLibraryKind.MIXED.wireValue,
+                MediaLibraryKind.MOVIE.wireValue, MediaLibraryKind.SERIES.wireValue))
         }
         if (kind == MediaMutationKind.ENQUEUE_METADATA_REFRESH_JOB) require(input.strictString("mode") == "refresh_unlocked")
         if (kind in setOf(MediaMutationKind.CANCEL_METADATA_REFRESH_JOB, MediaMutationKind.RETRY_METADATA_REFRESH_JOB,
