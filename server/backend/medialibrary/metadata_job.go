@@ -122,8 +122,9 @@ VALUES(?,?,?,?,?,?)`, id, scan.ID, scan.Generation, authority.ConnectionID, auth
 		return err
 	}
 	result, err := tx.ExecContext(ctx, `WITH observed(item_id) AS (
- SELECT DISTINCT m.item_id FROM library_file f JOIN file_item_mapping m ON
- m.library_id=f.library_id AND m.source_file_id=f.source_file_id AND m.binding_id=? AND m.binding_epoch=f.binding_epoch AND m.active=1
+ SELECT DISTINCT m.item_id FROM library_file f
+ JOIN library_source ls ON ls.library_id=f.library_id AND ls.binding_id=? AND ls.proof_epoch=f.binding_epoch AND ls.active_proof_version=1
+ JOIN file_item_mapping m ON m.library_id=f.library_id AND m.source_file_id=f.source_file_id AND m.binding_id=ls.binding_id AND m.binding_epoch=ls.proof_epoch AND m.active=1
  WHERE f.library_id=? AND f.last_seen_job_id=? AND f.last_seen_generation=? AND f.missing_since IS NULL
 ), targets(item_id) AS (
  SELECT i.id FROM observed o JOIN library_item i ON i.library_id=? AND i.id=o.item_id AND i.kind IN ('video','movie','series')

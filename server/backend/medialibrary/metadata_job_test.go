@@ -1,6 +1,7 @@
 package medialibrary
 
 import (
+	"bytes"
 	"database/sql"
 	"errors"
 	"path/filepath"
@@ -107,6 +108,67 @@ func TestMetadataJobCountsDurationFilteredTargetsAsSkipped(t *testing.T) {
 	progress, err := store.MetadataJobForScan(ctx, 7, library.ID, scan.ID)
 	if err != nil || progress.Skipped != 1 || progress.Pending != 0 || progress.Review != 0 {
 		t.Fatalf("duration-filtered progress: %+v %v", progress, err)
+	}
+}
+
+func TestMetadataJobTargetsIgnoreStaleBindingEpochs(t *testing.T) {
+	store := openTestStore(t)
+	ctx := t.Context()
+	library := createLibrary(t, store, 7, "Metadata epochs")
+	binding := createBoundSource(t, store, library)
+	connection := fixtureProvider(t, store, 7, false, "user", "metadata-epoch-connection")
+	if _, err := store.SetLibraryMetadataPolicy(ctx, 7, library.ID, "metadata-epoch-policy", 0,
+		LibraryMetadataPolicy{Mode: MetadataLocalFirst, ConnectionID: connection.ID}); err != nil {
+		t.Fatal(err)
+	}
+	_, oldLease := testScan(t, store, binding, "metadata-old-epoch")
+	oldInput := testObservation("metadata-old-file", "/videos/old.mkv")
+	old, err := store.CommitScanObservation(ctx, 7, *oldLease, oldInput, testCheckpoint(oldInput, 1, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	finishEmptyReconcile(t, store, 7, *oldLease, 1)
+	proof := BindingProof{Version: 1, MappingDigest: bytes.Repeat([]byte{44}, 32), RootIdentityKind: "native", RootIdentity: []byte(binding.ID)}
+	if _, err := store.AttestSourceBindingWithOperation(ctx, 7, binding.ID, binding.Revision, "metadata-new-epoch", proof); err != nil {
+		t.Fatal(err)
+	}
+	binding, err = store.GetLibrarySourceByID(ctx, 7, binding.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	currentScan, currentLease := testScan(t, store, binding, "metadata-current-epoch")
+	currentInput := testObservation("metadata-current-file", "/videos/current.mkv")
+	current, err := store.CommitScanObservation(ctx, 7, *currentLease, currentInput, testCheckpoint(currentInput, 1, 1))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.ExecContext(ctx, `UPDATE library_file SET last_seen_job_id=?,last_seen_generation=? WHERE source_file_id=?`,
+		currentScan.ID, currentLease.Generation, old.SourceFileID); err != nil {
+		t.Fatal(err)
+	}
+	finishEmptyReconcile(t, store, 7, *currentLease, 1)
+	var jobID string
+	if err := store.db.QueryRowContext(ctx, `SELECT job_id FROM metadata_job ORDER BY rowid DESC LIMIT 1`).Scan(&jobID); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := store.db.QueryContext(ctx, `SELECT item_id FROM metadata_job_target WHERE job_id=?`, jobID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	var targets []string
+	for rows.Next() {
+		var itemID string
+		if err := rows.Scan(&itemID); err != nil {
+			t.Fatal(err)
+		}
+		targets = append(targets, itemID)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	if len(targets) != 1 || targets[0] != current.ItemID || targets[0] == old.ItemID {
+		t.Fatalf("stale binding entered metadata targets: old=%s current=%s targets=%v", old.ItemID, current.ItemID, targets)
 	}
 }
 
