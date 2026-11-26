@@ -111,7 +111,9 @@ fun TvMediaSourcePicker(
                             style = MediaType.body, color = colors.secondary)
                     }
                     if (state.loading) item(key = "loading") {
-                        Text("正在读取片源…", style = MediaType.body, color = colors.secondary)
+                        Box(Modifier.fillMaxWidth().heightIn(min = 120.dp), contentAlignment = Alignment.Center) {
+                            MediaLoadingStatus("正在读取片源…", compact = true)
+                        }
                     }
                     if (state.error != null) item(key = "error") {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
