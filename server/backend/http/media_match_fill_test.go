@@ -154,6 +154,21 @@ func TestAutomaticTitleMatchDefaultsOnWithExplicitOptOut(t *testing.T) {
 	}
 }
 
+func TestAutomaticMatchInputIgnoresGenericMediaDirectoryAlias(t *testing.T) {
+	for _, directory := range []string{"Movie", "Movies", "Film", "影视", "电影", "视频", "TV", "剧集"} {
+		item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{ParsedTitle: "蜘蛛侠：英雄无归", DirectoryTitle: directory}}
+		input := automaticMatchInput(item, true)
+		if len(input.Aliases) != 0 || input.Title != "蜘蛛侠：英雄无归" {
+			t.Fatalf("generic directory %q became title evidence: %+v", directory, input)
+		}
+	}
+	item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{DirectoryTitle: "Movie"}}
+	input := automaticMatchInput(item, true)
+	if input.Title != "" || len(input.Ambiguities) != 1 || input.Ambiguities[0] != "missing_title" {
+		t.Fatalf("generic directory became a fallback title: %+v", input)
+	}
+}
+
 func TestAutomaticMatchInputAddsMixedLanguageAliases(t *testing.T) {
 	item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{ParsedTitle: "The Notebook 恋恋笔记本", DirectoryTitle: "Noisy folder"}}
 	input := automaticMatchInput(item, false)

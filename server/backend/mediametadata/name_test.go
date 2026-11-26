@@ -267,6 +267,7 @@ func TestParseNameCleansReleaseAndSubtitleNoise(t *testing.T) {
 		{"[www.domp4.com]华尔街之狼 2013 BD1080p 中英双字.mkv", "华尔街之狼", 2013},
 		{"阿黛尔的生活 2013 法语中字.mkv", "阿黛尔的生活", 2013},
 		{"Captain Marvel 2019 DSNP.mkv", "Captain Marvel", 2019},
+		{"Basic.Instinct.1992.UHD.BluRay.2160p.2Audio.DTS-HD.MA.5.1.x265.10bit.HDR-ALT.mkv", "Basic Instinct", 1992},
 		{"Barbie 2023 iTunes.mkv", "Barbie", 2023},
 		{"Blade Runner 2049 2017 4Audio -SSDSSE.mkv", "Blade Runner 2049", 2017},
 		{"The Martian 2015 TC TrueHD7 1.mkv", "The Martian", 2015},
@@ -281,6 +282,16 @@ func TestParseNameCleansReleaseAndSubtitleNoise(t *testing.T) {
 		if parsed.Title != tc.title || parsed.Year == nil || *parsed.Year != tc.year || len(parsed.Ambiguities) != 0 {
 			t.Fatalf("%s: title=%q year=%v ambiguities=%v", tc.filename, parsed.Title, parsed.Year, parsed.Ambiguities)
 		}
+	}
+}
+
+func TestParseNameCleansBracketedChineseReleaseTitle(t *testing.T) {
+	parsed := ParseName("【特效双语】《蜘蛛侠：英雄无归》IMAX加长版特效精校双语字幕.mp4")
+	if parsed.Title != "蜘蛛侠：英雄无归" || parsed.Year != nil || len(parsed.Ambiguities) != 0 {
+		t.Fatalf("bracketed release title parsed incorrectly: %+v", parsed)
+	}
+	if !slices.Contains(parsed.Editions, "extended") {
+		t.Fatalf("extended edition evidence was lost: %+v", parsed)
 	}
 }
 

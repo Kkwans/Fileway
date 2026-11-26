@@ -212,6 +212,15 @@ func mediaAutoTitleMatchEnabled() bool {
 	return strings.TrimSpace(os.Getenv("FILEWAY_MEDIA_AUTO_TITLE_MATCH")) != "0"
 }
 
+func genericMediaDirectoryTitle(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "movie", "movies", "film", "films", "video", "videos", "media", "tv", "series", "影视", "电影", "影片", "视频", "电视剧", "剧集":
+		return true
+	default:
+		return false
+	}
+}
+
 var embeddedTitleYearSuffix = regexp.MustCompile(`(?i)[ ._\-]+((?:18|19|20|21)[0-9]{2})$`)
 
 func automaticMatchInput(item mediaIdentificationResponse, allowTitleMatch bool) mediaprovider.AutomaticMatchInput {
@@ -248,9 +257,13 @@ func automaticMatchInput(item mediaIdentificationResponse, allowTitleMatch bool)
 		}
 		directoryTitle := strings.TrimSpace(file.DirectoryTitle)
 		if input.Title == "" {
-			input.Ambiguities = append(input.Ambiguities, file.DirectoryIssues...)
-			input.Title = directoryTitle
-		} else if directoryTitle != "" && directoryTitle != input.Title {
+			if genericMediaDirectoryTitle(directoryTitle) {
+				input.Ambiguities = append(input.Ambiguities, "missing_title")
+			} else {
+				input.Ambiguities = append(input.Ambiguities, file.DirectoryIssues...)
+				input.Title = directoryTitle
+			}
+		} else if directoryTitle != "" && directoryTitle != input.Title && !genericMediaDirectoryTitle(directoryTitle) {
 			input.Aliases = append(input.Aliases, directoryTitle)
 		}
 		if technical := file.Technical; technical != nil {

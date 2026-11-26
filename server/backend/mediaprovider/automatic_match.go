@@ -337,12 +337,18 @@ queries:
 	}
 	numberedTitle := false
 	seriesFallback := false
+	translatedTitleFallback := false
 	if input.Year <= 0 {
 		ranked = RankCandidates(MatchHint{Kind: input.Kind, Title: title}, documents)
 		exact := exactTitleCandidates(ranked, queries)
 		if len(exact) == 0 && input.Kind == Movie {
 			exact = numberedTitleCandidates(ranked, queries)
 			numberedTitle = len(exact) != 0
+		}
+		if len(exact) == 0 && input.Kind == Movie && searchComplete && input.DurationMs > 0 && len(ranked) != 0 {
+			exact = append(exact, ranked[:min(len(ranked), maxAutomaticTitleQueries)]...)
+			translatedTitleFallback = len(exact) != 0
+			fetchParts = append(fetchParts, AlternativeTitles)
 		}
 		if len(exact) == 0 && input.Kind == Series && searchComplete {
 			exact = append(exact, ranked[:min(len(ranked), maxAutomaticTitleQueries)]...)
@@ -497,6 +503,9 @@ queries:
 		if input.Year <= 0 && input.Kind == Series && seriesFallback {
 			return review("year_required")
 		}
+		if input.Year <= 0 && translatedTitleFallback {
+			return review("year_required")
+		}
 		if input.Year <= 0 {
 			return review("title_conflict")
 		}
@@ -516,6 +525,9 @@ queries:
 		yearDifferenceVerified = true
 	}
 	evidence := append([]string(nil), candidate.Evidence...)
+	if translatedTitleFallback {
+		evidence = append(evidence, "translated_title_without_year")
+	}
 	if adultFallback {
 		evidence = append(evidence, "adult_search_fallback")
 	}

@@ -51,13 +51,19 @@ func parseIncompleteTitlePattern(title string) incompleteTitlePattern {
 		}
 	}
 	flush()
-	if len(tokens) < 2 || len(tokens) > 24 || visible < 1 || missing == 0 || missing > visible {
+	if len(tokens) < 2 || len(tokens) > 24 || visible < 1 || missing == 0 || missing > visible*2 {
 		return incompleteTitlePattern{}
 	}
 	slices.SortStableFunc(runs, func(a, b string) int { return cmp.Compare(len(b), len(a)) })
 	queries := make([]string, 0, maxIncompleteTitleQueries)
+	if len(runs) > 1 {
+		combined := strings.Join(runs, " ")
+		if !slices.Contains(queries, combined) {
+			queries = append(queries, combined)
+		}
+	}
 	for _, query := range runs {
-		if len([]rune(query)) >= 2 && !slices.Contains(queries, query) {
+		if !slices.Contains(queries, query) {
 			queries = append(queries, query)
 		}
 	}

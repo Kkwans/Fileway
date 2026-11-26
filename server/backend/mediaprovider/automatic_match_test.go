@@ -391,6 +391,21 @@ func TestResolveAutomaticMatchAdultFallbackVerifiesRomanizedAlternativeTitle(t *
 	}
 }
 
+func TestIncompleteTitlePatternCombinesVisibleHanRuns(t *testing.T) {
+	for _, tc := range []struct {
+		title   string
+		queries []string
+	}{
+		{"y国b人", []string{"国 人", "国"}},
+		{"b杰m·b顿q事", []string{"杰 顿 事", "杰"}},
+	} {
+		pattern := parseIncompleteTitlePattern(tc.title)
+		if !slices.Equal(pattern.queries, tc.queries) {
+			t.Fatalf("%s: queries=%v want=%v", tc.title, pattern.queries, tc.queries)
+		}
+	}
+}
+
 func TestResolveAutomaticMatchRecoversMissingHanCharactersWithYearAndRuntime(t *testing.T) {
 	for _, tc := range []struct {
 		name, damaged, query, otherQuery, title string
@@ -413,7 +428,7 @@ func TestResolveAutomaticMatchRecoversMissingHanCharactersWithYearAndRuntime(t *
 					if query == tc.damaged {
 						return response(200, `{"page":1,"total_pages":1,"total_results":0,"results":[]}`), nil
 					}
-					if (query != tc.query && query != tc.otherQuery) || request.URL.Query().Get("primary_release_year") != "2001" {
+					if (query != tc.query && query != tc.otherQuery && query != tc.query+" "+tc.otherQuery) || request.URL.Query().Get("primary_release_year") != "2001" {
 						t.Fatalf("unexpected recovery query %s", request.URL)
 					}
 					return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":`+jsonNumber(tc.id)+`,"title":"`+tc.title+`","release_date":"2001-09-01"}]}`), nil
@@ -500,6 +515,30 @@ func TestResolveAutomaticMatchDoesNotRecoverIncompleteTitleWithoutDuration(t *te
 func jsonNumber(value int64) string {
 	encoded, _ := json.Marshal(value)
 	return string(encoded)
+}
+
+func TestResolveAutomaticMatchMatchesTranslatedTitleWithoutYearUsingRuntime(t *testing.T) {
+	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/3/search/movie":
+			if request.URL.Query().Get("query") != "蜘蛛侠：英雄无归" || request.URL.Query().Has("primary_release_year") {
+				t.Fatalf("unexpected title lookup %s", request.URL)
+			}
+			return response(200, `{"page":1,"total_pages":1,"total_results":2,"results":[{"id":1,"title":"Spider-Man: No Way Home","original_title":"Spider-Man: No Way Home","release_date":"2021-12-17"},{"id":2,"title":"《蜘蛛侠：英雄无归》的幕后特辑","release_date":"2022-01-01"}]}`), nil
+		case "/3/movie/1":
+			return response(200, `{"id":1,"title":"Spider-Man: No Way Home","original_title":"Spider-Man: No Way Home","release_date":"2021-12-17","runtime":156,"alternative_titles":{"titles":[{"title":"蜘蛛侠：英雄无归","type":""}]}}`), nil
+		case "/3/movie/2":
+			return response(200, `{"id":2,"title":"《蜘蛛侠：英雄无归》的幕后特辑","release_date":"2022-01-01","runtime":45}`), nil
+		default:
+			t.Fatalf("unexpected outbound request %s", request.URL)
+			return nil, nil
+		}
+	})
+	result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: "蜘蛛侠：英雄无归", DurationMs: 156 * 60_000, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+	if err != nil || result.State != AutoMatched || result.Document.Entity.ID != 1 ||
+		!slices.Contains(result.Evidence, "translated_title_without_year") || !slices.Contains(result.Evidence, "runtime_disambiguation") {
+		t.Fatalf("translated yearless match failed: state=%s reason=%s evidence=%v err=%v", result.State, result.Reason, result.Evidence, err)
+	}
 }
 
 func TestResolveAutomaticMatchAllowsUniqueExactTitleWithoutYearOnlyWithRuntimeAndCompleteSearch(t *testing.T) {
