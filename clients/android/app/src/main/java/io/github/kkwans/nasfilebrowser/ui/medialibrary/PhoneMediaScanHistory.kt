@@ -13,6 +13,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.data.*
+import io.github.kkwans.nasfilebrowser.ui.serverTime
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -66,7 +67,8 @@ internal fun PhoneMediaScanHistory(
             items(scans, key = { it.id }) { scan ->
                 Surface(shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
                     MediaSettingsAction(scan.sourceLabel ?: "媒体文件夹",
-                        "${directoryStatus(scan.status)} · 已处理 ${scan.processed} 项", R.drawable.ic_folder) { onSelect(scan.id) }
+                        mediaScanHistorySubtitle(scan), R.drawable.ic_folder,
+                        navigation = false, trailingText = mediaScanHistoryActionLabel(scan.status)) { onSelect(scan.id) }
                 }
             }
             if (next != null) item {
@@ -260,6 +262,15 @@ internal fun mediaDirectoryScanAction(status: MediaScanStatus): MediaDirectorySc
 }
 
 private val activeScanStates = setOf(MediaScanStatus.QUEUED, MediaScanStatus.RUNNING, MediaScanStatus.INTERRUPTED)
+internal fun mediaScanHistoryActionLabel(status: MediaScanStatus): String =
+    if (status == MediaScanStatus.COMPLETED) "查看结果" else "查看进度"
+
+internal fun mediaScanHistorySubtitle(scan: MediaScan): String = buildList {
+    add(directoryStatus(scan.status))
+    add("已处理 ${scan.processed} 项")
+    if (scan.updatedAt > 0) add(serverTime(scan.updatedAt))
+}.joinToString(" · ")
+
 private fun directoryStatus(status: MediaScanStatus) = when (status) {
     MediaScanStatus.QUEUED -> "扫描排队中"
     MediaScanStatus.RUNNING -> "正在扫描"

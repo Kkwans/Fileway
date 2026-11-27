@@ -105,7 +105,7 @@ internal fun mediaSettingsStatus(libraryCount: Int, state: MediaCatalogHomeState
 }
 
 @Composable internal fun MediaSettingsAction(title: String, subtitle: String, icon: Int,
-    enabled: Boolean = true, navigation: Boolean = true, action: () -> Unit) {
+    enabled: Boolean = true, navigation: Boolean = true, trailingText: String? = null, action: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val contentAlpha = if (enabled) 1f else .38f
     Row(Modifier.fillMaxWidth().clickable(enabled = enabled, role = Role.Button, onClick = action)
@@ -122,6 +122,8 @@ internal fun mediaSettingsStatus(libraryCount: Int, state: MediaCatalogHomeState
             Text(subtitle, style = PhoneMediaType.secondary, color = colors.onSurfaceVariant.copy(alpha = contentAlpha),
                 maxLines = 3, overflow = TextOverflow.Ellipsis)
         }
+        if (trailingText != null) Text(trailingText, style = PhoneMediaType.action,
+            color = colors.primary.copy(alpha = contentAlpha))
         if (navigation) FilewayIcon(R.drawable.ic_arrow_forward, null, Modifier.size(20.dp),
             tint = colors.onSurfaceVariant.copy(alpha = contentAlpha))
     }
