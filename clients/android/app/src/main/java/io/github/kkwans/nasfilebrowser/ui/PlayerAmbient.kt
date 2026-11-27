@@ -44,7 +44,15 @@ import kotlinx.coroutines.CancellationException
     }
 }
 
-@Composable internal fun PlayerInformation(model: ClientModel, file: ResourceRef, scope: String, state: PlayerState, output: io.github.kkwans.nasfilebrowser.player.ActiveVideoOutput) {
+@Composable internal fun PlayerInformation(
+    model: ClientModel,
+    file: ResourceRef,
+    scope: String,
+    state: PlayerState,
+    output: io.github.kkwans.nasfilebrowser.player.ActiveVideoOutput,
+    modifier: Modifier = Modifier,
+    harmoniousSurface: Boolean = false,
+) {
     var metadata by remember(file.mediaKey, scope) { mutableStateOf(file) }
     var failed by remember(file.mediaKey, scope) { mutableStateOf(false) }
     var attempt by remember(file.mediaKey, scope) { mutableIntStateOf(0) }
@@ -57,7 +65,7 @@ import kotlinx.coroutines.CancellationException
             catch (_: Exception) { failed = true }
         }
     }
-    PlayerInformationCard {
+    PlayerInformationCard(modifier = modifier, harmoniousSurface = harmoniousSurface) {
         Text("视频信息", style = MaterialTheme.typography.titleSmall)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             PlayerInformationField("分辨率", if (state.width > 0 && state.height > 0) "${state.width} × ${state.height}" else "—", Modifier.weight(1f))
@@ -71,38 +79,79 @@ import kotlinx.coroutines.CancellationException
     }
 }
 
-@Composable internal fun PlayerTrackInformation(state: PlayerState, enabled: Boolean, audio: () -> Unit, subtitles: () -> Unit) {
-    PlayerInformationCard {
+@Composable internal fun PlayerTrackInformation(
+    state: PlayerState,
+    enabled: Boolean,
+    audio: () -> Unit,
+    subtitles: () -> Unit,
+    modifier: Modifier = Modifier,
+    harmoniousSurface: Boolean = false,
+) {
+    PlayerInformationCard(modifier = modifier, harmoniousSurface = harmoniousSurface) {
         Text("音轨与字幕", style = MaterialTheme.typography.titleSmall)
         PlayerTrackInformationRow(R.drawable.ic_audio, "音轨",
             state.audio.firstOrNull { it.id == state.selectedAudio }?.let { it.title.ifBlank { it.language } }
                 ?: if (state.audio.isEmpty()) "无音轨" else "默认音轨",
-            enabled && state.audio.isNotEmpty(), audio)
+            enabled && state.audio.isNotEmpty(), audio, harmoniousSurface = harmoniousSurface)
         PlayerTrackInformationRow(R.drawable.ic_subtitles, "字幕",
             if (state.subtitleLoading) "正在加载" else state.subtitles.firstOrNull { it.id == state.selectedSubtitle }?.title ?: "关闭字幕",
-            enabled, subtitles)
+            enabled, subtitles, harmoniousSurface = harmoniousSurface)
     }
 }
 
-@Composable private fun PlayerTrackInformationRow(icon: Int, title: String, value: String, enabled: Boolean, action: () -> Unit) {
-    Surface(onClick = action, enabled = enabled, shape = RoundedCornerShape(12.dp),
-        color = Color.White.copy(alpha = .045f), border = BorderStroke(1.dp, Color.White.copy(alpha = .08f))) {
+@Composable private fun PlayerTrackInformationRow(
+    icon: Int,
+    title: String,
+    value: String,
+    enabled: Boolean,
+    action: () -> Unit,
+    harmoniousSurface: Boolean = false,
+) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        onClick = action,
+        enabled = enabled,
+        shape = RoundedCornerShape(12.dp),
+        color = if (harmoniousSurface) colors.surfaceContainer.copy(alpha = 0.72f) else Color.White.copy(alpha = .045f),
+        border = BorderStroke(
+            1.dp,
+            if (harmoniousSurface) colors.outlineVariant.copy(alpha = 0.55f) else Color.White.copy(alpha = .08f),
+        ),
+    ) {
         Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 12.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            FilewayIcon(icon, null)
+            FilewayIcon(icon, null, tint = if (harmoniousSurface) colors.onSurfaceVariant else LocalContentColor.current)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(value, style = MaterialTheme.typography.bodyMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                Text(title, style = MaterialTheme.typography.labelMedium, color = colors.onSurfaceVariant)
+                Text(
+                    value,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (harmoniousSurface) colors.onSurface else LocalContentColor.current,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
-            FilewayIcon(R.drawable.ic_arrow_forward, null, Modifier.size(20.dp))
+            FilewayIcon(R.drawable.ic_arrow_forward, null, Modifier.size(20.dp), tint = colors.onSurfaceVariant)
         }
     }
 }
 
-@Composable internal fun PlayerInformationCard(modifier: Modifier = Modifier, contentPadding: androidx.compose.ui.unit.Dp = 16.dp,
-    content: @Composable ColumnScope.() -> Unit) {
-    Surface(modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = Color.White.copy(alpha = .055f),
-        border = BorderStroke(1.dp, Color.White.copy(alpha = .10f))) {
+@Composable internal fun PlayerInformationCard(
+    modifier: Modifier = Modifier,
+    contentPadding: androidx.compose.ui.unit.Dp = 16.dp,
+    harmoniousSurface: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val colors = MaterialTheme.colorScheme
+    Surface(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        color = if (harmoniousSurface) colors.surface else Color.White.copy(alpha = .055f),
+        border = BorderStroke(
+            1.dp,
+            if (harmoniousSurface) colors.outlineVariant.copy(alpha = 0.6f) else Color.White.copy(alpha = .10f),
+        ),
+    ) {
         Column(Modifier.padding(contentPadding), verticalArrangement = Arrangement.spacedBy(14.dp), content = content)
     }
 }

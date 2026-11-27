@@ -290,33 +290,38 @@ Column(Modifier.fillMaxSize()) {
                 }
                 if (selecting) {
                     Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("已选 ${chosen.size} 项", Modifier.weight(1f).padding(start = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            if (workspaceHost != null) "已选 ${chosen.size} 项（请在右侧操作）" else "已选 ${chosen.size} 项",
+                            Modifier.weight(1f).padding(start = 8.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
                         FileActionIcon(R.drawable.ic_select_all, "全选或取消全选", !selectionBusy && !state.busy) { selected = if (selected == shownKeys) emptySet() else shownKeys }
                         FileActionIcon(R.drawable.ic_invert_selection, "反选", !selectionBusy && !state.busy) { selected = shownKeys - selected }
                     }
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        if (state.permissions.create) FileActionIcon(R.drawable.ic_copy, "批量复制", !state.busy && !selectionBusy && operations.transfer == null && operations.batchRename == null && chosen.isNotEmpty()) {
-                            model.startFileTransfer(chosen, FileTransferAction.COPY, state.previewScope)
-                        }
-                        if (state.permissions.create && state.permissions.rename) FileActionIcon(R.drawable.ic_move, "批量移动", !state.busy && !selectionBusy && operations.transfer == null && operations.batchRename == null && chosen.isNotEmpty()) {
-                            model.startFileTransfer(chosen, FileTransferAction.MOVE, state.previewScope)
-                        }
-                        if (state.permissions.rename) FileActionIcon(R.drawable.ic_edit, "批量重命名", !state.busy && !selectionBusy && operations.transfer == null && operations.creation == null && operations.batchRename == null && chosen.size in 1..500) {
-                            batchKind = "rename"
-                            model.fileOperations.startBatchRename(chosen, DirectoryCrumb("原目录", state.path, state.wirePath), state.previewScope)
-                        }
-                        if (state.permissions.download) FileActionIcon(R.drawable.ic_folder, "打包下载为 ZIP", !state.busy && !selectionBusy && chosen.isNotEmpty()) { model.startZipExport(chosen, state.previewScope) }
-                        FileActionIcon(R.drawable.ic_download, "批量下载", !state.busy && !selectionBusy && downloads.folderPlan == null && chosen.isNotEmpty() && state.permissions.download) {
-                            batchKind = "download"
-                            model.downloadFiles(chosen) { file ->
-                                selected = selected - key(file)
-
+                    if (workspaceHost == null) {
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            if (state.permissions.create) FileActionIcon(R.drawable.ic_copy, "批量复制", !state.busy && !selectionBusy && operations.transfer == null && operations.batchRename == null && chosen.isNotEmpty()) {
+                                model.startFileTransfer(chosen, FileTransferAction.COPY, state.previewScope)
                             }
-                            if (chosen.none { it.directory } && android.os.Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
-                                notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
-                        }
-                        if (state.permissions.delete) FileActionIcon(R.drawable.ic_trash, "批量移入回收站", !state.busy && !selectionBusy && chosen.isNotEmpty()) {
-                            pendingTrash = chosen.toList(); trashAttempted = false
+                            if (state.permissions.create && state.permissions.rename) FileActionIcon(R.drawable.ic_move, "批量移动", !state.busy && !selectionBusy && operations.transfer == null && operations.batchRename == null && chosen.isNotEmpty()) {
+                                model.startFileTransfer(chosen, FileTransferAction.MOVE, state.previewScope)
+                            }
+                            if (state.permissions.rename) FileActionIcon(R.drawable.ic_edit, "批量重命名", !state.busy && !selectionBusy && operations.transfer == null && operations.creation == null && operations.batchRename == null && chosen.size in 1..500) {
+                                batchKind = "rename"
+                                model.fileOperations.startBatchRename(chosen, DirectoryCrumb("原目录", state.path, state.wirePath), state.previewScope)
+                            }
+                            if (state.permissions.download) FileActionIcon(R.drawable.ic_folder, "打包下载为 ZIP", !state.busy && !selectionBusy && chosen.isNotEmpty()) { model.startZipExport(chosen, state.previewScope) }
+                            FileActionIcon(R.drawable.ic_download, "批量下载", !state.busy && !selectionBusy && downloads.folderPlan == null && chosen.isNotEmpty() && state.permissions.download) {
+                                batchKind = "download"
+                                model.downloadFiles(chosen) { file ->
+                                    selected = selected - key(file)
+                                }
+                                if (chosen.none { it.directory } && android.os.Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                                    notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                            }
+                            if (state.permissions.delete) FileActionIcon(R.drawable.ic_trash, "批量移入回收站", !state.busy && !selectionBusy && chosen.isNotEmpty()) {
+                                pendingTrash = chosen.toList(); trashAttempted = false
+                            }
                         }
                     }
                     if (state.permissions.rename && chosen.size > 500) Text("批量重命名最多 500 项，请减少选择。", Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall, color = colors.onSurfaceVariant)

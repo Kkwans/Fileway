@@ -70,17 +70,20 @@ data class FilewayWindowLayout(
     val formMaxWidth: Dp get() = 680.dp
 
     companion object {
-        val CompactDefault = from(widthDp = 412, heightDp = 915)
+        val CompactDefault = from(widthDp = 412, heightDp = 915, smallestScreenWidthDp = 412)
 
         fun from(
             widthDp: Int,
             heightDp: Int,
+            smallestScreenWidthDp: Int = minOf(widthDp, heightDp),
             hingeCenterFraction: Float? = null,
         ): FilewayWindowLayout {
             val safeWidth = widthDp.coerceAtLeast(1)
             val safeHeight = heightDp.coerceAtLeast(1)
+            val safeSmallestWidth = smallestScreenWidthDp.coerceAtLeast(1)
+            val phoneLandscape = safeHeight < 480 || (safeSmallestWidth < 580 && safeHeight < 520)
             val wClass = when {
-                safeWidth < 600 -> FilewayWindowClass.COMPACT
+                phoneLandscape || safeWidth < 600 -> FilewayWindowClass.COMPACT
                 safeWidth < 840 -> FilewayWindowClass.MEDIUM
                 safeWidth < 1200 -> FilewayWindowClass.EXPANDED
                 else -> FilewayWindowClass.LARGE
@@ -119,7 +122,14 @@ fun rememberFilewayWindowLayout(): FilewayWindowLayout {
     } else {
         configuration.screenHeightDp
     }
-    return remember(widthDp, heightDp) {
-        FilewayWindowLayout.from(widthDp = widthDp, heightDp = heightDp)
+    val smallestWidthDp = configuration.smallestScreenWidthDp
+        .takeIf { it > 0 }
+        ?: minOf(widthDp, heightDp)
+    return remember(widthDp, heightDp, smallestWidthDp) {
+        FilewayWindowLayout.from(
+            widthDp = widthDp,
+            heightDp = heightDp,
+            smallestScreenWidthDp = smallestWidthDp,
+        )
     }
 }

@@ -76,9 +76,9 @@ class MainActivity : ComponentActivity() {
                 AppTheme.LIGHT -> false
                 AppTheme.DARK -> true
             }
-            // In tablet dual-pane mode, embedded media viewers sit inside the right pane;
-            // only fullscreen immersive viewers should flip the global system bars to dark.
-            val viewerOwnsGlobalBars = (!tabletConfig.useWorkspaceDualPane(windowLayout) || detailFullscreen) &&
+            // On compact phones, or in tablet fullscreen immersive mode, the viewer owns the global system bars;
+            // non-fullscreen tablet viewers follow host background / LocalFilewayDarkCanvasOwner.
+            val viewerOwnsGlobalBars = (windowLayout.isCompact || detailFullscreen) &&
                 (client.selected != null || client.image != null)
             // Read media state during composition, not only inside an effect;
             // otherwise entering the viewer does not invalidate this scope.

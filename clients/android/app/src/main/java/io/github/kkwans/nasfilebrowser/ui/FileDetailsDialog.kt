@@ -1,5 +1,6 @@
 package io.github.kkwans.nasfilebrowser.ui
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -88,6 +89,9 @@ internal val LocalFileDetailsActionsEnabled = staticCompositionLocalOf { true }
     readMetadata: Boolean = true,
     load: FileDetailsLoad? = null,
     onBeforeTvHandoff: () -> Unit = {},
+    showNameField: Boolean = true,
+    scrollable: Boolean = true,
+    tabletCards: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val needsMetadata = readMetadata && model != null && file.downloadId.isEmpty() && !model.isTemporaryContent(file)
@@ -115,66 +119,120 @@ internal val LocalFileDetailsActionsEnabled = staticCompositionLocalOf { true }
         }
     }
     val scroll = rememberScrollState()
+    val horizontalInset = if (tabletCards) 0.dp else 12.dp
     @Composable fun field(label: String, value: String) {
-        Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = horizontalInset), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(label, style = FilewayTheme.text.metadata, color = FilewayTheme.colors.onSurfaceVariant)
             SelectionContainer { Text(value, style = MaterialTheme.typography.bodyMedium) }
         }
     }
+    @Composable fun sizeCell() {
+        if (!known) field("大小", if (pending) "读取中…" else "未提供")
+        else if (!metadata.directory) field("大小", readableSize(metadata.size))
+        else Column(Modifier.fillMaxWidth().padding(horizontal = horizontalInset), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp))
+                .clickable(enabled = model != null, role = Role.Button) {
+                    if (sizing?.isActive == true) sizing?.cancel()
+                    else if (model != null) sizing = scope.launch {
+                        folders = 0; sizeError = null; size = null
+                        try { size = model.directorySize(metadata) { folders = it } }
+                        catch (failure: Exception) { if (failure is CancellationException) throw failure; sizeError = failure.message ?: "统计失败，请重试" }
+                        finally { sizing = null }
+                    }
+                }.semantics { contentDescription = if (sizing?.isActive == true) "停止统计文件夹大小" else "统计或重新统计文件夹大小" },
+                verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text("大小", style = FilewayTheme.text.metadata, color = FilewayTheme.colors.onSurfaceVariant)
+                Text(if (model == null) "未提供" else if (sizing?.isActive == true) "停止统计 · $folders 目录"
+                    else size?.let { "${readableSize(it.bytes)} · ${it.files} 个文件" } ?: "统计大小",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = if (model == null) FilewayTheme.colors.onSurface else FilewayTheme.colors.primary)
+            }
+            size?.takeIf { it.skippedLinks > 0 }?.let { Text("不含 ${it.skippedLinks} 个符号链接", style = FilewayTheme.text.metadata) }
+            sizeError?.let { Text(it, color = FilewayTheme.colors.error, style = FilewayTheme.text.metadata) }
+        }
+    }
+    val hasTvCast = tvHandoff != null && model != null && known && metadata.mediaKind() != null && metadata.downloadId.isEmpty() && !model.isTemporaryContent(metadata)
+    val containerModifier = modifier
+        .then(if (scrollable) Modifier.verticalScroll(scroll) else Modifier)
+        .semantics { contentDescription = "文件详情内容" }
     Column(
-        modifier
-            .verticalScroll(scroll)
-            .semantics { contentDescription = "文件详情内容" },
+        containerModifier,
         verticalArrangement = Arrangement.spacedBy(16.dp),
     ) {
-        field("名称", metadata.name)
-        FileOperationLocation("位置", file.path, showBasename = false)
-        if (tvHandoff != null && model != null && known && metadata.mediaKind() != null && metadata.downloadId.isEmpty() && !model.isTemporaryContent(metadata)) {
-            FilewayOutlinedButton(
-                onClick = { onBeforeTvHandoff(); tvHandoff(metadata, sourceScope) },
-                enabled = openEnabled,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                FilewayIcon(io.github.kkwans.fileway.design.R.drawable.fileway_ic_cast, null, Modifier.size(22.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("在 TV 播放")
-            }
-        }
-        CompositionLocalProvider(LocalFileDetailsActionsEnabled provides known) { actions?.invoke() }
-        additionalActions?.invoke()
-        HorizontalDivider(color = FilewayTheme.colors.outlineVariant)
-        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-            Column(Modifier.weight(1f)) { field("类型", if (known) fileTypeLabel(metadata) else if (pending) "读取中…" else "未提供") }
-            if (showSize) Column(Modifier.weight(1f)) {
-                if (!known) field("大小", if (pending) "读取中…" else "未提供")
-                else if (!metadata.directory) field("大小", readableSize(metadata.size))
-                else Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Column(Modifier.fillMaxWidth().heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp))
-                        .clickable(enabled = model != null, role = Role.Button) {
-                            if (sizing?.isActive == true) sizing?.cancel()
-                            else if (model != null) sizing = scope.launch {
-                                folders = 0; sizeError = null; size = null
-                                try { size = model.directorySize(metadata) { folders = it } }
-                                catch (failure: Exception) { if (failure is CancellationException) throw failure; sizeError = failure.message ?: "统计失败，请重试" }
-                                finally { sizing = null }
+        if (tabletCards) {
+            if (hasTvCast || actions != null || additionalActions != null) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = FilewayTheme.colors.surface,
+                    border = BorderStroke(1.dp, FilewayTheme.colors.outlineVariant.copy(alpha = 0.6f)),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text("文件操作", style = MaterialTheme.typography.titleSmall, color = FilewayTheme.colors.onSurface)
+                        if (hasTvCast) {
+                            FilewayOutlinedButton(
+                                onClick = { onBeforeTvHandoff(); tvHandoff(metadata, sourceScope) },
+                                enabled = openEnabled,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                FilewayIcon(io.github.kkwans.fileway.design.R.drawable.fileway_ic_cast, null, Modifier.size(22.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text("在 TV 播放")
                             }
-                        }.semantics { contentDescription = if (sizing?.isActive == true) "停止统计文件夹大小" else "统计或重新统计文件夹大小" },
-                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("大小", style = FilewayTheme.text.metadata, color = FilewayTheme.colors.onSurfaceVariant)
-                        Text(if (model == null) "未提供" else if (sizing?.isActive == true) "停止统计 · $folders 目录"
-                            else size?.let { "${readableSize(it.bytes)} · ${it.files} 个文件" } ?: "统计大小",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = if (model == null) FilewayTheme.colors.onSurface else FilewayTheme.colors.primary)
+                        }
+                        CompositionLocalProvider(LocalFileDetailsActionsEnabled provides known) { actions?.invoke() }
+                        additionalActions?.invoke()
                     }
-                    size?.takeIf { it.skippedLinks > 0 }?.let { Text("不含 ${it.skippedLinks} 个符号链接", style = FilewayTheme.text.metadata) }
-                    sizeError?.let { Text(it, color = FilewayTheme.colors.error, style = FilewayTheme.text.metadata) }
                 }
             }
-        }
-        val created = displayModified(metadata.created)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-            Column(Modifier.weight(1f)) { field("修改时间", displayModified(metadata.modified) ?: if (pending) "读取中…" else "未提供") }
-            Column(Modifier.weight(1f)) { field("创建时间", created ?: if (pending) "读取中…" else "未提供") }
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = FilewayTheme.colors.surface,
+                border = BorderStroke(1.dp, FilewayTheme.colors.outlineVariant.copy(alpha = 0.6f)),
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Text("属性与位置", style = MaterialTheme.typography.titleSmall, color = FilewayTheme.colors.onSurface)
+                    if (showNameField) field("名称", metadata.name)
+                    FileOperationLocation("位置", file.path, showBasename = false)
+                    HorizontalDivider(color = FilewayTheme.colors.outlineVariant.copy(alpha = 0.6f))
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                        Column(Modifier.weight(1f)) { field("类型", if (known) fileTypeLabel(metadata) else if (pending) "读取中…" else "未提供") }
+                        if (showSize) Column(Modifier.weight(1f)) { sizeCell() }
+                    }
+                    val created = displayModified(metadata.created)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                        Column(Modifier.weight(1f)) { field("修改时间", displayModified(metadata.modified) ?: if (pending) "读取中…" else "未提供") }
+                        Column(Modifier.weight(1f)) { field("创建时间", created ?: if (pending) "读取中…" else "未提供") }
+                    }
+                }
+            }
+        } else {
+            if (showNameField) field("名称", metadata.name)
+            FileOperationLocation("位置", file.path, showBasename = false)
+            if (hasTvCast) {
+                FilewayOutlinedButton(
+                    onClick = { onBeforeTvHandoff(); tvHandoff(metadata, sourceScope) },
+                    enabled = openEnabled,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    FilewayIcon(io.github.kkwans.fileway.design.R.drawable.fileway_ic_cast, null, Modifier.size(22.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("在 TV 播放")
+                }
+            }
+            CompositionLocalProvider(LocalFileDetailsActionsEnabled provides known) { actions?.invoke() }
+            additionalActions?.invoke()
+            HorizontalDivider(color = FilewayTheme.colors.outlineVariant)
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                Column(Modifier.weight(1f)) { field("类型", if (known) fileTypeLabel(metadata) else if (pending) "读取中…" else "未提供") }
+                if (showSize) Column(Modifier.weight(1f)) { sizeCell() }
+            }
+            val created = displayModified(metadata.created)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                Column(Modifier.weight(1f)) { field("修改时间", displayModified(metadata.modified) ?: if (pending) "读取中…" else "未提供") }
+                Column(Modifier.weight(1f)) { field("创建时间", created ?: if (pending) "读取中…" else "未提供") }
+            }
         }
         (load?.error ?: metadataError)?.let { FilewayStatusBanner(it, FilewayStatusKind.ERROR, load?.retry ?: { retry += 1 }, "重新读取元数据") }
     }

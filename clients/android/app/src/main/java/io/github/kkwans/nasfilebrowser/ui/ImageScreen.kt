@@ -6,12 +6,14 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -35,6 +37,7 @@ import io.github.kkwans.nasfilebrowser.app.ResourceRef
 import io.github.kkwans.nasfilebrowser.app.mediaKey
 import io.github.kkwans.nasfilebrowser.data.*
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import io.github.kkwans.nasfilebrowser.core.NativeTransport
 import org.json.JSONObject
 import kotlinx.coroutines.CancellationException
@@ -59,24 +62,21 @@ import kotlin.math.abs
     onToggleFullscreen: (() -> Unit)? = null,
     onExpandLeftPane: (() -> Unit)? = null,
 ) {
-    val hostBackground = MaterialTheme.colorScheme.background
-    FilewayTheme(darkTheme = true) {
-        Box(
-            Modifier
-                .fillMaxSize()
-                .then(
-                    if (embedded) {
-                        Modifier
-                            .background(hostBackground)
-                            .statusBarsPadding()
-                            .consumeWindowInsets(WindowInsets.statusBars)
-                    } else {
-                        Modifier
-                    },
-                ),
-        ) {
+    val hostColors = FilewayTheme.colors
+    val registerDarkCanvas = LocalFilewayDarkCanvasOwner.current
+    val darkToken = remember { Any() }
+    DisposableEffect(registerDarkCanvas, darkToken, embedded) {
+        registerDarkCanvas(darkToken, !embedded)
+        onDispose { registerDarkCanvas(darkToken, false) }
+    }
+    if (embedded) {
+        Surface(Modifier.fillMaxSize(), color = hostColors.background, contentColor = hostColors.onBackground) {
+            ImageViewerContent(model, file, embedded = true, onToggleFullscreen = onToggleFullscreen, onExpandLeftPane = onExpandLeftPane)
+        }
+    } else {
+        FilewayTheme(darkTheme = true) {
             Surface(Modifier.fillMaxSize(), color = Color.Black, contentColor = FilewayTheme.status.mediaContent) {
-                ImageViewerContent(model, file, embedded, onToggleFullscreen, onExpandLeftPane)
+                ImageViewerContent(model, file, embedded = false, onToggleFullscreen = onToggleFullscreen, onExpandLeftPane = onExpandLeftPane)
             }
         }
     }
@@ -89,6 +89,8 @@ import kotlin.math.abs
     onToggleFullscreen: (() -> Unit)?,
     onExpandLeftPane: (() -> Unit)?,
 ) {
+    val hostColors = FilewayTheme.colors
+    val hostIsDark = hostColors.background.luminance() < 0.5f
     val media = FilewayTheme.status
     val client by model.state.collectAsStateWithLifecycle()
     val queue = client.mediaQueue
@@ -111,55 +113,141 @@ import kotlin.math.abs
         val scope = rememberCoroutineScope()
         val context = LocalContext.current
         var saving by remember { mutableStateOf(false) }
-        Scaffold(containerColor = Color.Black) { padding ->
-            Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).background(Color.Black)) {
-                HorizontalPager(state = pager, modifier = Modifier.fillMaxSize(), beyondViewportPageCount = 1,
-                    userScrollEnabled = !zoomed, key = { entries[it].mediaKey }) { index ->
-                    ImagePage(model, entries[index], active = index == pager.settledPage,
-                        sourceScope = client.previewScope,
-                        previewEnabled = abs(index - pager.settledPage) <= 1, previews = previews, chrome = chrome,
-                        onClick = { chrome = !chrome }, onZoom = { zoomedPages[entries[index].mediaKey] = it }, forceOriginal = entries[index].mediaKey in originalOverrides)
+
+        val saveToAlbumAction = {
+            if (!saving) {
+                saving = true
+                scope.launch {
+                    val message = try { model.saveImageToAlbum(current); "已保存到相册" }
+                    catch (cancelled: CancellationException) { throw cancelled }
+                    catch (error: Exception) { error.message ?: "保存失败，请重试" }
+                    finally { saving = false }
+                    android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
                 }
-                if (chrome) {
-                    Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Color.Black.copy(alpha = .55f)), verticalAlignment = Alignment.CenterVertically) {
-                        if (onExpandLeftPane != null) {
-                            FilewayIconButton(onClick = onExpandLeftPane) { FilewayIcon(R.drawable.ic_menu, "展开文件列表", tint = Color.White) }
-                        }
-                        FilewayIconButton(onClick = {
-                            if (!embedded && onToggleFullscreen != null) onToggleFullscreen()
-                            else model.closeImage()
-                        }) {
-                            FilewayIcon(
-                                if (embedded) R.drawable.ic_close else R.drawable.ic_arrow_back,
-                                if (!embedded && onToggleFullscreen != null) "退出全屏" else if (embedded) "关闭图片预览" else "返回文件",
-                                tint = Color.White,
+            }
+        }
+
+        if (embedded) {
+            val galleryCanvas = if (hostIsDark) Color(0xFF0A0D12) else Color(0xFFECEFF4)
+            Scaffold(
+                containerColor = hostColors.background,
+                contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.End),
+            ) { padding ->
+                Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding)) {
+                    FilewayTopAppBar(
+                        title = current.name,
+                        subtitle = if (entries.size > 1) "${pager.currentPage + 1} / ${entries.size}" else null,
+                        leadingIcon = if (onExpandLeftPane != null) R.drawable.ic_menu else R.drawable.ic_close,
+                        leadingDescription = if (onExpandLeftPane != null) "展开文件列表" else "关闭图片预览",
+                        onLeadingClick = { if (onExpandLeftPane != null) onExpandLeftPane() else model.closeImage() },
+                        actions = {
+                            if (onExpandLeftPane != null) {
+                                FilewayIconButton(model::closeImage) { FilewayIcon(R.drawable.ic_close, "关闭图片预览") }
+                            }
+                            if (onToggleFullscreen != null) {
+                                FilewayIconButton(onToggleFullscreen) { FilewayIcon(R.drawable.art_fullscreen_on, "全屏查看图片") }
+                            }
+                            TvHandoffIcon(current, client.previewScope, tint = hostColors.onSurfaceVariant)
+                            FilewayIconButton({ details = current }) { FilewayIcon(R.drawable.ic_info, "图片详情") }
+                            if (!model.isTemporaryContent(current)) {
+                                FilewayIconButton(saveToAlbumAction, enabled = !saving) { FilewayIcon(R.drawable.ic_download, "保存原图到相册") }
+                            }
+                        },
+                    )
+                    HorizontalDivider(color = hostColors.outlineVariant.copy(alpha = 0.55f))
+                    Box(Modifier.weight(1f).fillMaxWidth().background(galleryCanvas)) {
+                        HorizontalPager(
+                            state = pager,
+                            modifier = Modifier.fillMaxSize(),
+                            beyondViewportPageCount = 1,
+                            userScrollEnabled = !zoomed,
+                            key = { entries[it].mediaKey },
+                        ) { index ->
+                            ImagePage(
+                                model,
+                                entries[index],
+                                active = index == pager.settledPage,
+                                sourceScope = client.previewScope,
+                                previewEnabled = abs(index - pager.settledPage) <= 1,
+                                previews = previews,
+                                chrome = chrome,
+                                onClick = { chrome = !chrome },
+                                onZoom = { zoomedPages[entries[index].mediaKey] = it },
+                                forceOriginal = entries[index].mediaKey in originalOverrides,
+                                placeholderTint = hostColors.onSurfaceVariant,
                             )
                         }
-                        Text(current.name, Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        if (onToggleFullscreen != null) {
-                            FilewayIconButton(onClick = onToggleFullscreen) {
+                        if (entries.size > 1 && chrome) {
+                            if (pager.currentPage > 0) {
+                                FilledTonalIconButton(
+                                    onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage - 1) } },
+                                    modifier = Modifier.align(Alignment.CenterStart).padding(start = 12.dp).size(44.dp),
+                                    shape = CircleShape,
+                                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                        containerColor = hostColors.surface.copy(alpha = 0.85f),
+                                        contentColor = hostColors.onSurface,
+                                    ),
+                                ) {
+                                    FilewayIcon(R.drawable.ic_arrow_back, "上一张图片", Modifier.size(20.dp))
+                                }
+                            }
+                            if (pager.currentPage + 1 < entries.size) {
+                                FilledTonalIconButton(
+                                    onClick = { scope.launch { pager.animateScrollToPage(pager.currentPage + 1) } },
+                                    modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp).size(44.dp),
+                                    shape = CircleShape,
+                                    colors = IconButtonDefaults.filledTonalIconButtonColors(
+                                        containerColor = hostColors.surface.copy(alpha = 0.85f),
+                                        contentColor = hostColors.onSurface,
+                                    ),
+                                ) {
+                                    FilewayIcon(R.drawable.ic_arrow_forward, "下一张图片", Modifier.size(20.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else {
+            Scaffold(containerColor = Color.Black) { padding ->
+                Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).background(Color.Black)) {
+                    HorizontalPager(state = pager, modifier = Modifier.fillMaxSize(), beyondViewportPageCount = 1,
+                        userScrollEnabled = !zoomed, key = { entries[it].mediaKey }) { index ->
+                        ImagePage(model, entries[index], active = index == pager.settledPage,
+                            sourceScope = client.previewScope,
+                            previewEnabled = abs(index - pager.settledPage) <= 1, previews = previews, chrome = chrome,
+                            onClick = { chrome = !chrome }, onZoom = { zoomedPages[entries[index].mediaKey] = it },
+                            forceOriginal = entries[index].mediaKey in originalOverrides,
+                            placeholderTint = media.mediaSecondary)
+                    }
+                    if (chrome) {
+                        Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Color.Black.copy(alpha = .55f)), verticalAlignment = Alignment.CenterVertically) {
+                            FilewayIconButton(onClick = {
+                                if (onToggleFullscreen != null) onToggleFullscreen()
+                                else model.closeImage()
+                            }) {
                                 FilewayIcon(
-                                    if (embedded) R.drawable.art_fullscreen_on else R.drawable.art_fullscreen_off,
-                                    if (embedded) "全屏查看图片" else "退出全屏",
+                                    R.drawable.ic_arrow_back,
+                                    if (onToggleFullscreen != null) "退出全屏" else "返回文件",
                                     tint = Color.White,
                                 )
                             }
+                            Text(current.name, Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleMedium,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            if (onToggleFullscreen != null) {
+                                FilewayIconButton(onClick = onToggleFullscreen) {
+                                    FilewayIcon(R.drawable.art_fullscreen_off, "退出全屏", tint = Color.White)
+                                }
+                            }
+                            TvHandoffIcon(current, client.previewScope, tint = Color.White)
+                            FilewayIconButton({ details = current }) { FilewayIcon(R.drawable.ic_info, "图片详情", tint = Color.White) }
+                            if (!model.isTemporaryContent(current)) FilewayIconButton(saveToAlbumAction, enabled = !saving) { FilewayIcon(R.drawable.ic_download, "保存原图到相册", tint = Color.White) }
                         }
-                        TvHandoffIcon(current,client.previewScope,tint=Color.White)
-                        FilewayIconButton({ details = current }) { FilewayIcon(R.drawable.ic_info, "图片详情", tint = Color.White) }
-                        if (!model.isTemporaryContent(current)) FilewayIconButton({ saving = true; scope.launch {
-                            val message = try { model.saveImageToAlbum(current); "已保存到相册" }
-                            catch (cancelled: CancellationException) { throw cancelled }
-                            catch (error: Exception) { error.message ?: "保存失败，请重试" }
-                            finally { saving = false }
-                            android.widget.Toast.makeText(context, message, android.widget.Toast.LENGTH_SHORT).show()
-                        } }, enabled = !saving) { FilewayIcon(R.drawable.ic_download, "保存原图到相册", tint = Color.White) }
-                    }
-                    Surface(Modifier.align(Alignment.BottomCenter).padding(16.dp), color = Color.Black.copy(alpha = .5f),
-                        contentColor = Color.White, shape = MaterialTheme.shapes.medium) {
-                        Text("${pager.currentPage + 1} / ${entries.size}", Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
-                            style = MaterialTheme.typography.labelMedium)
+                        Surface(Modifier.align(Alignment.BottomCenter).padding(16.dp), color = Color.Black.copy(alpha = .5f),
+                            contentColor = Color.White, shape = MaterialTheme.shapes.medium) {
+                            Text("${pager.currentPage + 1} / ${entries.size}", Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                style = MaterialTheme.typography.labelMedium)
+                        }
                     }
                 }
             }
@@ -173,7 +261,8 @@ import kotlin.math.abs
 }
 
 @Composable private fun ImagePage(model: ClientModel, file: ResourceRef, active: Boolean, previewEnabled: Boolean,
-    sourceScope: String, previews: Semaphore, chrome: Boolean, onClick: () -> Unit, onZoom: (Boolean) -> Unit, forceOriginal: Boolean = false) {
+    sourceScope: String, previews: Semaphore, chrome: Boolean, onClick: () -> Unit, onZoom: (Boolean) -> Unit, forceOriginal: Boolean = false,
+    placeholderTint: Color = FilewayTheme.status.mediaSecondary) {
     val context = LocalContext.current
     val media = FilewayTheme.status
     val colors = MaterialTheme.colorScheme
@@ -341,8 +430,8 @@ import kotlin.math.abs
         if (!imageState.isImageDisplayed && !imageState.isPlaceholderDisplayed) {
             preview?.let { Image(it.asPainter(context), null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit) }
             if (preview == null) Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                FilewayIcon(R.drawable.ic_image, "图片预览", Modifier.size(36.dp), tint = media.mediaSecondary)
-                Text(previewStatus, color = media.mediaSecondary, style = MaterialTheme.typography.bodySmall)
+                FilewayIcon(R.drawable.ic_image, "图片预览", Modifier.size(36.dp), tint = placeholderTint)
+                Text(previewStatus, color = placeholderTint, style = MaterialTheme.typography.bodySmall)
             }
         }
         ZoomableAsyncImage(request, file.name, Modifier.fillMaxSize(), state = imageState, imageLoader = imageLoader,

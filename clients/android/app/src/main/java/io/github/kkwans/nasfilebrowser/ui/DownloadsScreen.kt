@@ -196,7 +196,7 @@ Column(Modifier.fillMaxSize()) {
     }
 }
     }
-    if (useDual) {
+    if (useDual && !(state.items.isEmpty() && filter == "全部")) {
         val splitState = rememberFilewaySplitWorkspaceState(
             sceneKey = "tasks_downloads",
             spec = SplitPaneSpec(defaultRatio = 0.44f, minLeftDp = 320f, minRightDp = 360f),

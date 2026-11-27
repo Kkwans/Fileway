@@ -230,4 +230,39 @@ class FilewayTabletAdaptiveTest {
         assertNull(noSnap.snappedAnchor)
         assertEquals(0.502f, noSnap.ratio, 0.001f)
     }
+
+    @Test
+    fun phoneLandscapeNeverTriggersTabletDualPaneOrRail() {
+        val xiaomiLandscape = FilewayWindowLayout.from(915, 412, smallestScreenWidthDp = 412)
+        assertEquals(FilewayWindowClass.COMPACT, xiaomiLandscape.windowClass)
+        assertEquals(FilewayHeightClass.COMPACT, xiaomiLandscape.heightClass)
+        assertFalse(xiaomiLandscape.useNavigationRail)
+        assertFalse(xiaomiLandscape.useDualPane)
+        assertFalse(xiaomiLandscape.useLargeDialogs)
+        assertFalse(xiaomiLandscape.usePermanentDrawerDefault)
+
+        val compactPhoneLandscape = FilewayWindowLayout.from(890, 390)
+        assertEquals(FilewayWindowClass.COMPACT, compactPhoneLandscape.windowClass)
+        assertFalse(compactPhoneLandscape.useNavigationRail)
+        assertFalse(compactPhoneLandscape.useDualPane)
+
+        val shortNarrowLandscape = FilewayWindowLayout.from(860, 500, smallestScreenWidthDp = 420)
+        assertEquals(FilewayWindowClass.COMPACT, shortNarrowLandscape.windowClass)
+        assertFalse(shortNarrowLandscape.useDualPane)
+
+        val realTabletLandscape = FilewayWindowLayout.from(1024, 640, smallestScreenWidthDp = 640)
+        assertEquals(FilewayWindowClass.EXPANDED, realTabletLandscape.windowClass)
+        assertTrue(realTabletLandscape.useNavigationRail)
+        assertTrue(realTabletLandscape.useDualPane)
+
+        val largeTablet = FilewayWindowLayout.from(1280, 800, smallestScreenWidthDp = 800)
+        assertEquals(FilewayWindowClass.LARGE, largeTablet.windowClass)
+        assertTrue(largeTablet.useDualPane)
+        assertTrue(largeTablet.usePermanentDrawerDefault)
+
+        val tabletPortrait = FilewayWindowLayout.from(720, 1100, smallestScreenWidthDp = 720)
+        assertEquals(FilewayWindowClass.MEDIUM, tabletPortrait.windowClass)
+        assertTrue(tabletPortrait.useNavigationRail)
+        assertFalse(tabletPortrait.useDualPane)
+    }
 }

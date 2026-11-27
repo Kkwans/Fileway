@@ -130,7 +130,8 @@ Column(Modifier.fillMaxSize()) {
     }
 }
     }
-    if (useDual) {
+    val showSingleEmpty = state.items.isEmpty() && state.loaded && state.error == null && !state.loading && !state.filter.active
+    if (useDual && !showSingleEmpty) {
         val splitState = rememberFilewaySplitWorkspaceState(
             sceneKey = "tasks_history",
             spec = SplitPaneSpec(defaultRatio = 0.44f, minLeftDp = 320f, minRightDp = 360f),

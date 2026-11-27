@@ -182,19 +182,38 @@ object FilewayMotion {
     }
 }
 
-/** Player content uses one graphite scheme; artwork remains a restrained tertiary accent. */
-@Composable fun FilewayMediaTheme(colors: ColorScheme, fullscreen: Boolean, content: @Composable () -> Unit) {
-    val playerColors = remember(colors.tertiary, colors.tertiaryContainer) { FilewayPlayerColors.copy(
-        tertiary = colors.tertiary,
-        tertiaryContainer = colors.tertiaryContainer,
-    ) }
+/** Player content uses one graphite scheme unless harmonized with the tablet host theme. */
+@Composable fun FilewayMediaTheme(
+    colors: ColorScheme,
+    fullscreen: Boolean,
+    harmoniousHostScheme: Boolean = false,
+    content: @Composable () -> Unit,
+) {
+    val playerColors = remember(colors, harmoniousHostScheme) {
+        if (harmoniousHostScheme) colors
+        else FilewayPlayerColors.copy(
+            tertiary = colors.tertiary,
+            tertiaryContainer = colors.tertiaryContainer,
+        )
+    }
     val parentStatus = FilewayTheme.status
-    val status = remember(parentStatus, playerColors, fullscreen) { parentStatus.copy(
-        mediaCanvas = playerColors.background,
-        mediaSurface = playerColors.surface.copy(alpha = if (fullscreen) .88f else 1f),
-        mediaContent = playerColors.onSurface,
-        mediaSecondary = playerColors.onSurfaceVariant,
-    ) }
+    val status = remember(parentStatus, playerColors, fullscreen, harmoniousHostScheme) {
+        if (harmoniousHostScheme) {
+            parentStatus.copy(
+                mediaCanvas = Color(0xFF0A0D12),
+                mediaSurface = playerColors.surface,
+                mediaContent = Color.White,
+                mediaSecondary = Color(0xFFD0D6E0),
+            )
+        } else {
+            parentStatus.copy(
+                mediaCanvas = playerColors.background,
+                mediaSurface = playerColors.surface.copy(alpha = if (fullscreen) .88f else 1f),
+                mediaContent = playerColors.onSurface,
+                mediaSecondary = playerColors.onSurfaceVariant,
+            )
+        }
+    }
     CompositionLocalProvider(
         LocalFilewayColors provides playerColors,
         LocalFilewayStatus provides status,

@@ -5,6 +5,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
@@ -484,12 +485,13 @@ private fun FileInspectorPane(
         Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
             Column(
                 Modifier
-                    .widthIn(max = 680.dp)
+                    .widthIn(max = 720.dp)
                     .fillMaxSize()
+                    .verticalScroll(rememberScrollState())
                     .padding(horizontal = 20.dp, vertical = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp),
             ) {
-                // Visual preview stage card (16:9 poster with play overlay for video, thumbnail for image, icon card for others)
+                // Visual preview stage card (adaptive horizontal/vertical hero for video, clean card for others)
                 if (kind == MediaKind.VIDEO) {
                     VideoPosterStageCard(
                         model = model,
@@ -520,7 +522,10 @@ private fun FileInspectorPane(
                                 onClose()
                             }
                         },
-                        modifier = Modifier.weight(1f).fillMaxWidth(),
+                        showNameField = false,
+                        scrollable = false,
+                        tabletCards = true,
+                        modifier = Modifier.fillMaxWidth(),
                     )
                 }
             }
@@ -539,12 +544,17 @@ private fun VideoPosterStageCard(
 ) {
     val colors = FilewayTheme.colors
     val hasResume = snapshot != null && snapshot.positionMs > 5_000L
-    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    val resumeFraction = if (snapshot != null && snapshot.durationMs > 0L) {
+        (snapshot.positionMs.toFloat() / snapshot.durationMs.toFloat()).coerceIn(0f, 1f)
+    } else {
+        0f
+    }
+
+    @Composable
+    fun posterThumbnail(modifier: Modifier) {
         Box(
-            Modifier
-                .fillMaxWidth()
-                .aspectRatio(16f / 9f)
-                .clip(RoundedCornerShape(16.dp))
+            modifier
+                .clip(RoundedCornerShape(12.dp))
                 .background(Color.Black)
                 .clickable(enabled = enabled, role = Role.Button, onClickLabel = "播放视频", onClick = onPlayEmbedded),
         ) {
@@ -561,55 +571,145 @@ private fun VideoPosterStageCard(
                     .fillMaxSize()
                     .background(
                         Brush.verticalGradient(
-                            listOf(Color.Black.copy(alpha = 0.15f), Color.Black.copy(alpha = 0.55f)),
+                            listOf(Color.Black.copy(alpha = 0.12f), Color.Black.copy(alpha = 0.52f)),
                         ),
                     ),
             )
             Surface(
-                modifier = Modifier.align(Alignment.Center).size(64.dp),
+                modifier = Modifier.align(Alignment.Center).size(52.dp),
                 shape = CircleShape,
                 color = colors.primary.copy(alpha = 0.92f),
                 contentColor = Color.White,
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    FilewayIcon(R.drawable.art_play, null, Modifier.size(32.dp), tint = Color.White)
+                    FilewayIcon(R.drawable.art_play, null, Modifier.size(26.dp), tint = Color.White)
                 }
             }
             if (hasResume) {
                 Surface(
-                    modifier = Modifier.align(Alignment.BottomStart).padding(12.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color.Black.copy(alpha = 0.68f),
+                    modifier = Modifier.align(Alignment.BottomStart).padding(10.dp),
+                    shape = RoundedCornerShape(6.dp),
+                    color = Color.Black.copy(alpha = 0.72f),
                     contentColor = Color.White,
                 ) {
                     val total = if (snapshot.durationMs > 0) " / ${clock(snapshot.durationMs)}" else ""
                     Text(
                         "续播 · ${clock(snapshot.positionMs)}$total",
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                        style = MaterialTheme.typography.labelMedium,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                        style = MaterialTheme.typography.labelSmall,
                         fontFamily = FontFamily.Monospace,
+                    )
+                }
+                if (resumeFraction > 0f) {
+                    LinearProgressIndicator(
+                        progress = { resumeFraction },
+                        modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(3.dp),
+                        color = colors.primary,
+                        trackColor = Color.White.copy(alpha = 0.25f),
                     )
                 }
             }
         }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            FilewayButton(
-                onClick = onPlayEmbedded,
-                enabled = enabled,
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-            ) {
-                FilewayIcon(R.drawable.art_play, null, Modifier.size(20.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(if (hasResume) "右侧继续播放" else "在右侧播放")
-            }
-            FilewayOutlinedButton(
-                onClick = onPlayFullscreen,
-                enabled = enabled,
-                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-            ) {
-                FilewayIcon(R.drawable.art_fullscreen_on, null, Modifier.size(20.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("全屏播放")
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = colors.surface,
+        border = BorderStroke(1.dp, colors.outlineVariant.copy(alpha = 0.6f)),
+    ) {
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(16.dp)) {
+            val useHorizontalHero = maxWidth >= 480.dp
+            if (useHorizontalHero) {
+                val posterWidth = (maxWidth * 0.42f).coerceIn(210.dp, 280.dp)
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    posterThumbnail(Modifier.width(posterWidth).aspectRatio(16f / 9f))
+                    Column(
+                        Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            file.name,
+                            style = MaterialTheme.typography.titleMedium,
+                            color = colors.onSurface,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        Text(
+                            buildString {
+                                append(fileTypeLabel(file))
+                                if (file.size > 0) {
+                                    append(" · ")
+                                    append(readableSize(file.size))
+                                }
+                            },
+                            style = MaterialTheme.typography.bodySmall,
+                            color = colors.onSurfaceVariant,
+                        )
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FilewayButton(
+                                onClick = onPlayEmbedded,
+                                enabled = enabled,
+                                modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+                            ) {
+                                FilewayIcon(R.drawable.art_play, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text(if (hasResume) "继续播放" else "右侧播放", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                            FilewayOutlinedButton(
+                                onClick = onPlayFullscreen,
+                                enabled = enabled,
+                                modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+                            ) {
+                                FilewayIcon(R.drawable.art_fullscreen_on, null, Modifier.size(18.dp))
+                                Spacer(Modifier.width(4.dp))
+                                Text("全屏播放", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
+                        }
+                    }
+                }
+            } else {
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                        posterThumbnail(
+                            Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 210.dp)
+                                .aspectRatio(16f / 9f, matchHeightConstraintsFirst = true),
+                        )
+                    }
+                    Text(
+                        file.name,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = colors.onSurface,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        FilewayButton(
+                            onClick = onPlayEmbedded,
+                            enabled = enabled,
+                            modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+                        ) {
+                            FilewayIcon(R.drawable.art_play, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text(if (hasResume) "继续播放" else "右侧播放")
+                        }
+                        FilewayOutlinedButton(
+                            onClick = onPlayFullscreen,
+                            enabled = enabled,
+                            modifier = Modifier.weight(1f).heightIn(min = 44.dp),
+                        ) {
+                            FilewayIcon(R.drawable.art_fullscreen_on, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("全屏播放")
+                        }
+                    }
+                }
             }
         }
     }

@@ -122,7 +122,7 @@ import kotlin.math.roundToInt
                             DocumentIcon(R.drawable.ic_close, "关闭文档") { controller.close(); onClose() }
                         }
                     }
-                Box {
+                    Box {
                     DocumentIcon(R.drawable.ic_more_actions, "文档操作") { focus.clearFocus(); keyboard?.hide(); menu = true }
                     FilewayMenu(menu, { menu = false }, items = buildList {
                         if (onEdit != null && state.text != null) add(FilewayMenuEntry("edit", "编辑文本", R.drawable.ic_edit, enabled = !state.loading))
@@ -154,6 +154,9 @@ import kotlin.math.roundToInt
                     }
                 }
             })
+            if (embedded || onToggleFullscreen != null) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+            }
             if (state.loading) LinearProgressIndicator(Modifier.fillMaxWidth())
             state.error?.let { message ->
                 Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {

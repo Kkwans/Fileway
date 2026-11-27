@@ -65,7 +65,14 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
         else { controller.close(); onClose() }
     }
     BackHandler { leave() }
-    Scaffold(containerColor = MaterialTheme.colorScheme.background) { insets ->
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = if (embedded) {
+            WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.End)
+        } else {
+            ScaffoldDefaults.contentWindowInsets
+        },
+    ) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding()) {
             FilewayTopAppBar(
                 file.name,
@@ -104,6 +111,9 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
                     }
                 }
             })
+            if (embedded || onToggleFullscreen != null) {
+                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.55f))
+            }
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("${document.encoding}${if (document.bom) " BOM" else ""} · $ending", Modifier.weight(1f).padding(vertical = 8.dp),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

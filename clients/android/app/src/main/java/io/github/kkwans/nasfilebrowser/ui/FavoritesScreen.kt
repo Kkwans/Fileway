@@ -123,7 +123,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
             }
             }
         }
-        if (useDual) {
+        if (useDual && state.items.isNotEmpty()) {
             val splitState = rememberFilewaySplitWorkspaceState(
                 sceneKey = "library_favorites",
                 spec = SplitPaneSpec(defaultRatio = 0.44f, minLeftDp = 300f, minRightDp = 360f),

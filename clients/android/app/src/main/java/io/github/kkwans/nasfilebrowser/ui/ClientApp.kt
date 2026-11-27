@@ -348,17 +348,24 @@ private fun MediaCatalogDestination(model: ClientModel) {
     var playbackDeletion by remember(state.previewScope) { mutableStateOf<Set<String>?>(null) }
     val recentEnabled = state.connected && !state.busy && !state.recentPlaybackDeleting && !state.recentPlaybackLoading
     val workspaceHost = LocalFilewayWorkspaceHost.current
-    LaunchedEffect(workspaceHost, state.recentSection, recent.size) {
+    val tabletConfig = io.github.kkwans.nasfilebrowser.ui.adaptive.LocalTabletLayoutConfig.current
+    val splitController = io.github.kkwans.nasfilebrowser.ui.adaptive.LocalSplitWorkspaceController.current
+    val accessState by model.recentAccess.state.collectAsStateWithLifecycle()
+    LaunchedEffect(workspaceHost, state.recentSection, recent.size, accessState.items.size) {
         if (workspaceHost != null) {
             workspaceHost.batchSummary = null
+            val isPlayback = state.recentSection == RecentSection.PLAYBACK
             workspaceHost.directoryOverview = io.github.kkwans.nasfilebrowser.ui.adaptive.TabletDirectoryOverview(
                 title = state.recentSection.label,
                 path = "",
-                totalCount = recent.size,
+                totalCount = if (isPlayback) recent.size else accessState.items.size,
                 folderCount = 0,
-                imageCount = 0,
-                videoCount = recent.size,
-                documentCount = 0,
+                imageCount = if (isPlayback) 0 else accessState.items.count { it.resource().mediaKind() == MediaKind.IMAGE },
+                videoCount = if (isPlayback) recent.size else accessState.items.count { it.resource().mediaKind() == MediaKind.VIDEO },
+                documentCount = if (isPlayback) 0 else accessState.items.count {
+                    val res = it.resource()
+                    res.mediaKind() == null && io.github.kkwans.nasfilebrowser.data.documentPreviewKind(res) != io.github.kkwans.nasfilebrowser.data.DocumentPreviewKind.OTHER
+                },
                 quickActions = listOf(
                     io.github.kkwans.nasfilebrowser.ui.adaptive.TabletQuickAction(
                         label = "浏览全部文件",
@@ -416,7 +423,7 @@ private fun MediaCatalogDestination(model: ClientModel) {
                                 }) { item ->
                                 if (workspaceHost != null) {
                                     val res = item.resource()
-                                    when (TabletWorkspacePolicy.actionFor(res)) {
+                                    when (tabletConfig.resolveClickAction(TabletWorkspacePolicy.actionFor(res))) {
                                         TabletClickAction.STAGE_VIDEO, TabletClickAction.INSPECT_FILE -> {
                                             dismissEmbeddedViewersForSwitch(model)
                                             workspaceHost.inspect(
@@ -424,6 +431,12 @@ private fun MediaCatalogDestination(model: ClientModel) {
                                                 onOpen = { model.openRecentAccess(item, sourceScope) },
                                                 onLocation = { model.openRecentAccessLocation(item, sourceScope) },
                                             )
+                                        }
+                                        TabletClickAction.OPEN_FULLSCREEN -> {
+                                            workspaceHost.clearInspection()
+                                            dismissEmbeddedViewersForSwitch(model)
+                                            splitController?.setDetailFullscreen(true)
+                                            model.openRecentAccess(item, sourceScope)
                                         }
                                         else -> {
                                             workspaceHost.clearInspection()
@@ -475,16 +488,41 @@ private fun MediaCatalogDestination(model: ClientModel) {
                                     open = { if (selection.active) selection.toggle(snapshot.resourceKey) else model.openRecent(snapshot) },
                                     details = {
                                         if (workspaceHost != null) {
+                                            when (tabletConfig.resolveClickAction(TabletWorkspacePolicy.actionFor(file))) {
+                                                TabletClickAction.STAGE_VIDEO, TabletClickAction.INSPECT_FILE -> {
+                                                    dismissEmbeddedViewersForSwitch(model)
+                                                    workspaceHost.inspect(
+                                                        file,
+                                                        onOpen = { model.openRecent(snapshot) },
+                                                        onLocation = { model.openContainingDirectory(file) },
+                                                    )
+                                                }
+                                                TabletClickAction.OPEN_FULLSCREEN -> {
+                                                    workspaceHost.clearInspection()
+                                                    dismissEmbeddedViewersForSwitch(model)
+                                                    splitController?.setDetailFullscreen(true)
+                                                    model.openRecent(snapshot)
+                                                }
+                                                else -> {
+                                                    workspaceHost.clearInspection()
+                                                    dismissEmbeddedViewersForSwitch(model)
+                                                    model.openRecent(snapshot)
+                                                }
+                                            }
+                                        } else {
+                                            detailsActionsEnabled = true; details = file
+                                        }
+                                    },
+                                    onMoreClick = if (workspaceHost != null) {
+                                        {
                                             dismissEmbeddedViewersForSwitch(model)
                                             workspaceHost.inspect(
                                                 file,
                                                 onOpen = { model.openRecent(snapshot) },
                                                 onLocation = { model.openContainingDirectory(file) },
                                             )
-                                        } else {
-                                            detailsActionsEnabled = true; details = file
                                         }
-                                    },
+                                    } else null,
                                     metadata = { RecentProgress(snapshot) },
                                     selected = if (selection.active) snapshot.resourceKey in selection.ids else null,
                                     focused = workspaceHost != null && workspaceHost.focusedFileKey == file.mediaKey,

@@ -105,7 +105,11 @@ import kotlinx.coroutines.withContext
 import io.github.kkwans.nasfilebrowser.player.PlayerViewport
 import io.github.kkwans.nasfilebrowser.download.DownloadIndex
 import io.github.kkwans.nasfilebrowser.download.DownloadRuntime
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayDetailFullscreenOwner
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayWindowLayout
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
+import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
+import androidx.compose.foundation.BorderStroke
 
 private enum class PlayerSheet { AUDIO, SUBTITLE, SUBTITLE_ADJUST, SUBTITLE_FONT, SPEED, SPEED_EDIT, SPEED_PRESETS, SOURCE, DECODER, EXTERNAL, QUEUE }
 private enum class PlayerDisplayMode { AUTOMATIC, PORTRAIT_FULLSCREEN, LANDSCAPE_FULLSCREEN }
@@ -125,6 +129,9 @@ private tailrec fun Context.activity(): Activity? = when (this) {
 ) {
     val pictureInPicture = LocalPlayerPictureInPicture.current
     val pipMode = pictureInPicture?.let { it.active || it.preparing } == true
+    val hostColors = FilewayTheme.colors
+    val windowLayout = LocalFilewayWindowLayout.current
+    val isTabletWindow = !windowLayout.isCompact
     val artwork = rememberPlayerArtwork(model, file)
     val pageColors = artwork.scheme
     val state by model.player.state.collectAsStateWithLifecycle()
@@ -189,9 +196,12 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     var displayMode by rememberSaveable { mutableStateOf(PlayerDisplayMode.AUTOMATIC) }
     val fullscreen = if (onToggleFullscreen != null) {
         pipMode || !embedded
+    } else if (isTabletWindow) {
+        pipMode || displayMode != PlayerDisplayMode.AUTOMATIC
     } else {
         pipMode || landscapeOrientation || displayMode != PlayerDisplayMode.AUTOMATIC
     }
+    val useTabletTheater = !fullscreen && (embedded || isTabletWindow)
     val view = LocalView.current
     val hdrDisplay = rememberPlayerHdrDisplay(view)
     val activeOutput = io.github.kkwans.nasfilebrowser.player.activeVideoOutput(state.videoOutput, hdrDisplay, state.firstFrameRendered)
@@ -304,8 +314,10 @@ private tailrec fun Context.activity(): Activity? = when (this) {
             return
         }
         displayMode = mode
-        context.activity()?.requestedOrientation = if (mode == PlayerDisplayMode.LANDSCAPE_FULLSCREEN)
-            ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        if (!isTabletWindow) {
+            context.activity()?.requestedOrientation = if (mode == PlayerDisplayMode.LANDSCAPE_FULLSCREEN)
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+        }
     }
     BackHandler(fullscreen && !touchLocked) { changeDisplay(PlayerDisplayMode.AUTOMATIC) }
     BackHandler(touchLocked) { unlockTouch() }
@@ -378,344 +390,945 @@ private tailrec fun Context.activity(): Activity? = when (this) {
         }
     }
     SideEffect { view.keepScreenOn = state.playing }
-    if (!embedded) {
-        PlayerWindowBars(window, fullscreen && !exploration, fullscreen || pageColors.background.luminance() < .5f)
+    val registerDarkCanvas = LocalFilewayDarkCanvasOwner.current
+    val darkCanvasToken = remember { Any() }
+    DisposableEffect(registerDarkCanvas, darkCanvasToken, embedded, fullscreen, useTabletTheater) {
+        registerDarkCanvas(darkCanvasToken, !embedded && (fullscreen || !useTabletTheater))
+        onDispose { registerDarkCanvas(darkCanvasToken, false) }
     }
-    DisposableEffect(context, onToggleFullscreen) {
+    val registerTabletFullscreen = LocalFilewayDetailFullscreenOwner.current
+    val standaloneFsToken = remember { Any() }
+    LaunchedEffect(registerTabletFullscreen, standaloneFsToken, onToggleFullscreen, isTabletWindow, fullscreen) {
+        registerTabletFullscreen(standaloneFsToken, onToggleFullscreen == null && isTabletWindow && fullscreen)
+    }
+    DisposableEffect(registerTabletFullscreen, standaloneFsToken) {
+        onDispose { registerTabletFullscreen(standaloneFsToken, false) }
+    }
+    if (!embedded) {
+        val hostIsDark = hostColors.background.luminance() < .5f
+        PlayerWindowBars(
+            window,
+            fullscreen && !exploration,
+            fullscreen || !useTabletTheater || hostIsDark,
+        )
+    }
+    DisposableEffect(context, onToggleFullscreen, isTabletWindow) {
         val owner = context.activity()
         val original = owner?.requestedOrientation
-        onDispose { if (onToggleFullscreen == null) original?.let { owner.requestedOrientation = it } }
+        onDispose { if (onToggleFullscreen == null && !isTabletWindow) original?.let { owner.requestedOrientation = it } }
     }
-    io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaTheme(pageColors, fullscreen) {
-        CompositionLocalProvider(LocalContentColor provides if (fullscreen) FilewayTheme.status.mediaContent else pageColors.onBackground) {
-            // Fullscreen media ignores changing system-bar visibility. Insets
-            // protect only the overlay controls, never resize the video Surface.
-            // Paint first, then inset only interactive content. One atmosphere extends
-            // behind both transparent system bars instead of leaving fixed graphite strips.
-            Box(Modifier.fillMaxSize().background(if (fullscreen) FilewayTheme.status.mediaCanvas else pageColors.background)) {
-                if (!fullscreen) PlayerAmbient(artwork.atmosphere, state.playing && gestureForeground, Modifier.fillMaxSize())
-            BoxWithConstraints(Modifier.fillMaxSize()
-                .then(if (fullscreen) Modifier else Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom)))
-                .onGloballyPositioned { playerPosition = it.positionInRoot() }) {
-                val landscape = maxWidth > maxHeight
-                val controlInsets = if (exploration) WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
-                    else WindowInsets.displayCutout.union(WindowInsets.captionBar)
-                val headerDensity = LocalDensity.current
-                val holdMargin = with(headerDensity) { 12.dp.roundToPx() }
-                val holdTop = maxOf(pictureBounds.top + holdMargin,
-                    if (fullscreen) controlInsets.getTop(headerDensity) + holdMargin else 0)
-                val controlPadding = if (landscape) 20.dp else 12.dp
-                val downloadCoverageHeight = with(headerDensity) { 16.sp.toDp() }
-                val portraitControlsReserve = (if (maxWidth - controlPadding * 2 >= 600.dp) 96.dp else 144.dp) +
-                    if (download != null) downloadCoverageHeight else 0.dp
-                val portraitStageHeight = maxWidth / (16f / 9f) + portraitControlsReserve
-                Column(Modifier.fillMaxSize().then(if (touchLocked) Modifier.clearAndSetSemantics {} else Modifier)) {
-                    if (!fullscreen) Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 52.dp)
-                        .padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (onExpandLeftPane != null) {
-                            PlayerIcon(R.drawable.ic_menu, "展开文件列表", onExpandLeftPane)
-                        }
-                        PlayerIcon(
-                            if (embedded) R.drawable.ic_close else R.drawable.ic_arrow_back,
-                            if (embedded) "关闭视频播放" else "返回文件",
-                            model::leavePlayer,
-                        )
-                        Text(file.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
-                        networkStatus?.let { PlayerNetworkStatus(it) }
-                        PlayerTvHandoffIcon(model,file,client.previewScope,enabled=controlsEnabled)
-                        PlayerIcon(R.drawable.ic_info, "播放信息", { touch(); sheet = PlayerSheet.SOURCE })
+    val activeThemeScheme = if (useTabletTheater) hostColors else pageColors
+    val activeContentColor = when {
+        fullscreen -> FilewayTheme.status.mediaContent
+        useTabletTheater -> hostColors.onBackground
+        else -> pageColors.onBackground
+    }
+    io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaTheme(
+        activeThemeScheme,
+        fullscreen,
+        harmoniousHostScheme = useTabletTheater,
+    ) {
+        CompositionLocalProvider(LocalContentColor provides activeContentColor) {
+            // Retain one movable PlayerViewport node across tablet-theater / phone-portrait / fullscreen transitions
+            // so switching display modes never detaches Media3's Surface or causes black-frame flicker.
+            val latestFullscreen by rememberUpdatedState(fullscreen)
+            val latestUseTabletTheater by rememberUpdatedState(useTabletTheater)
+            val latestPipMode by rememberUpdatedState(pipMode)
+            val latestShowControls by rememberUpdatedState(showControls)
+            val latestControlsEnabled by rememberUpdatedState(controlsEnabled)
+            val latestShowRequest by rememberUpdatedState(showRequest)
+            val latestShowBuffering by rememberUpdatedState(showBuffering)
+            val latestDownload by rememberUpdatedState(download)
+            val latestNetworkStatus by rememberUpdatedState(networkStatus)
+            val latestLandscapeOrientation by rememberUpdatedState(landscapeOrientation)
+            val latestHoldMarginPx = with(LocalDensity.current) { 12.dp.roundToPx() }
+            val latestTopControlInsetPx = if (fullscreen) {
+                (if (exploration) WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
+                else WindowInsets.displayCutout.union(WindowInsets.captionBar)).getTop(LocalDensity.current)
+            } else {
+                0
+            }
+
+            val videoSurfaceStage = remember(file.mediaKey) {
+                movableContentOf<Modifier> { stageModifier ->
+                    val isFullscreen = latestFullscreen
+                    val isTabletStage = latestUseTabletTheater
+                    val isPip = latestPipMode
+                    val controlsVisibleNow = latestShowControls
+                    val holdTop = maxOf(
+                        pictureBounds.top + latestHoldMarginPx,
+                        if (isFullscreen) latestTopControlInsetPx + latestHoldMarginPx else 0,
+                    )
+                    val tapControlInsets = if (exploration) {
+                        WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
+                    } else {
+                        WindowInsets.displayCutout.union(WindowInsets.captionBar)
                     }
-                    FilewaySessionNotice(model)
-                    }
-                    // Portrait keeps transport below the picture. Fullscreen
-                    // uses the entire viewport with controls over the video;
-                    // hiding the HUD never changes the native surface size.
-                    val stage = if (fullscreen) Modifier.weight(1f) else Modifier.fillMaxWidth().height(portraitStageHeight)
-                    CompositionLocalProvider(LocalContentColor provides FilewayTheme.status.mediaContent) {
-                    Box(stage.background(if (fullscreen) Color.Black else Color.Transparent)) {
-                        if (!fullscreen) Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(portraitControlsReserve)
-                            .background(Brush.verticalGradient(listOf(Color.Black, Color.Transparent),
-                                endY = with(headerDensity) { 72.dp.toPx() })))
-                        Box(Modifier.fillMaxSize().padding(bottom = if (fullscreen) 0.dp else portraitControlsReserve).background(Color.Black)) {
-                            AndroidView(factory = { PlayerViewport(it).apply {
-                                onPictureBoundsChanged = { bounds -> pictureBounds = bounds }
-                            }.also(model.player::attach) }, modifier = Modifier.fillMaxSize()
+                    Box(stageModifier.background(Color.Black)) {
+                        AndroidView(
+                            factory = {
+                                PlayerViewport(it).apply {
+                                    onPictureBoundsChanged = { bounds -> pictureBounds = bounds }
+                                }.also(model.player::attach)
+                            },
+                            modifier = Modifier
+                                .fillMaxSize()
                                 .onGloballyPositioned { coordinates ->
                                     val rectangle = coordinates.localToWindow(Offset.Zero)
-                                    pictureInPicture?.videoBounds(android.graphics.Rect(rectangle.x.roundToInt(), rectangle.y.roundToInt(),
-                                        (rectangle.x + coordinates.size.width).roundToInt(), (rectangle.y + coordinates.size.height).roundToInt()))
-                                })
-                            if (!fullscreen) {
-                                Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(16.dp)
-                                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .38f)))))
-                            }
-                            Box(Modifier.fillMaxSize().semantics {
-                                contentDescription = "视频画面"
-                                onClick("显示播放控制") { touch(); true }
-                            }.playerGestures(Triple(file.mediaKey, state.mediaGeneration, landscapeOrientation),
-                                gestureForeground && !exploration && !touchLocked && !holding && !client.busy && sheet == null, gestureEdge,
-                                start = { left ->
-                                    dragLeft = left; draggingVertical = true; touch()
-                                    dragStart = if (left) actualBrightness() else audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maximumVolume
-                                }, change = { delta ->
-                                    val next = (dragStart + delta).coerceIn(0f, 1f)
-                                    if (dragLeft) {
-                                        changeBrightness(next)
-                                        gestureMessage = null; gestureMeter = true to brightness
-                                    } else if (!audioManager.isVolumeFixed) {
-                                        changeVolume(next * maximumVolume)
-                                        gestureMessage = null; gestureMeter = false to (mediaVolume.toFloat() / maximumVolume)
-                                    } else gestureMessage = "此设备使用固定音量"
-                                    interaction++
-                                }, finish = { draggingVertical = false; touch() },
-                                seekStart = {
-                                    val current = model.player.state.value
-                                    if (!current.seekable || current.durationMs <= 0 || model.state.value.selected != file) false
-                                    else {
-                                        gestureSeek.reset()
-                                        dragSession = SeekDragSession(current.mediaGeneration, current.positionMs, current.durationMs)
-                                        pictureSeek = dragSession?.startMs
-                                        touch()
-                                        true
-                                    }
-                                }, seekChange = { fraction -> pictureSeek = dragSession?.preview(fraction) },
-                                seekFinish = { released ->
-                                    val current = model.player.state.value
-                                    val target = dragSession?.finish(current.mediaGeneration, released,
-                                        current.seekable && !model.state.value.busy && model.state.value.selected == file)
-                                    dragSession = null; pictureSeek = null; touch()
-                                    target?.let(model.player::seek)
-                                })
-                                .pointerInput(file, exploration, touchLocked, gestureForeground, landscapeOrientation) {
-                                detectTapGestures(
-                                    onTap = { if (!liveBlocked && !exploration) visible = !visible else touch(); interaction++ },
-                                    onDoubleTap = { point ->
-                                        if (!exploration && !touchLocked && !model.state.value.busy && model.state.value.selected == file) {
+                                    pictureInPicture?.videoBounds(
+                                        android.graphics.Rect(
+                                            rectangle.x.roundToInt(),
+                                            rectangle.y.roundToInt(),
+                                            (rectangle.x + coordinates.size.width).roundToInt(),
+                                            (rectangle.y + coordinates.size.height).roundToInt(),
+                                        ),
+                                    )
+                                },
+                        )
+                        if (!isFullscreen && !isTabletStage) {
+                            Box(
+                                Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .height(16.dp)
+                                    .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .38f)))),
+                            )
+                        }
+                        Box(
+                            Modifier
+                                .fillMaxSize()
+                                .semantics {
+                                    contentDescription = "视频画面"
+                                    onClick("显示播放控制") { touch(); true }
+                                }
+                                .playerGestures(
+                                    Triple(file.mediaKey, state.mediaGeneration, isFullscreen to latestLandscapeOrientation),
+                                    gestureForeground && !exploration && !touchLocked && !holding && !client.busy && sheet == null,
+                                    gestureEdge,
+                                    start = { left ->
+                                        dragLeft = left; draggingVertical = true; touch()
+                                        dragStart = if (left) actualBrightness()
+                                        else audioManager.getStreamVolume(AudioManager.STREAM_MUSIC).toFloat() / maximumVolume
+                                    },
+                                    change = { delta ->
+                                        val next = (dragStart + delta).coerceIn(0f, 1f)
+                                        if (dragLeft) {
+                                            changeBrightness(next)
+                                            gestureMessage = null; gestureMeter = true to brightness
+                                        } else if (!audioManager.isVolumeFixed) {
+                                            changeVolume(next * maximumVolume)
+                                            gestureMessage = null; gestureMeter = false to (mediaVolume.toFloat() / maximumVolume)
+                                        } else gestureMessage = "此设备使用固定音量"
+                                        interaction++
+                                    },
+                                    finish = { draggingVertical = false; touch() },
+                                    seekStart = {
+                                        val current = model.player.state.value
+                                        if (!current.seekable || current.durationMs <= 0 || model.state.value.selected != file) false
+                                        else {
+                                            gestureSeek.reset()
+                                            dragSession = SeekDragSession(current.mediaGeneration, current.positionMs, current.durationMs)
+                                            pictureSeek = dragSession?.startMs
                                             touch()
-                                            val delta = when {
-                                                point.x < size.width / 3f -> -10_000L
-                                                point.x > size.width * 2f / 3f -> 10_000L
-                                                else -> 0L
-                                            }
-                                            if (delta == 0L) { gestureSeek.reset(); model.togglePlayback() }
-                                            else if (liveState.seekable && liveState.durationMs > 0) {
-                                                val target = gestureSeek.next(liveState.positionMs, liveState.durationMs, delta, SystemClock.elapsedRealtime())
-                                                model.player.seek(target)
-                                                gestureMeter = null
-                                                gestureMessage = (if (delta < 0) "−" else "+") + "10 s"
-                                            }
+                                            true
                                         }
                                     },
-                                    onLongPress = {},
-                                    onPress = {
-                                        if (!exploration && !touchLocked && model.state.value.selected == file && liveState.playing && !model.state.value.busy) coroutineScope {
-                                            val pressRevision = gestureRevision
-                                            var temporaryEpoch: Long? = null
-                                            val hold = launch {
-                                                delay(viewConfiguration.longPressTimeoutMillis)
-                                                if (pressRevision == gestureRevision && model.state.value.selected == file && liveState.playing && !model.state.value.busy &&
-                                                    !touchLocked && sheet == null && gestureForeground && !exploration) {
-                                                    temporaryEpoch = model.player.beginTemporaryRate(liveHoldRate)
-                                                    holding = temporaryEpoch != null
+                                    seekChange = { fraction -> pictureSeek = dragSession?.preview(fraction) },
+                                    seekFinish = { released ->
+                                        val current = model.player.state.value
+                                        val target = dragSession?.finish(
+                                            current.mediaGeneration,
+                                            released,
+                                            current.seekable && !model.state.value.busy && model.state.value.selected == file,
+                                        )
+                                        dragSession = null; pictureSeek = null; touch()
+                                        target?.let(model.player::seek)
+                                    },
+                                )
+                                .pointerInput(file, exploration, touchLocked, gestureForeground, isFullscreen, isTabletStage) {
+                                    detectTapGestures(
+                                        onTap = {
+                                            if (isFullscreen) {
+                                                if (!liveBlocked && !exploration) visible = !visible else touch()
+                                                interaction++
+                                            } else if (isTabletStage) {
+                                                if (!exploration && !touchLocked && !model.state.value.busy && model.state.value.selected == file) {
+                                                    model.togglePlayback()
+                                                }
+                                                touch()
+                                            } else {
+                                                if (!liveBlocked && !exploration) visible = !visible else touch()
+                                                interaction++
+                                            }
+                                        },
+                                        onDoubleTap = { point ->
+                                            if (!exploration && !touchLocked && !model.state.value.busy && model.state.value.selected == file) {
+                                                touch()
+                                                val delta = when {
+                                                    point.x < size.width / 3f -> -10_000L
+                                                    point.x > size.width * 2f / 3f -> 10_000L
+                                                    else -> 0L
+                                                }
+                                                if (delta == 0L) {
+                                                    if (isTabletStage) changeDisplay(PlayerDisplayMode.LANDSCAPE_FULLSCREEN)
+                                                    else { gestureSeek.reset(); model.togglePlayback() }
+                                                } else if (liveState.seekable && liveState.durationMs > 0) {
+                                                    val target = gestureSeek.next(liveState.positionMs, liveState.durationMs, delta, SystemClock.elapsedRealtime())
+                                                    model.player.seek(target)
+                                                    gestureMeter = null
+                                                    gestureMessage = (if (delta < 0) "−" else "+") + "10 s"
                                                 }
                                             }
-                                            try { tryAwaitRelease() }
-                                            finally {
-                                                hold.cancel()
-                                                temporaryEpoch?.let(model.player::restoreRate)
-                                                holding = false
+                                        },
+                                        onLongPress = {},
+                                        onPress = {
+                                            if (!exploration && !touchLocked && model.state.value.selected == file && liveState.playing && !model.state.value.busy) coroutineScope {
+                                                val pressRevision = gestureRevision
+                                                var temporaryEpoch: Long? = null
+                                                val hold = launch {
+                                                    delay(viewConfiguration.longPressTimeoutMillis)
+                                                    if (pressRevision == gestureRevision && model.state.value.selected == file && liveState.playing && !model.state.value.busy &&
+                                                        !touchLocked && sheet == null && gestureForeground && !exploration) {
+                                                        temporaryEpoch = model.player.beginTemporaryRate(liveHoldRate)
+                                                        holding = temporaryEpoch != null
+                                                    }
+                                                }
+                                                try { tryAwaitRelease() }
+                                                finally {
+                                                    hold.cancel()
+                                                    temporaryEpoch?.let(model.player::restoreRate)
+                                                    holding = false
+                                                }
                                             }
-                                        }
-                                    })
-                            })
-                            val feedbackSeek = seek?.toLong() ?: pictureSeek
-                            val feedbackMeter = gestureMeter
-                            val feedbackMessage = gestureMessage
-                            if (!pipMode) when {
-                                feedbackSeek != null -> PictureSeekFeedback(feedbackSeek,
-                                    if (seek != null) timelineStart else dragSession?.startMs ?: state.positionMs,
-                                    state.durationMs, seekPreview, Modifier.align(Alignment.Center))
-                                holding -> PlayerHoldFeedback(holdRate, Modifier.align(Alignment.TopCenter)
-                                    .offset { IntOffset(0, holdTop) })
-                                feedbackMeter != null -> PlayerLevelFeedback(feedbackMeter.first, feedbackMeter.second, Modifier.align(Alignment.Center))
-                                feedbackMessage != null -> PlayerActionFeedback(feedbackMessage,
-                                    when { feedbackMessage.startsWith("−") -> R.drawable.ic_skip_back; feedbackMessage.startsWith("+") -> R.drawable.ic_skip_forward; else -> R.drawable.art_volume },
-                                    Modifier.align(Alignment.Center))
-                            }
-                            val failure = if (client.busy) null else client.error ?: state.error
-                            if (failure != null && pipMode) {
-                                Text("播放中断", color = Color.White, style = MaterialTheme.typography.labelSmall,
-                                    modifier = Modifier.align(Alignment.Center).background(Color.Black.copy(alpha = .7f), RoundedCornerShape(8.dp)).padding(8.dp))
-                            } else if (failure != null) {
-                                Column(Modifier.align(Alignment.Center).widthIn(max = 360.dp).padding(20.dp)
-                                    .clip(RoundedCornerShape(12.dp)).background(Color.Black.copy(alpha = .68f)).padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text(failure, style = MaterialTheme.typography.bodyMedium, color = FilewayTheme.status.mediaContent)
-                                    if (fullscreen) FilewaySessionNotice(model)
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                                        PlayerLabel("重试", "重试播放") { model.retryPlayback() }
-                                    }
+                                        },
+                                    )
+                                },
+                        )
+                        val feedbackSeek = seek?.toLong() ?: pictureSeek
+                        val feedbackMeter = gestureMeter
+                        val feedbackMessage = gestureMessage
+                        if (!isPip) when {
+                            feedbackSeek != null -> PictureSeekFeedback(
+                                feedbackSeek,
+                                if (seek != null) timelineStart else dragSession?.startMs ?: state.positionMs,
+                                state.durationMs,
+                                seekPreview,
+                                Modifier.align(Alignment.Center),
+                            )
+                            holding -> PlayerHoldFeedback(
+                                holdRate,
+                                Modifier.align(Alignment.TopCenter).offset { IntOffset(0, holdTop) },
+                            )
+                            feedbackMeter != null -> PlayerLevelFeedback(feedbackMeter.first, feedbackMeter.second, Modifier.align(Alignment.Center))
+                            feedbackMessage != null -> PlayerActionFeedback(
+                                feedbackMessage,
+                                when {
+                                    feedbackMessage.startsWith("−") -> R.drawable.ic_skip_back
+                                    feedbackMessage.startsWith("+") -> R.drawable.ic_skip_forward
+                                    else -> R.drawable.art_volume
+                                },
+                                Modifier.align(Alignment.Center),
+                            )
+                        }
+                        val failure = if (client.busy) null else client.error ?: state.error
+                        if (failure != null && isPip) {
+                            Text(
+                                "播放中断",
+                                color = Color.White,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier
+                                    .align(Alignment.Center)
+                                    .background(Color.Black.copy(alpha = .7f), RoundedCornerShape(8.dp))
+                                    .padding(8.dp),
+                            )
+                        } else if (failure != null) {
+                            Column(
+                                Modifier
+                                    .align(Alignment.Center)
+                                    .widthIn(max = 360.dp)
+                                    .padding(20.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(Color.Black.copy(alpha = .68f))
+                                    .padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(failure, style = MaterialTheme.typography.bodyMedium, color = FilewayTheme.status.mediaContent)
+                                if (isFullscreen) FilewaySessionNotice(model)
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                                    PlayerLabel("重试", "重试播放") { model.retryPlayback() }
                                 }
-                            } else if (client.busy && showRequest || !client.busy && state.waitingForBuffer && showBuffering) {
-                                Box(Modifier.align(Alignment.Center).size(48.dp)
+                            }
+                        } else if (client.busy && latestShowRequest || !client.busy && state.waitingForBuffer && latestShowBuffering) {
+                            Box(
+                                Modifier
+                                    .align(Alignment.Center)
+                                    .size(48.dp)
                                     .background(Color.Black.copy(alpha = .35f), CircleShape)
                                     .semantics { contentDescription = if (client.busy) "正在加载视频" else "正在缓冲" },
-                                    contentAlignment = Alignment.Center) {
-                                    CircularProgressIndicator(Modifier.size(28.dp), color = FilewayTheme.status.mediaContent, strokeWidth = 2.dp)
-                                }
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator(Modifier.size(28.dp), color = FilewayTheme.status.mediaContent, strokeWidth = 2.dp)
                             }
-                            if (!pipMode && (showControls || touchLocked)) Box(Modifier.align(AbsoluteAlignment.CenterLeft)
-                                .then(if (fullscreen) Modifier.windowInsetsPadding(controlInsets.only(WindowInsetsSides.Left)) else Modifier)
-                                .absolutePadding(left = if (fullscreen) 4.dp else 8.dp)
-                                .absoluteOffset(x = if (fullscreen && landscapeOrientation) (-8).dp else 0.dp)) {
-                                // Retain this anchor while locked, including after a real
-                                // window rotation. The topmost unlock uses these same bounds.
-                                PlayerLockIcon(R.drawable.ic_lock_open, "锁定触控", "触控未锁定", false, ::lockTouch,
+                        }
+                        if (!isPip && (isFullscreen || !isTabletStage) && (controlsVisibleNow || touchLocked)) {
+                            Box(
+                                Modifier
+                                    .align(AbsoluteAlignment.CenterLeft)
+                                    .then(if (isFullscreen) Modifier.windowInsetsPadding(tapControlInsets.only(WindowInsetsSides.Left)) else Modifier)
+                                    .absolutePadding(left = if (isFullscreen) 4.dp else 8.dp)
+                                    .absoluteOffset(x = if (isFullscreen && latestLandscapeOrientation) (-8).dp else 0.dp),
+                            ) {
+                                // Retain this anchor while locked, including after a real window rotation.
+                                PlayerLockIcon(
+                                    R.drawable.ic_lock_open,
+                                    "锁定触控",
+                                    "触控未锁定",
+                                    false,
+                                    ::lockTouch,
                                     enabled = !exploration,
-                                    modifier = Modifier.alpha(if (touchLocked) 0f else 1f)
-                                        .onGloballyPositioned { touchLockPosition = it.positionInRoot() })
+                                    modifier = Modifier
+                                        .alpha(if (touchLocked) 0f else 1f)
+                                        .onGloballyPositioned { touchLockPosition = it.positionInRoot() },
+                                )
                             }
                         }
-                        androidx.compose.animation.AnimatedVisibility(showControls && fullscreen,
-                            enter = fadeIn(tween(140)), exit = fadeOut(tween(if (!fullscreen || sheet != null || touchLocked || holding) 0 else 140)),
-                            modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
-                        Box(Modifier.fillMaxWidth().background(Brush.verticalGradient(listOf(Color(0xB3000000), Color.Transparent)))
-                            .windowInsetsPadding(controlInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
-                            Row(Modifier.fillMaxWidth()
-                                .padding(horizontal = 8.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                                val deviceTime = rememberPlayerClock()
-                                PlayerIcon(R.drawable.ic_arrow_back, "退出全屏并返回详情", { changeDisplay(PlayerDisplayMode.AUTOMATIC) })
-                                Text(file.name, style = FilewayTheme.text.fileName, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
-                                networkStatus?.let { PlayerNetworkStatus(it) }
-                                Text(deviceTime, color = Color.White, fontSize = 12.sp, lineHeight = 16.sp,
-                                    maxLines = 1, modifier = Modifier.padding(horizontal = 8.dp).clearAndSetSemantics {
-                                        contentDescription = "设备时间"
-                                        stateDescription = deviceTime
-                                    })
-                                PlayerTvHandoffIcon(model,file,client.previewScope,enabled=controlsEnabled)
-                                PlayerIcon(R.drawable.ic_info, "播放信息", { touch(); sheet = PlayerSheet.SOURCE })
-                            }
-                        }
-                        }
-                        androidx.compose.animation.AnimatedVisibility(!fullscreen || showControls,
-                            enter = fadeIn(tween(140)), exit = fadeOut(tween(if (sheet != null || touchLocked || holding) 0 else 140)),
-                            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
-                        MaterialTheme(colorScheme = if (fullscreen) MaterialTheme.colorScheme else pageColors) {
-                        CompositionLocalProvider(LocalContentColor provides if (fullscreen) FilewayTheme.status.mediaContent else pageColors.onBackground) {
-                        Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(if (fullscreen) listOf(Color.Transparent, Color(0xE6000000)) else listOf(Color.Transparent, Color.Transparent)))
-                            .then(if (fullscreen) Modifier.windowInsetsPadding(controlInsets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal)) else Modifier)
-                            .padding(start = controlPadding, end = controlPadding, bottom = if (fullscreen) 8.dp else 0.dp)
-                            .alpha(if (!fullscreen && touchLocked) .55f else 1f)) {
-                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                Text(clock((seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat()).toLong()), color = LocalContentColor.current.copy(alpha = .72f), fontSize = 12.sp, lineHeight = 16.sp,
-                                    fontFamily = FontFamily.Monospace, maxLines = 1,
-                                    modifier = Modifier.offset(y = if (fullscreen) 4.dp else 0.dp))
+                    }
+                }
+            }
+
+            val transportDock: @Composable (Boolean) -> Unit = { dockedInTabletCard ->
+                val isFullscreenNow = latestFullscreen
+                val isMediaSurface = isFullscreenNow
+                val downloadItem = latestDownload
+                val iconAlphaEnabled = latestControlsEnabled
+                val docThemeScheme = when {
+                    isFullscreenNow -> MaterialTheme.colorScheme
+                    dockedInTabletCard -> hostColors
+                    else -> pageColors
+                }
+                val docContentColor = when {
+                    isFullscreenNow -> FilewayTheme.status.mediaContent
+                    dockedInTabletCard -> hostColors.onSurface
+                    else -> pageColors.onBackground
+                }
+                val dockPaddingHorizontal = if (dockedInTabletCard) 4.dp else if (latestLandscapeOrientation) 20.dp else 12.dp
+                MaterialTheme(colorScheme = docThemeScheme) {
+                    CompositionLocalProvider(LocalContentColor provides docContentColor) {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .then(
+                                    if (isFullscreenNow) {
+                                        val insets = if (exploration) WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
+                                        else WindowInsets.displayCutout.union(WindowInsets.captionBar)
+                                        Modifier
+                                            .background(Brush.verticalGradient(listOf(Color.Transparent, Color(0xE6000000))))
+                                            .windowInsetsPadding(insets.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+                                    } else {
+                                        Modifier
+                                    },
+                                )
+                                .padding(
+                                    start = dockPaddingHorizontal,
+                                    end = dockPaddingHorizontal,
+                                    bottom = if (isFullscreenNow) 8.dp else 0.dp,
+                                )
+                                .alpha(if (!isFullscreenNow && touchLocked) .55f else 1f),
+                        ) {
+                            Row(
+                                Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    clock((seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat()).toLong()),
+                                    color = LocalContentColor.current.copy(alpha = .72f),
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    maxLines = 1,
+                                    modifier = Modifier.offset(y = if (isFullscreenNow) 4.dp else 0.dp),
+                                )
                                 Box(Modifier.weight(1f)) {
-                                PlayerSlider(seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat().coerceIn(0f, state.durationMs.toFloat().coerceAtLeast(1f)), state.durationMs.toFloat().coerceAtLeast(1f),
-                                    "播放进度", controlsEnabled && state.seekable && state.durationMs > 0,
-                                    { if (seek == null) timelineStart = state.positionMs; gestureSeek.reset(); seek = it; touch() }, { seek?.let { model.player.seek(it.toLong()) }; seek = null; touch() },
-                                    clock((seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat()).toLong()) + "，共 " + clock(state.durationMs),
-                                    downloadedValue = downloadedUntil?.toFloat(), bufferedValue = state.bufferedPositionMs.toFloat(), mediaSurface = fullscreen,
-                                    visualTrackOffset = if (fullscreen) 4.dp else 0.dp, modifier = Modifier.fillMaxWidth())
+                                    PlayerSlider(
+                                        seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat().coerceIn(0f, state.durationMs.toFloat().coerceAtLeast(1f)),
+                                        state.durationMs.toFloat().coerceAtLeast(1f),
+                                        "播放进度",
+                                        iconAlphaEnabled && state.seekable && state.durationMs > 0,
+                                        {
+                                            if (seek == null) timelineStart = state.positionMs
+                                            gestureSeek.reset(); seek = it; touch()
+                                        },
+                                        { seek?.let { model.player.seek(it.toLong()) }; seek = null; touch() },
+                                        clock((seek ?: pictureSeek?.toFloat() ?: state.positionMs.toFloat()).toLong()) + "，共 " + clock(state.durationMs),
+                                        downloadedValue = downloadedUntil?.toFloat(),
+                                        bufferedValue = state.bufferedPositionMs.toFloat(),
+                                        mediaSurface = isMediaSurface,
+                                        visualTrackOffset = if (isFullscreenNow) 4.dp else 0.dp,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
                                 }
-                                Text(if (state.durationMs > 0) clock(state.durationMs) else "--:--", color = LocalContentColor.current.copy(alpha = .72f), fontSize = 12.sp, lineHeight = 16.sp,
-                                    fontFamily = FontFamily.Monospace, maxLines = 1,
-                                    modifier = Modifier.offset(y = if (fullscreen) 4.dp else 0.dp))
+                                Text(
+                                    if (state.durationMs > 0) clock(state.durationMs) else "--:--",
+                                    color = LocalContentColor.current.copy(alpha = .72f),
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    maxLines = 1,
+                                    modifier = Modifier.offset(y = if (isFullscreenNow) 4.dp else 0.dp),
+                                )
                             }
-                            download?.let { item ->
+                            downloadItem?.let { item ->
                                 val percent = if (item.expectedSize > 0) (downloadedBytes.toDouble() * 100 / item.expectedSize).toInt().coerceIn(0, 100) else 0
                                 val coverage = if (item.complete) "已全部下载" else downloadedUntil?.let { "可离线播放至 ${clock(it)}" } ?: "可播放范围暂未知"
-                                Row(Modifier.fillMaxWidth().heightIn(min = downloadCoverageHeight).padding(horizontal = 8.dp).semantics {
-                                    contentDescription = "文件下载进度"
-                                    stateDescription = "已下载 $percent%，$coverage"
-                                    progressBarRangeInfo = ProgressBarRangeInfo(percent / 100f, 0f..1f)
-                                }, verticalAlignment = Alignment.CenterVertically) {
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .heightIn(min = 16.dp)
+                                        .padding(horizontal = 8.dp)
+                                        .semantics {
+                                            contentDescription = "文件下载进度"
+                                            stateDescription = "已下载 $percent%，$coverage"
+                                            progressBarRangeInfo = ProgressBarRangeInfo(percent / 100f, 0f..1f)
+                                        },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
                                     Text("已下载 $percent%", color = LocalContentColor.current.copy(alpha = .72f), fontSize = 11.sp, lineHeight = 16.sp, maxLines = 1, modifier = Modifier.weight(1f))
                                     Text(coverage, color = LocalContentColor.current.copy(alpha = .72f), fontSize = 11.sp, lineHeight = 16.sp, maxLines = 1)
                                 }
                             }
                             BoxWithConstraints(Modifier.fillMaxWidth()) {
                                 val transport: @Composable RowScope.() -> Unit = {
-                                    PlayerIcon(if (state.playing) R.drawable.art_pause else R.drawable.art_play, if (state.playing) "暂停播放" else "开始播放", { touch(); model.togglePlayback() }, controlsEnabled)
-                                    PlayerIcon(R.drawable.ic_skip_next, "下一个视频", { touch(); model.nextMedia() }, controlsEnabled && queue?.hasNext == true)
+                                    PlayerIcon(
+                                        if (state.playing) R.drawable.art_pause else R.drawable.art_play,
+                                        if (state.playing) "暂停播放" else "开始播放",
+                                        { touch(); model.togglePlayback() },
+                                        iconAlphaEnabled,
+                                    )
+                                    PlayerIcon(
+                                        R.drawable.ic_skip_next,
+                                        "下一个视频",
+                                        { touch(); model.nextMedia() },
+                                        iconAlphaEnabled && queue?.hasNext == true,
+                                    )
                                 }
                                 val options: @Composable RowScope.() -> Unit = {
                                     val audioTitle = state.audio.firstOrNull { it.id == state.selectedAudio }?.title ?: "暂无音轨"
                                     val subtitleTitle = state.subtitles.firstOrNull { it.id == state.selectedSubtitle }?.title ?: "关闭"
-                                    PlayerIcon(R.drawable.ic_audio, "选择音轨", { touch(); sheet = PlayerSheet.AUDIO }, controlsEnabled && state.audio.isNotEmpty(),
-                                        description = (if (state.pendingAudio != null) "正在切换，当前音轨：" else "当前音轨：") + audioTitle)
-                                    PlayerIcon(R.drawable.ic_subtitles, "选择字幕", { touch(); sheet = PlayerSheet.SUBTITLE }, controlsEnabled,
-                                        description = (if (state.pendingSubtitle != null) "正在切换，当前字幕：" else "当前字幕：") + subtitleTitle)
-                                    PlayerLabel("${state.rate}×", "播放速度", controlsEnabled) { touch(); sheet = PlayerSheet.SPEED }
-                                    PlayerIcon(R.drawable.ic_playlist_play, "播放列表", { touch(); sheet = PlayerSheet.QUEUE }, controlsEnabled && queue != null,
-                                        description = queue?.let { "第 ${it.index + 1} 项，共 ${it.items.size} 项" } ?: "无播放列表")
-                                    PlayerIcon(R.drawable.ic_settings, "视频解码器", { touch(); sheet = PlayerSheet.DECODER }, controlsEnabled && !changingDecoder)
+                                    PlayerIcon(
+                                        R.drawable.ic_audio,
+                                        "选择音轨",
+                                        { touch(); sheet = PlayerSheet.AUDIO },
+                                        iconAlphaEnabled && state.audio.isNotEmpty(),
+                                        description = (if (state.pendingAudio != null) "正在切换，当前音轨：" else "当前音轨：") + audioTitle,
+                                    )
+                                    PlayerIcon(
+                                        R.drawable.ic_subtitles,
+                                        "选择字幕",
+                                        { touch(); sheet = PlayerSheet.SUBTITLE },
+                                        iconAlphaEnabled,
+                                        description = (if (state.pendingSubtitle != null) "正在切换，当前字幕：" else "当前字幕：") + subtitleTitle,
+                                    )
+                                    PlayerLabel("${state.rate}×", "播放速度", iconAlphaEnabled) { touch(); sheet = PlayerSheet.SPEED }
+                                    PlayerIcon(
+                                        R.drawable.ic_playlist_play,
+                                        "播放列表",
+                                        { touch(); sheet = PlayerSheet.QUEUE },
+                                        iconAlphaEnabled && queue != null,
+                                        description = queue?.let { "第 ${it.index + 1} 项，共 ${it.items.size} 项" } ?: "无播放列表",
+                                    )
+                                    PlayerIcon(R.drawable.ic_settings, "视频解码器", { touch(); sheet = PlayerSheet.DECODER }, iconAlphaEnabled && !changingDecoder)
                                 }
                                 val display: @Composable RowScope.() -> Unit = {
-                                    if (pictureInPicture?.supported == true) PlayerIcon(R.drawable.ic_pip, "画中画", {
-                                        cancelGesture(); sheet = null
-                                        if (!pictureInPicture.enter()) uiScope.launch { feedback.showSnackbar("暂时无法进入画中画，请检查系统画中画权限") }
-                                    }, controlsEnabled && state.firstFrameRendered)
-                                    if (!fullscreen && onToggleFullscreen == null) PlayerIcon(R.drawable.ic_portrait_fullscreen, "竖屏全屏", { changeDisplay(PlayerDisplayMode.PORTRAIT_FULLSCREEN) }, !touchLocked)
-                                    PlayerIcon(if (fullscreen) R.drawable.art_fullscreen_off else R.drawable.art_fullscreen_on, if (fullscreen) "退出全屏" else "全屏播放", {
-                                        changeDisplay(if (fullscreen) PlayerDisplayMode.AUTOMATIC else PlayerDisplayMode.LANDSCAPE_FULLSCREEN)
-                                    }, !touchLocked)
+                                    if (pictureInPicture?.supported == true) {
+                                        PlayerIcon(
+                                            R.drawable.ic_pip,
+                                            "画中画",
+                                            {
+                                                cancelGesture(); sheet = null
+                                                if (!pictureInPicture.enter()) uiScope.launch { feedback.showSnackbar("暂时无法进入画中画，请检查系统画中画权限") }
+                                            },
+                                            iconAlphaEnabled && state.firstFrameRendered,
+                                        )
+                                    }
+                                    if (!isFullscreenNow && onToggleFullscreen == null && !isTabletWindow) {
+                                        PlayerIcon(R.drawable.ic_portrait_fullscreen, "竖屏全屏", { changeDisplay(PlayerDisplayMode.PORTRAIT_FULLSCREEN) }, !touchLocked)
+                                    }
+                                    PlayerIcon(
+                                        if (isFullscreenNow) R.drawable.art_fullscreen_off else R.drawable.art_fullscreen_on,
+                                        if (isFullscreenNow) "退出全屏" else "全屏播放",
+                                        { changeDisplay(if (isFullscreenNow) PlayerDisplayMode.AUTOMATIC else PlayerDisplayMode.LANDSCAPE_FULLSCREEN) },
+                                        !touchLocked,
+                                    )
                                 }
-                                if (maxWidth >= 600.dp) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                    transport()
-                                    Spacer(Modifier.weight(1f))
-                                    options()
-                                    display()
-                                } else Column(Modifier.fillMaxWidth()) {
+                                val singleRowThreshold = if (dockedInTabletCard) 500.dp else 600.dp
+                                if (maxWidth >= singleRowThreshold) {
                                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                         transport()
                                         Spacer(Modifier.weight(1f))
+                                        options()
                                         display()
                                     }
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) { options() }
-                                }
-                            }
-                        }
-                        }
-                        }
-                        }
-                    }
-                    }
-                    if (!fullscreen) LazyColumn(Modifier.weight(1f).semantics { contentDescription = "播放详情" }
-                        .padding(horizontal = 16.dp),
-                        contentPadding = PaddingValues(vertical = 12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        item(key = "video-information") { PlayerInformation(model, file, client.previewScope, state, activeOutput) }
-                        if (queue?.hasNext != true) item(key = "track-information") {
-                            PlayerTrackInformation(state, controlsEnabled,
-                                audio = { touch(); sheet = PlayerSheet.AUDIO }, subtitles = { touch(); sheet = PlayerSheet.SUBTITLE })
-                        }
-                        queue?.takeIf { it.hasNext }?.let { snapshot ->
-                            val upcoming = snapshot.items.drop(snapshot.index + 1)
-                            item(key = "upcoming-header") { Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
-                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text("接下来", style = MaterialTheme.typography.titleSmall)
-                                Text("${upcoming.size} 项", style = FilewayTheme.text.metadata, color = pageColors.onSurfaceVariant)
-                            }
-                            }
-                            itemsIndexed(upcoming, key = { _, next -> next.mediaKey }) { offset, next ->
-                                PlayerInformationCard(modifier = Modifier.clip(RoundedCornerShape(12.dp))
-                                    .clickable(enabled = !client.busy && !touchLocked, role = Role.Button) {
-                                        model.navigateMedia(snapshot.index + offset + 1); touch()
-                                    }, contentPadding = 8.dp) {
-                                    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        MediaThumbnail(model, next, Modifier.width(80.dp).aspectRatio(16f / 9f), showStatusText = false)
-                                        PlayerFileName(next.name, style = FilewayTheme.text.fileName,
-                                            color = FilewayTheme.status.mediaContent, modifier = Modifier.weight(1f))
+                                } else {
+                                    Column(Modifier.fillMaxWidth()) {
+                                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                            transport()
+                                            Spacer(Modifier.weight(1f))
+                                            display()
+                                        }
+                                        Row(
+                                            Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceEvenly,
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) { options() }
                                     }
                                 }
                             }
                         }
                     }
                 }
+            }
+
+            // Paint first, then inset only interactive content.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        when {
+                            fullscreen -> FilewayTheme.status.mediaCanvas
+                            useTabletTheater -> hostColors.background
+                            else -> pageColors.background
+                        },
+                    ),
+            ) {
+                if (!fullscreen && !useTabletTheater) {
+                    PlayerAmbient(artwork.atmosphere, state.playing && gestureForeground, Modifier.fillMaxSize())
+                }
+                BoxWithConstraints(
+                    Modifier
+                        .fillMaxSize()
+                        .then(
+                            if (fullscreen) Modifier
+                            else {
+                                val sides = if (embedded) WindowInsetsSides.End + WindowInsetsSides.Bottom
+                                else WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom
+                                Modifier.windowInsetsPadding(WindowInsets.safeDrawing.only(sides))
+                            },
+                        )
+                        .onGloballyPositioned { playerPosition = it.positionInRoot() },
+                ) {
+                    val landscape = maxWidth > maxHeight
+                    val controlInsets = if (exploration) WindowInsets.systemBarsIgnoringVisibility.union(WindowInsets.displayCutout)
+                    else WindowInsets.displayCutout.union(WindowInsets.captionBar)
+                    val headerDensity = LocalDensity.current
+                    val controlPadding = if (landscape) 20.dp else 12.dp
+                    val downloadCoverageHeight = with(headerDensity) { 16.sp.toDp() }
+                    val portraitControlsReserve = (if (maxWidth - controlPadding * 2 >= 600.dp) 96.dp else 144.dp) +
+                        if (download != null) downloadCoverageHeight else 0.dp
+                    val portraitStageHeight = maxWidth / (16f / 9f) + portraitControlsReserve
+
+                    if (useTabletTheater) {
+                        val theaterAvailableWidth = this.maxWidth
+                        val theaterAvailableHeight = this.maxHeight
+                        val maxVideoHeight = (theaterAvailableHeight * 0.48f).coerceIn(200.dp, 460.dp)
+                        val videoAspect = if (state.width > 0 && state.height > 0) {
+                            (state.width.toFloat() / state.height.toFloat()).coerceIn(0.75f, 2.35f)
+                        } else {
+                            16f / 9f
+                        }
+
+                        val theaterStageCard: @Composable () -> Unit = {
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(16.dp),
+                                color = hostColors.surface,
+                                border = BorderStroke(1.dp, hostColors.outlineVariant.copy(alpha = 0.6f)),
+                            ) {
+                                Column(
+                                    Modifier.fillMaxWidth().padding(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    BoxWithConstraints(
+                                        Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(Color(0xFF0A0D12)),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        val innerMaxW = this.maxWidth
+                                        val idealW = minOf(innerMaxW, maxVideoHeight * videoAspect)
+                                        val stageH = (idealW / videoAspect).coerceIn(160.dp, maxVideoHeight)
+                                        val stageW = (stageH * videoAspect).coerceAtMost(innerMaxW)
+                                        videoSurfaceStage(
+                                            Modifier
+                                                .width(stageW)
+                                                .height(stageH)
+                                                .clip(RoundedCornerShape(12.dp)),
+                                        )
+                                    }
+                                    transportDock(true)
+                                }
+                            }
+                        }
+
+                        Column(Modifier.fillMaxSize().then(if (touchLocked) Modifier.clearAndSetSemantics {} else Modifier)) {
+                            val topSides = if (embedded) WindowInsetsSides.Top + WindowInsetsSides.End
+                            else WindowInsetsSides.Top + WindowInsetsSides.Horizontal
+                            Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(topSides))) {
+                                FilewayTopAppBar(
+                                    title = file.name,
+                                    subtitle = buildString {
+                                        if (state.width > 0 && state.height > 0) append("${state.width} × ${state.height}")
+                                        latestNetworkStatus?.let {
+                                            if (isNotEmpty()) append(" · ")
+                                            append(it)
+                                        }
+                                    }.ifEmpty { null },
+                                    leadingIcon = if (onExpandLeftPane != null) R.drawable.ic_menu else if (embedded) R.drawable.ic_close else R.drawable.ic_arrow_back,
+                                    leadingDescription = if (onExpandLeftPane != null) "展开文件列表" else if (embedded) "关闭视频播放" else "返回文件",
+                                    onLeadingClick = if (onExpandLeftPane != null) onExpandLeftPane else model::leavePlayer,
+                                    actions = {
+                                        if (onExpandLeftPane != null) {
+                                            PlayerIcon(R.drawable.ic_close, "关闭视频播放", model::leavePlayer)
+                                        }
+                                        PlayerIcon(
+                                            R.drawable.art_fullscreen_on,
+                                            "全屏播放",
+                                            { changeDisplay(PlayerDisplayMode.LANDSCAPE_FULLSCREEN) },
+                                            !touchLocked,
+                                        )
+                                        PlayerTvHandoffIcon(model, file, client.previewScope, enabled = controlsEnabled)
+                                        PlayerIcon(R.drawable.ic_info, "播放信息", { touch(); sheet = PlayerSheet.SOURCE })
+                                    },
+                                )
+                                HorizontalDivider(color = hostColors.outlineVariant.copy(alpha = 0.55f))
+                                FilewaySessionNotice(model)
+                            }
+
+                            val standaloneCinema = !embedded && theaterAvailableWidth >= 900.dp
+                            if (standaloneCinema) {
+                                Row(
+                                    Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 24.dp, vertical = 16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(20.dp),
+                                ) {
+                                    Column(
+                                        Modifier
+                                            .weight(1.75f)
+                                            .fillMaxHeight()
+                                            .verticalScroll(rememberScrollState()),
+                                        verticalArrangement = Arrangement.spacedBy(14.dp),
+                                    ) {
+                                        theaterStageCard()
+                                        PlayerInformation(
+                                            model,
+                                            file,
+                                            client.previewScope,
+                                            state,
+                                            activeOutput,
+                                            harmoniousSurface = true,
+                                        )
+                                    }
+                                    LazyColumn(
+                                        Modifier
+                                            .weight(1f)
+                                            .widthIn(min = 280.dp)
+                                            .fillMaxHeight()
+                                            .semantics { contentDescription = "播放详情与队列" },
+                                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        item(key = "track-information") {
+                                            PlayerTrackInformation(
+                                                state,
+                                                controlsEnabled,
+                                                audio = { touch(); sheet = PlayerSheet.AUDIO },
+                                                subtitles = { touch(); sheet = PlayerSheet.SUBTITLE },
+                                                harmoniousSurface = true,
+                                            )
+                                        }
+                                        queue?.takeIf { it.hasNext }?.let { snapshot ->
+                                            val upcoming = snapshot.items.drop(snapshot.index + 1)
+                                            item(key = "upcoming-header") {
+                                                Row(
+                                                    Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                                ) {
+                                                    Text("接下来", style = MaterialTheme.typography.titleSmall)
+                                                    Text("${upcoming.size} 项", style = FilewayTheme.text.metadata, color = hostColors.onSurfaceVariant)
+                                                }
+                                            }
+                                            itemsIndexed(upcoming, key = { _, next -> next.mediaKey }) { offset, next ->
+                                                PlayerInformationCard(
+                                                    modifier = Modifier
+                                                        .clip(RoundedCornerShape(12.dp))
+                                                        .clickable(enabled = !client.busy && !touchLocked, role = Role.Button) {
+                                                            model.navigateMedia(snapshot.index + offset + 1); touch()
+                                                        },
+                                                    contentPadding = 8.dp,
+                                                    harmoniousSurface = true,
+                                                ) {
+                                                    Row(
+                                                        Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                    ) {
+                                                        MediaThumbnail(
+                                                            model,
+                                                            next,
+                                                            Modifier.width(84.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)),
+                                                            showStatusText = false,
+                                                        )
+                                                        PlayerFileName(
+                                                            next.name,
+                                                            style = FilewayTheme.text.fileName,
+                                                            color = hostColors.onSurface,
+                                                            modifier = Modifier.weight(1f),
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                val twoColCards = theaterAvailableWidth >= 560.dp
+                                LazyColumn(
+                                    Modifier
+                                        .weight(1f)
+                                        .fillMaxWidth()
+                                        .semantics { contentDescription = "播放详情" },
+                                    contentPadding = PaddingValues(horizontal = 20.dp, vertical = 16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(14.dp),
+                                ) {
+                                    item(key = "theater-stage") { theaterStageCard() }
+                                    item(key = "video-and-track-info") {
+                                        if (twoColCards) {
+                                            Row(
+                                                Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            ) {
+                                                PlayerInformation(
+                                                    model,
+                                                    file,
+                                                    client.previewScope,
+                                                    state,
+                                                    activeOutput,
+                                                    modifier = Modifier.weight(1f),
+                                                    harmoniousSurface = true,
+                                                )
+                                                PlayerTrackInformation(
+                                                    state,
+                                                    controlsEnabled,
+                                                    audio = { touch(); sheet = PlayerSheet.AUDIO },
+                                                    subtitles = { touch(); sheet = PlayerSheet.SUBTITLE },
+                                                    modifier = Modifier.weight(1f),
+                                                    harmoniousSurface = true,
+                                                )
+                                            }
+                                        } else {
+                                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                                PlayerInformation(
+                                                    model,
+                                                    file,
+                                                    client.previewScope,
+                                                    state,
+                                                    activeOutput,
+                                                    harmoniousSurface = true,
+                                                )
+                                                PlayerTrackInformation(
+                                                    state,
+                                                    controlsEnabled,
+                                                    audio = { touch(); sheet = PlayerSheet.AUDIO },
+                                                    subtitles = { touch(); sheet = PlayerSheet.SUBTITLE },
+                                                    harmoniousSurface = true,
+                                                )
+                                            }
+                                        }
+                                    }
+                                    queue?.takeIf { it.hasNext }?.let { snapshot ->
+                                        val upcoming = snapshot.items.drop(snapshot.index + 1)
+                                        item(key = "upcoming-header") {
+                                            Row(
+                                                Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                            ) {
+                                                Text("接下来", style = MaterialTheme.typography.titleSmall)
+                                                Text("${upcoming.size} 项", style = FilewayTheme.text.metadata, color = hostColors.onSurfaceVariant)
+                                            }
+                                        }
+                                        itemsIndexed(upcoming, key = { _, next -> next.mediaKey }) { offset, next ->
+                                            PlayerInformationCard(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(12.dp))
+                                                    .clickable(enabled = !client.busy && !touchLocked, role = Role.Button) {
+                                                        model.navigateMedia(snapshot.index + offset + 1); touch()
+                                                    },
+                                                contentPadding = 8.dp,
+                                                harmoniousSurface = true,
+                                            ) {
+                                                Row(
+                                                    Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                                ) {
+                                                    MediaThumbnail(
+                                                        model,
+                                                        next,
+                                                        Modifier.width(84.dp).aspectRatio(16f / 9f).clip(RoundedCornerShape(8.dp)),
+                                                        showStatusText = false,
+                                                    )
+                                                    PlayerFileName(
+                                                        next.name,
+                                                        style = FilewayTheme.text.fileName,
+                                                        color = hostColors.onSurface,
+                                                        modifier = Modifier.weight(1f),
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Column(Modifier.fillMaxSize().then(if (touchLocked) Modifier.clearAndSetSemantics {} else Modifier)) {
+                            if (!fullscreen) Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))) {
+                                Row(Modifier.fillMaxWidth().heightIn(min = 52.dp)
+                                    .padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                                    PlayerIcon(R.drawable.ic_arrow_back, "返回文件", model::leavePlayer)
+                                    Text(file.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
+                                    networkStatus?.let { PlayerNetworkStatus(it) }
+                                    PlayerTvHandoffIcon(model, file, client.previewScope, enabled = controlsEnabled)
+                                    PlayerIcon(R.drawable.ic_info, "播放信息", { touch(); sheet = PlayerSheet.SOURCE })
+                                }
+                                FilewaySessionNotice(model)
+                            }
+                            // Portrait keeps transport below the picture. Fullscreen uses the entire viewport with controls over the video.
+                            val stage = if (fullscreen) Modifier.weight(1f) else Modifier.fillMaxWidth().height(portraitStageHeight)
+                            CompositionLocalProvider(LocalContentColor provides FilewayTheme.status.mediaContent) {
+                                Box(stage.background(if (fullscreen) Color.Black else Color.Transparent)) {
+                                    if (!fullscreen) Box(
+                                        Modifier
+                                            .align(Alignment.BottomCenter)
+                                            .fillMaxWidth()
+                                            .height(portraitControlsReserve)
+                                            .background(Brush.verticalGradient(listOf(Color.Black, Color.Transparent), endY = with(headerDensity) { 72.dp.toPx() })),
+                                    )
+                                    videoSurfaceStage(
+                                        Modifier
+                                            .fillMaxSize()
+                                            .padding(bottom = if (fullscreen) 0.dp else portraitControlsReserve),
+                                    )
+                                    androidx.compose.animation.AnimatedVisibility(
+                                        showControls && fullscreen,
+                                        enter = fadeIn(tween(140)),
+                                        exit = fadeOut(tween(if (!fullscreen || sheet != null || touchLocked || holding) 0 else 140)),
+                                        modifier = Modifier.align(Alignment.TopCenter).fillMaxWidth(),
+                                    ) {
+                                        Box(
+                                            Modifier
+                                                .fillMaxWidth()
+                                                .background(Brush.verticalGradient(listOf(Color(0xB3000000), Color.Transparent)))
+                                                .windowInsetsPadding(controlInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
+                                        ) {
+                                            Row(
+                                                Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                            ) {
+                                                val deviceTime = rememberPlayerClock()
+                                                PlayerIcon(R.drawable.ic_arrow_back, "退出全屏并返回详情", { changeDisplay(PlayerDisplayMode.AUTOMATIC) })
+                                                Text(file.name, style = FilewayTheme.text.fileName, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
+                                                networkStatus?.let { PlayerNetworkStatus(it) }
+                                                Text(
+                                                    deviceTime,
+                                                    color = Color.White,
+                                                    fontSize = 12.sp,
+                                                    lineHeight = 16.sp,
+                                                    maxLines = 1,
+                                                    modifier = Modifier
+                                                        .padding(horizontal = 8.dp)
+                                                        .clearAndSetSemantics {
+                                                            contentDescription = "设备时间"
+                                                            stateDescription = deviceTime
+                                                        },
+                                                )
+                                                PlayerTvHandoffIcon(model, file, client.previewScope, enabled = controlsEnabled)
+                                                PlayerIcon(R.drawable.ic_info, "播放信息", { touch(); sheet = PlayerSheet.SOURCE })
+                                            }
+                                        }
+                                    }
+                                    androidx.compose.animation.AnimatedVisibility(
+                                        !fullscreen || showControls,
+                                        enter = fadeIn(tween(140)),
+                                        exit = fadeOut(tween(if (sheet != null || touchLocked || holding) 0 else 140)),
+                                        modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
+                                    ) {
+                                        transportDock(false)
+                                    }
+                                }
+                            }
+                            if (!fullscreen) LazyColumn(
+                                Modifier
+                                    .weight(1f)
+                                    .semantics { contentDescription = "播放详情" }
+                                    .padding(horizontal = 16.dp),
+                                contentPadding = PaddingValues(vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                            ) {
+                                item(key = "video-information") { PlayerInformation(model, file, client.previewScope, state, activeOutput) }
+                                if (queue?.hasNext != true) item(key = "track-information") {
+                                    PlayerTrackInformation(
+                                        state,
+                                        controlsEnabled,
+                                        audio = { touch(); sheet = PlayerSheet.AUDIO },
+                                        subtitles = { touch(); sheet = PlayerSheet.SUBTITLE },
+                                    )
+                                }
+                                queue?.takeIf { it.hasNext }?.let { snapshot ->
+                                    val upcoming = snapshot.items.drop(snapshot.index + 1)
+                                    item(key = "upcoming-header") {
+                                        Row(
+                                            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 2.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                        ) {
+                                            Text("接下来", style = MaterialTheme.typography.titleSmall)
+                                            Text("${upcoming.size} 项", style = FilewayTheme.text.metadata, color = pageColors.onSurfaceVariant)
+                                        }
+                                    }
+                                    itemsIndexed(upcoming, key = { _, next -> next.mediaKey }) { offset, next ->
+                                        PlayerInformationCard(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .clickable(enabled = !client.busy && !touchLocked, role = Role.Button) {
+                                                    model.navigateMedia(snapshot.index + offset + 1); touch()
+                                                },
+                                            contentPadding = 8.dp,
+                                        ) {
+                                            Row(
+                                                Modifier.fillMaxWidth().heightIn(min = 56.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                            ) {
+                                                MediaThumbnail(model, next, Modifier.width(80.dp).aspectRatio(16f / 9f), showStatusText = false)
+                                                PlayerFileName(
+                                                    next.name,
+                                                    style = FilewayTheme.text.fileName,
+                                                    color = FilewayTheme.status.mediaContent,
+                                                    modifier = Modifier.weight(1f),
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
                 if (sheet == null) SnackbarHost(feedback, Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp)
                     .then(if (touchLocked) Modifier.clearAndSetSemantics {} else Modifier))
                 if (touchLocked && !pipMode) {
@@ -736,7 +1349,7 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                     }
                 }
                 if (sheet != null && !pipMode) io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaTheme(
-                    pageColors, fullscreen) { PlayerPanel(landscape, fullscreen && !exploration, when (sheet) { PlayerSheet.AUDIO -> "音轨"; PlayerSheet.SUBTITLE -> "字幕"; PlayerSheet.SUBTITLE_ADJUST -> "字幕调整"; PlayerSheet.SUBTITLE_FONT -> "字幕字体"; PlayerSheet.SPEED -> "播放速度"; PlayerSheet.SPEED_PRESETS -> "倍速预设"; PlayerSheet.SPEED_EDIT -> if (editingHoldRate) "长按倍速" else "自定义倍速"; PlayerSheet.EXTERNAL -> "外挂字幕"; PlayerSheet.QUEUE -> "播放列表"; PlayerSheet.DECODER -> "视频解码器"; else -> "播放信息" }, { sheet = null; touch() }, back = if (sheet == PlayerSheet.SUBTITLE_ADJUST) {
+                    pageColors, fullscreen) { PlayerPanel(windowLayout.widthDp > windowLayout.heightDp, fullscreen && !exploration, when (sheet) { PlayerSheet.AUDIO -> "音轨"; PlayerSheet.SUBTITLE -> "字幕"; PlayerSheet.SUBTITLE_ADJUST -> "字幕调整"; PlayerSheet.SUBTITLE_FONT -> "字幕字体"; PlayerSheet.SPEED -> "播放速度"; PlayerSheet.SPEED_PRESETS -> "倍速预设"; PlayerSheet.SPEED_EDIT -> if (editingHoldRate) "长按倍速" else "自定义倍速"; PlayerSheet.EXTERNAL -> "外挂字幕"; PlayerSheet.QUEUE -> "播放列表"; PlayerSheet.DECODER -> "视频解码器"; else -> "播放信息" }, { sheet = null; touch() }, back = if (sheet == PlayerSheet.SUBTITLE_ADJUST) {
                     { sheet = PlayerSheet.SUBTITLE; touch() }
                 } else if (sheet == PlayerSheet.SUBTITLE_FONT) {
                     { sheet = PlayerSheet.SUBTITLE_ADJUST; touch() }

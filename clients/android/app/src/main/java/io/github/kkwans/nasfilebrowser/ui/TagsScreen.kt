@@ -79,15 +79,25 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
             val windowLayout = LocalFilewayWindowLayout.current
             val candidates = state.paths.mapNotNull { it.file }
             val sourceScope = state.scope
+            val dualPaneActive = io.github.kkwans.nasfilebrowser.ui.adaptive.LocalTabletLayoutConfig.current.useWorkspaceDualPane(windowLayout)
             @Composable fun TagPathsColumn(modifier: Modifier) {
                 Column(modifier) {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (io.github.kkwans.nasfilebrowser.ui.adaptive.LocalTabletLayoutConfig.current.useWorkspaceDualPane(windowLayout) && tag != null) {
+                    if (dualPaneActive && tag != null) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(start = 16.dp, end = 8.dp, top = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
                             Box(Modifier.size(10.dp).background(metadataColor(tag.color, MaterialTheme.colorScheme.primary), CircleShape))
                             Spacer(Modifier.width(8.dp))
-                            Text(tag.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Spacer(Modifier.width(12.dp))
+                            Text(tag.name, modifier = Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            FilewayIconButton({ model.tags.filter(tag.id, !currentOnly); model.tab("files") }, enabled = enabled) {
+                                FilewayIcon(R.drawable.ic_search, "在文件页筛选此标签")
+                            }
+                            FilewayIconButton({ editing = tag }, enabled = enabled) { FilewayIcon(R.drawable.ic_edit, "编辑标签") }
+                            FilewayIconButton({ removing = tag }, enabled = enabled) { FilewayIcon(R.drawable.ic_trash, "删除标签", tint = MaterialTheme.colorScheme.error) }
                         }
+                    }
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         var scopeMenu by remember { mutableStateOf(false) }
                         Box {
                             FilewayTextButton({ scopeMenu = true }, enabled = enabled, shape = RoundedCornerShape(12.dp)) {
@@ -104,7 +114,7 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
                         }
                         Text("${state.paths.size} / ${state.pathTotal}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        tag?.let { selected ->
+                        if (!dualPaneActive) tag?.let { selected ->
                             FilewayIconButton({ model.tags.filter(selected.id, !currentOnly); model.tab("files") }, enabled = enabled) {
                                 FilewayIcon(R.drawable.ic_search, "在文件页筛选此标签")
                             }

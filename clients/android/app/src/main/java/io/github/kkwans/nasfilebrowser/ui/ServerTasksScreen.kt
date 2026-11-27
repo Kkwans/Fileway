@@ -151,7 +151,8 @@ Column(Modifier.fillMaxSize()) {
     }
 }
     }
-    if (useDual) {
+    val showSingleEmpty = state.items.isEmpty() && !state.loading && state.error == null && state.filter.text.isBlank()
+    if (useDual && !showSingleEmpty) {
         val splitState = rememberFilewaySplitWorkspaceState(
             sceneKey = "tasks_server",
             spec = SplitPaneSpec(defaultRatio = 0.44f, minLeftDp = 320f, minRightDp = 360f),

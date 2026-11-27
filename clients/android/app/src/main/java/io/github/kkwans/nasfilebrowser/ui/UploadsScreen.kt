@@ -140,7 +140,8 @@ Column(Modifier.fillMaxSize()) {
     }
 }
     }
-    if (useDual) {
+    val hasAccountItems = state.items.any { it.accountKey == account && client.connected }
+    if (useDual && (hasAccountItems || filter != "全部")) {
         val splitState = rememberFilewaySplitWorkspaceState(
             sceneKey = "tasks_uploads",
             spec = SplitPaneSpec(defaultRatio = 0.44f, minLeftDp = 320f, minRightDp = 360f),

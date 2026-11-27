@@ -131,7 +131,7 @@ import io.github.kkwans.nasfilebrowser.ui.adaptive.rememberFilewaySplitWorkspace
         }
             }
         }
-        if (useDual) {
+        if (useDual && !(state.loaded && state.items.isEmpty() && !state.loading && state.error == null)) {
             val splitState = rememberFilewaySplitWorkspaceState(
                 sceneKey = "library_trash",
                 spec = SplitPaneSpec(defaultRatio = 0.44f, minLeftDp = 300f, minRightDp = 360f),
