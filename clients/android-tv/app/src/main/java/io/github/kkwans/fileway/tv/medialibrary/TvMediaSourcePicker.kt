@@ -44,12 +44,12 @@ fun TvMediaSourcePicker(
     onMore: (() -> Unit)? = null,
 ) {
     val colors = LocalMediaColors.current
-    val initialEdition = state.editions.firstOrNull { edition -> edition.sources.any { it.id == state.currentSourceId } }
+    val initialEdition = state.editions.firstOrNull { edition -> edition.sources.any { it.id == state.initialSourceId } }
         ?: state.editions.firstOrNull()
     var editionId by rememberSaveable(state.scopeKey, state.itemId) { mutableStateOf(initialEdition?.id) }
     // Current playback may change remotely while this panel is open. That updates
     // the Current badge, never the user's draft selection or the confirm target.
-    var selectedSourceId by rememberSaveable(state.scopeKey, state.itemId) { mutableStateOf(state.currentSourceId) }
+    var selectedSourceId by rememberSaveable(state.scopeKey, state.itemId) { mutableStateOf(state.initialSourceId) }
     // A removed edition is not interchangeable with the first remaining cut.
     val edition = if (editionId == null) initialEdition else state.editions.firstOrNull { it.id == editionId }
     val selectedSource = edition?.sources?.firstOrNull { it.id == selectedSourceId && it.available }
@@ -136,11 +136,11 @@ fun TvMediaSourcePicker(
                 }
                 Column(Modifier.align(Alignment.End), horizontalAlignment = Alignment.End,
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    MediaAction(if (state.applying) "正在准备片源…" else "使用所选片源", {
+                    MediaAction(if (state.applying) "正在准备片源…" else state.confirmLabel, {
                         if (edition != null && selectedSource != null && !state.applying && !state.loading) onConfirm(edition.id, selectedSource.id)
                     }, Modifier.widthIn(min = 220.dp), primary = true,
                         enabled = edition != null && selectedSource != null && !state.applying && !state.loading)
-                    Text("不同剪辑分别保留续播位置", style = MediaType.secondary, color = colors.secondary)
+                    Text(state.confirmHint, style = MediaType.secondary, color = colors.secondary)
                 }
             }
         }

@@ -66,6 +66,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
     key(session.owner, session.generation, session.api.identity.deviceSessionId) {
         val scope = rememberCoroutineScope()
         val route = remember(session, repository, scope) { TvMediaRouteState(session, repository, scope) }
+        val sourceJourney = remember(route) { TvMediaSourceJourney() }
         val watch = remember(repository, scope) { ContinueWatching(repository, scope) }
         val watching by watch.state.collectAsState()
         val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
@@ -150,9 +151,21 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
             }
         }
         fun closeSources() { route.closeSources(); restore(lastAnchor, lastOrigin) }
-        fun openSources(ref: MediaCatalogRef, fromStart: Boolean = false) {
+        fun openSources(ref: MediaCatalogRef, intent: TvMediaSourceIntent, fromStart: Boolean = false) {
             startFromBeginning = fromStart
+            sourceJourney.open(tvMediaKey(ref), intent)
             route.openSources(ref)
+        }
+        fun play(ref: MediaCatalogRef, fromStart: Boolean = false) {
+            val selectedId = sourceJourney.pendingSourceId(tvMediaKey(ref))
+            val selected = if (route.hasSourcesFor(ref)) route.variants.firstOrNull {
+                it.ref == ref && tvVariantKey(it) == selectedId && it.available
+            } else null
+            if (selected != null) {
+                awaitingPlayer = true
+                playerWasShown = false
+                onPlayback(selected, fromStart, null)
+            } else openSources(ref, TvMediaSourceIntent.PLAY, fromStart)
         }
         fun openDetailPerson(personId: String, name: String) {
             libraryId?.let { targetLibrary ->
@@ -331,7 +344,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             }, onContinue = { id -> watching.items.firstOrNull { it.id == id }?.let { playContinue(it, false) } },
                             onContinueOptions = { id -> watchMenu = watching.items.firstOrNull { it.id == id } },
                             onRetryContinue = watch::retry, onMoreContinue = { watch.load(reset = false) }, onPlay = { id ->
-                                (route.catalog + featured).firstOrNull { tvMediaKey(it.ref) == id }?.let { route.openSources(it.ref) }
+                                (route.catalog + featured).firstOrNull { tvMediaKey(it.ref) == id }?.let { play(it.ref) }
                             }, onRetry = route::refreshHome, onRetryShelf = { route.retryCatalog() },
                             onMoreShelf = { route.loadCatalog(false) }, onCategory = { filter = it; route.selectFilter(it) },
                             autoRotate = false, interactionPaused = !interactive, scrollState = homeScroll,
@@ -364,8 +377,14 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                     }
                     val reference = if (libraryId != null) repository.catalogRef(libraryId, itemId) else null
                     val playable = card?.actions?.can(MediaCatalogAction.PLAY) == true
+                    val canBrowseSources = reference != null && card != null && tvCanBrowseSources(card.structureKind)
                     val userState = card?.userState
                     val detailSources = if (reference != null && route.hasSourcesFor(reference)) route.variants else emptyList()
+                    val pendingSource = reference?.let { value ->
+                        sourceJourney.pendingSourceId(tvMediaKey(value))?.let { id ->
+                            detailSources.firstOrNull { tvVariantKey(it) == id && it.available }
+                        }
+                    }
                     Column(Modifier.fillMaxSize()) {
                         if (creditsPage) {
                             TvMediaCredits(card?.title ?: detail?.item?.title.orEmpty(), route.credits.map { credit ->
@@ -402,13 +421,17 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             favorite = userState?.favorite == true, watched = userState?.manualWatched == true,
                             userStateBusy = route.userStateBusy, userStateError = route.userStateError,
                             sourceCount = detailSources.size,
-                            sourceSummary = tvSourceSummary(detailSources) ?: if (route.sourcesLoading && reference != null && route.hasSourcesFor(reference)) "正在读取片源…" else null,
+                            sourceSummary = listOfNotNull(
+                                tvSourceSummary(detailSources),
+                                pendingSource?.let { "待播放片源：${it.sourceLabel}" },
+                                if (route.sourcesLoading && reference != null && route.hasSourcesFor(reference)) "正在读取片源…" else null,
+                            ).joinToString(" · ").takeIf(String::isNotBlank),
                             technical = route.technical,
                             loading = route.detailLoading, error = route.detailError), imageLoader, onBack = { back() },
                             modifier = Modifier.weight(1f),
-                            onPlay = if (playable && reference != null) ({ openSources(reference) }) else null,
-                            onPlayFromStart = if (playable && reference != null) ({ openSources(reference, fromStart = true) }) else null,
-                            onSources = if (playable && reference != null) ({ openSources(reference) }) else null,
+                            onPlay = if (playable && reference != null) ({ play(reference) }) else null,
+                            onPlayFromStart = if (playable && reference != null) ({ play(reference, fromStart = true) }) else null,
+                            onSources = if (reference != null && canBrowseSources) ({ openSources(reference, TvMediaSourceIntent.BROWSE) }) else null,
                             onToggleFavorite = if (reference != null && !route.userStatePending && card?.actions?.can(MediaCatalogAction.FAVORITE) == true) ({
                                 route.changeUserState(tvMediaKey(reference), userState?.revision, favorite = userState?.favorite != true)
                             }) else null,
@@ -421,7 +444,8 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             },
                             onAllPeople = { creditsPage = true; route.openCredits() },
                             onSeason = { route.selectSeason(it) },
-                            onEpisode = { id -> route.episodes.firstOrNull { tvMediaKey(it.ref) == id }?.let { openSources(it.ref) } },
+                            onEpisode = { id -> route.episodes.firstOrNull { tvMediaKey(it.ref) == id }?.let { openSources(it.ref, TvMediaSourceIntent.PLAY) } },
+                            onEpisodeOptions = { id -> route.episodes.firstOrNull { tvMediaKey(it.ref) == id }?.let { openSources(it.ref, TvMediaSourceIntent.BROWSE) } },
                             onMoreEpisodes = if (route.episodesCursor != null && !route.episodesLoading) ({ route.loadEpisodes(false) }) else null,
                             onJumpEpisode = { route.jumpToEpisode(it) },
                             onRetry = route::loadDetail, onRetryUserState = route::retryUserState,
@@ -450,14 +474,21 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                                 recoveryLabel = tvSourceRecovery(value.recoveryAction))
                         })
                     }
+                    val sourceTitle = route.episodes.firstOrNull { it.ref == source }?.card?.title
+                        ?: route.detail?.card?.title ?: route.detail?.detail?.item?.title ?: "版本与片源"
                     TvMediaSourcePicker(TvMediaSourcePickerState(session.owner, tvMediaKey(source),
-                        route.detail?.card?.title ?: route.detail?.detail?.item?.title ?: "版本与片源", editions,
-                        currentSourceId = currentSourceId(), loading = route.sourcesLoading,
-                        error = route.sourcesError, applying = route.sourcesRecovering), onDismiss = ::closeSources,
+                        sourceTitle, editions,
+                        currentSourceId = currentSourceId(),
+                        preferredSourceId = sourceJourney.pendingSourceId(tvMediaKey(source)),
+                        loading = route.sourcesLoading,
+                        error = route.sourcesError, applying = route.sourcesRecovering,
+                        intent = sourceJourney.currentIntent), onDismiss = ::closeSources,
                         onConfirm = { edition, sourceId ->
                             route.variants.firstOrNull { it.editionId == edition && tvVariantKey(it) == sourceId }
                                 ?.takeIf { it.available }?.let {
-                                    route.closeSources(); awaitingPlayer = true; playerWasShown = false; onPlayback(it, startFromBeginning, null)
+                                    if (sourceJourney.confirm(sourceId)) {
+                                        route.closeSources(); awaitingPlayer = true; playerWasShown = false; onPlayback(it, startFromBeginning, null)
+                                    } else closeSources()
                                 }
                         }, onRecover = route::recoverSource,
                         onRetry = if (route.sourcesError != null) ({ route.loadSources(true) }) else null,

@@ -1,6 +1,7 @@
 package io.github.kkwans.fileway.tv.medialibrary
 
 import coil3.request.ImageRequest
+import io.github.kkwans.nasfilebrowser.data.MediaItemKind
 import io.github.kkwans.nasfilebrowser.data.MediaTechnicalObservation
 
 /** Presentation only. Never deserialize the service response directly into these types. */
@@ -151,15 +152,50 @@ data class TvMediaEdition(
     val sources: List<TvMediaSource> = emptyList(),
 )
 
+enum class TvMediaSourceIntent { PLAY, BROWSE }
+
+internal class TvMediaSourceJourney {
+    private var itemId: String? = null
+    private var intent: TvMediaSourceIntent = TvMediaSourceIntent.PLAY
+    private var pendingSourceId: String? = null
+
+    val currentIntent: TvMediaSourceIntent get() = intent
+
+    fun open(value: String, sourceIntent: TvMediaSourceIntent) {
+        if (itemId != value || sourceIntent == TvMediaSourceIntent.PLAY) pendingSourceId = null
+        itemId = value
+        intent = sourceIntent
+    }
+
+    /** Returns true only when the confirmation should enter playback. */
+    fun confirm(sourceId: String): Boolean {
+        pendingSourceId = sourceId
+        return intent == TvMediaSourceIntent.PLAY
+    }
+
+    fun pendingSourceId(value: String): String? = pendingSourceId.takeIf { itemId == value }
+}
+
+internal fun tvCanBrowseSources(kind: MediaItemKind): Boolean = kind in setOf(
+    MediaItemKind.MOVIE, MediaItemKind.EPISODE, MediaItemKind.VIDEO,
+)
+
 data class TvMediaSourcePickerState(
     val scopeKey: String,
     val itemId: String,
     val title: String,
     val editions: List<TvMediaEdition>,
     val currentSourceId: String? = null,
+    val preferredSourceId: String? = null,
     val loading: Boolean = false,
     val error: String? = null,
     val applying: Boolean = false,
-)
+    val intent: TvMediaSourceIntent = TvMediaSourceIntent.PLAY,
+) {
+    val initialSourceId: String? get() = preferredSourceId ?: currentSourceId
+    val playsOnConfirm: Boolean get() = intent == TvMediaSourceIntent.PLAY
+    val confirmLabel: String get() = if (playsOnConfirm) "使用所选片源" else "设为待播放片源"
+    val confirmHint: String get() = if (playsOnConfirm) "不同剪辑分别保留续播位置" else "选择后返回详情，不会立即播放"
+}
 
 data class TvMediaNavigationItem(val id: String, val label: String)

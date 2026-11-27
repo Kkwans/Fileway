@@ -472,7 +472,7 @@ internal class TvMediaRouteState(
                             pendingUserState = repository.pendingUserStateOperation(item)
                             if (pendingUserState != null) userStateError = "观看状态尚待确认，请确认原操作，避免重复提交。"
                         }
-                        if (value.card?.actions?.can(MediaCatalogAction.PLAY) == true) loadDetailSources(item)
+                        if (tvCanBrowseSources(value.detail.item.kind)) loadDetailSources(item)
                         if (value.detail.item.kind == MediaItemKind.SERIES) loadSeasons(true)
                     }
                     is MediaCatalogDetail.Partial -> { detailCursor = value.nextCursor; detailError = "详情尚未加载完成，请继续读取。" }
