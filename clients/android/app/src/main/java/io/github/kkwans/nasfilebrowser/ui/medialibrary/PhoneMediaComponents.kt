@@ -163,6 +163,17 @@ internal fun phoneMediaGridSpec(width: Dp): PhoneMediaGridSpec {
     }
 }
 
+@Composable internal fun MediaSearchPill(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    Surface(onClick = onClick, modifier = modifier.heightIn(min = 48.dp),
+        shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainer) {
+        Row(Modifier.padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FilewayIcon(R.drawable.ic_search, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("搜索", style = PhoneMediaType.action, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+}
+
 @Composable internal fun MediaBackdrop(item: MediaPoster, loader: ImageLoader, modifier: Modifier = Modifier,
     progress: Float? = null) {
     val colors = MaterialTheme.colorScheme

@@ -25,6 +25,13 @@ class PhoneMediaHomeLayoutTest {
     }
 
     @Test
+    fun homeKeepsSearchInThePrimaryHeader() {
+        assertTrue(phoneMediaHomeUsesCompactHeader(PhoneMediaPage.HOME))
+        assertFalse(phoneMediaHomeUsesCompactHeader(PhoneMediaPage.LIBRARIES))
+        assertFalse(phoneMediaHomeUsesCompactHeader(PhoneMediaPage.CATEGORIES))
+    }
+
+    @Test
     fun homeShowsOnlyRecentPreview() {
         val entries = (1..10).map(::poster)
         assertEquals((1..6).map(::poster), phoneMediaCatalogForPage(entries, PhoneMediaPage.HOME))

@@ -43,6 +43,8 @@ private const val PHONE_HOME_PREVIEW_ROWS = 3
 
 internal fun phoneMediaShowsBack(page: PhoneMediaPage): Boolean = page != PhoneMediaPage.HOME
 
+internal fun phoneMediaHomeUsesCompactHeader(page: PhoneMediaPage): Boolean = page == PhoneMediaPage.HOME
+
 internal fun phoneMediaPageForTab(tab: String): PhoneMediaPage = when (tab) {
     "libraries" -> PhoneMediaPage.LIBRARIES
     "categories" -> PhoneMediaPage.CATEGORIES
@@ -73,7 +75,11 @@ internal fun phoneMediaCatalogForPage(entries: List<MediaPoster>, page: PhoneMed
                         Text(when (page) {
                             PhoneMediaPage.HOME -> "影视中心"; PhoneMediaPage.LIBRARIES -> "媒体库"; PhoneMediaPage.CATEGORIES -> "分类"
                         }, Modifier.weight(1f).semantics { heading() },
-                            style = if (page == PhoneMediaPage.HOME) PhoneMediaType.workTitle else PhoneMediaType.pageTitle)
+                            style = if (page == PhoneMediaPage.HOME) PhoneMediaType.workTitle else PhoneMediaType.pageTitle,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (phoneMediaHomeUsesCompactHeader(page) && state.canSearch) {
+                            MediaSearchPill({ onAction(PhoneMediaAction.Search) })
+                        }
                         if (page == PhoneMediaPage.LIBRARIES && state.canManage) {
                             MediaIconAction(R.drawable.ic_settings, "管理媒体库", { onAction(PhoneMediaAction.ManageLibraries) })
                         }
@@ -82,7 +88,7 @@ internal fun phoneMediaCatalogForPage(entries: List<MediaPoster>, page: PhoneMed
                         }
                     }
                 }
-                if (state.canSearch) item(key = "search-entry", span = { GridItemSpan(maxLineSpan) }) {
+                if (state.canSearch && !phoneMediaHomeUsesCompactHeader(page)) item(key = "search-entry", span = { GridItemSpan(maxLineSpan) }) {
                     MediaSearchEntry(onClick = { onAction(PhoneMediaAction.Search) })
                 }
                 state.problem?.let { problem -> item(key = "problem", span = { GridItemSpan(maxLineSpan) }) {
@@ -224,7 +230,7 @@ internal fun phoneMediaCatalogForPage(entries: List<MediaPoster>, page: PhoneMed
     LaunchedEffect(canAdvance, pager.currentPage, entries.map { it.id }) {
         if (canAdvance) { kotlinx.coroutines.delay(8_000); pager.animateScrollToPage((pager.currentPage + 1) % entries.size) }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Box(Modifier.fillMaxWidth()) {
         HorizontalPager(pager, key = { entries[it].id }, modifier = Modifier.fillMaxWidth()
             .onFocusChanged { focused = it.hasFocus }.focusGroup().pointerInput(Unit) {
                 try { awaitPointerEventScope { while (true) {
@@ -270,7 +276,7 @@ internal fun phoneMediaCatalogForPage(entries: List<MediaPoster>, page: PhoneMed
                             Text(rating.value, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = PhoneMediaType.badge)
                         }
                     }
-                    Column(Modifier.align(Alignment.BottomStart).padding(16.dp)) {
+                    Column(Modifier.align(Alignment.BottomStart).padding(start = 16.dp, end = if (entries.size > 1) 132.dp else 16.dp, bottom = 16.dp)) {
                         Text(entry.title, color = titleColor, style = PhoneMediaType.workTitle,
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                         if (entry.subtitle.isNotBlank() && entry.subtitle != entry.title) {
@@ -281,19 +287,18 @@ internal fun phoneMediaCatalogForPage(entries: List<MediaPoster>, page: PhoneMed
                 }
             }
         }
-        if (entries.size > 1) Row(Modifier.fillMaxWidth().heightIn(min = 40.dp), verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (entries.size > 1) Surface(Modifier.align(Alignment.BottomEnd).padding(end = 12.dp, bottom = 12.dp),
+            color = MaterialTheme.colorScheme.surface.copy(alpha = .9f), shape = MaterialTheme.shapes.small) {
+            Row(Modifier.padding(horizontal = 4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically) {
                 repeat(entries.size) { index ->
-                    Box(Modifier.size(if (index == pager.currentPage) 18.dp else 6.dp).clip(CircleShape).background(
+                    Box(Modifier.size(if (index == pager.currentPage) 16.dp else 6.dp).clip(CircleShape).background(
                         if (index == pager.currentPage) MaterialTheme.colorScheme.primary
                         else MaterialTheme.colorScheme.outlineVariant))
                 }
-            }
-            Text("${pager.currentPage + 1} / ${entries.size}", style = PhoneMediaType.secondary,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onClick = { onAction(PhoneMediaAction.SetCarouselAutoAdvance(!state.carouselAutoAdvance)) },
-                modifier = Modifier.heightIn(min = 48.dp), contentPadding = PaddingValues(horizontal = 8.dp)) {
-                Text(if (state.carouselAutoAdvance) "暂停轮播" else "自动轮播", style = PhoneMediaType.action)
+                MediaIconAction(if (state.carouselAutoAdvance) Art.drawable.fileway_ic_pause else Art.drawable.fileway_ic_play_arrow,
+                    if (state.carouselAutoAdvance) "暂停轮播" else "自动轮播",
+                    { onAction(PhoneMediaAction.SetCarouselAutoAdvance(!state.carouselAutoAdvance)) })
             }
         }
     }
