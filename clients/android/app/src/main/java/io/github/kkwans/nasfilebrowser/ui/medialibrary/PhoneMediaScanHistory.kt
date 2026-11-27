@@ -55,7 +55,7 @@ internal fun PhoneMediaScanHistory(
         if (reviewScanId == null) load()
     }
     if (reviewScanId != null) {
-        PhoneMediaScanProgress(repository, libraryId, reviewScanId, { onSelect(null) }, onReviewItem, onCatalogChanged,
+        PhoneMediaScanProgress(repository, libraryId, reviewScanId, onBack, { onSelect(null) }, onReviewItem, onCatalogChanged,
             reviewInitiallyOpen = reviewInitiallyOpen, onBrowse = onBrowse)
     } else {
         ScanHistoryPage("扫描记录", onBack, refresh = { scope.launch { load() } }, busy = busy) {
@@ -80,7 +80,7 @@ internal fun PhoneMediaScanHistory(
 
 @Composable
 private fun PhoneMediaScanProgress(repository: MediaLibraryRepository, libraryId: String, scanId: String,
-    onBack: () -> Unit, onReviewItem: (MediaCatalogRef) -> Unit, onCatalogChanged: () -> Unit,
+    onBack: () -> Unit, onHistory: () -> Unit, onReviewItem: (MediaCatalogRef) -> Unit, onCatalogChanged: () -> Unit,
     reviewInitiallyOpen: Boolean = false, onBrowse: () -> Unit) {
     var scan by remember(repository, scanId) { mutableStateOf<MediaScan?>(null) }
     var metadata by remember(repository, scanId) { mutableStateOf<MediaMetadataJob?>(null) }
@@ -152,7 +152,7 @@ private fun PhoneMediaScanProgress(repository: MediaLibraryRepository, libraryId
     ScanHistoryPage(resultTitle, onBack, refresh = { refresh++ }, busy = busy || changing) {
         scan?.let { entry -> item {
             MediaSettingsGroup(if (entry.status == MediaScanStatus.COMPLETED) "目录扫描结果" else "目录扫描") {
-                ScanProgressText(directoryStatus(entry.status), "已处理 ${entry.processed} 项")
+                ScanProgressText(directoryStatus(entry.status), "${mediaScanModeLabel(entry.mode)} · 已处理 ${entry.processed} 项")
                 mediaDirectoryScanAction(entry.status)?.let { action ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                         TextButton(onClick = {
@@ -185,6 +185,7 @@ private fun PhoneMediaScanProgress(repository: MediaLibraryRepository, libraryId
                 if (entry.status == MediaScanStatus.COMPLETED) {
                     MediaSettingsAction("浏览已收录影片", "返回媒体库并筛选当前媒体库", R.drawable.ic_library, action = onBrowse)
                 }
+                MediaSettingsAction("历史记录", "仅查看本次结果时，可在这里打开过往扫描", R.drawable.ic_search, action = onHistory)
             }
         } }
         metadata?.let { job -> item {
@@ -253,6 +254,18 @@ private fun ScanProgressText(title: String, details: String) {
     }
 }
 
+internal fun mediaScanModeLabel(mode: MediaScanMode): String = when (mode) {
+    MediaScanMode.INCREMENTAL -> "增量扫描"
+    MediaScanMode.FULL_FILL -> "全量补齐"
+    MediaScanMode.FULL_COVER -> "全量覆盖"
+}
+
+internal fun mediaScanModeDescription(mode: MediaScanMode): String = when (mode) {
+    MediaScanMode.INCREMENTAL -> "复用未变化视频的技术信息，只处理新增或变化内容；不会移除已消失的条目。"
+    MediaScanMode.FULL_FILL -> "遍历全部目录补齐新增和变化内容；不会移除已消失的条目。"
+    MediaScanMode.FULL_COVER -> "遍历全部目录更新内容，并将确认已消失的条目标记为缺失。"
+}
+
 internal enum class MediaDirectoryScanAction { CANCEL, RETRY }
 
 internal fun mediaDirectoryScanAction(status: MediaScanStatus): MediaDirectoryScanAction? = when (status) {
@@ -267,6 +280,7 @@ internal fun mediaScanHistoryActionLabel(status: MediaScanStatus): String =
 
 internal fun mediaScanHistorySubtitle(scan: MediaScan): String = buildList {
     add(directoryStatus(scan.status))
+    add(mediaScanModeLabel(scan.mode))
     add("已处理 ${scan.processed} 项")
     if (scan.updatedAt > 0) add(serverTime(scan.updatedAt))
 }.joinToString(" · ")

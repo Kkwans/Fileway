@@ -157,6 +157,22 @@ func TestScanObservationRollbackReplayAndCancellationFence(t *testing.T) {
 	}
 }
 
+func TestScanModesPersistAndFenceOperationReplay(t *testing.T) {
+	store := openTestStore(t)
+	library := createLibrary(t, store, 7, "Films")
+	binding := createBoundSource(t, store, library)
+	job, err := store.EnqueueScan(t.Context(), 7, binding.Ref(), "mode-operation", 1, ScanModeIncremental)
+	if err != nil || job.Checkpoint.Mode != ScanModeIncremental {
+		t.Fatalf("incremental mode: %+v %v", job, err)
+	}
+	if _, err := store.EnqueueScan(t.Context(), 7, binding.Ref(), "mode-operation", 1, ScanModeFullCover); !errors.Is(err, ErrRevisionConflict) {
+		t.Fatalf("mode replay conflict: %v", err)
+	}
+	if _, err := store.EnqueueScan(t.Context(), 7, binding.Ref(), "invalid-mode", 1, ScanMode("invalid")); !errors.Is(err, ErrInvalid) {
+		t.Fatalf("invalid mode accepted: %v", err)
+	}
+}
+
 func TestScanRecoveryResetsTraversalAndPreservesCatalog(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "restart.db")
 	store, err := Open(t.Context(), path)

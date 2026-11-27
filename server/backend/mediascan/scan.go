@@ -93,6 +93,7 @@ type Options struct {
 	// ProbeMedia is enabled by persistent scans only when online metadata is
 	// configured. A failure leaves technical evidence unknown and never fails the scan.
 	ProbeMedia func(context.Context, *os.File) (mediatools.MediaObservation, error)
+	Mode       medialibrary.ScanMode
 }
 
 type Result struct {
@@ -313,8 +314,12 @@ func (w *walker) videoInContext(ctx context.Context, locator, name string, direc
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	sourceVersion := fmt.Sprintf("v1:%d:%d", initial.Size(), initial.ModTime().UnixNano())
 	var technical *mediatools.MediaObservation
-	if w.options.ProbeMedia != nil {
+	if w.options.Mode == medialibrary.ScanModeIncremental && expected.SourceVersion == sourceVersion {
+		technical = expected.Technical
+	}
+	if technical == nil && w.options.ProbeMedia != nil {
 		probed, probeErr := w.options.ProbeMedia(ctx, file.File)
 		if probeErr != nil {
 			if ctx.Err() != nil {
@@ -362,7 +367,7 @@ func (w *walker) videoInContext(ctx context.Context, locator, name string, direc
 	}
 	observation := Observation{
 		OwnerUserID: w.actor, Binding: w.binding, ObjectKey: key, Identity: identity,
-		Locator: abs, ExpectedRevision: expected.FileRevision, ExpectedLocatorRevision: expected.LocatorRevision, SourceVersion: fmt.Sprintf("v1:%d:%d", initial.Size(), initial.ModTime().UnixNano()),
+		Locator: abs, ExpectedRevision: expected.FileRevision, ExpectedLocatorRevision: expected.LocatorRevision, SourceVersion: sourceVersion,
 		SizeBytes: initial.Size(), DurationMs: durationMs, Technical: technical, InitialTitle: displayTitle(name), NFO: nfo, NFOStatus: nfoStatus,
 		DirectoryContext: directory, ParsedName: &parsedName,
 	}

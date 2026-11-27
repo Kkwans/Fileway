@@ -21,8 +21,8 @@ import (
 type scanScheduler interface {
 	Ready(context.Context) error
 	Wake()
-	EnqueueScanByBindingID(context.Context, uint, string, string, int64, string, int64) (*medialibrary.ScanJob, error)
-	EnqueueScanBatch(context.Context, uint, string, string, int64, []medialibrary.ScanBatchSource) ([]medialibrary.ScanJob, error)
+	EnqueueScanByBindingID(context.Context, uint, string, string, int64, string, int64, ...medialibrary.ScanMode) (*medialibrary.ScanJob, error)
+	EnqueueScanBatch(context.Context, uint, string, string, int64, []medialibrary.ScanBatchSource, ...medialibrary.ScanMode) ([]medialibrary.ScanJob, error)
 	CancelScanWithOperation(context.Context, uint, string, int64, string) (*medialibrary.ScanJob, error)
 	RetryScanWithOperation(context.Context, uint, string, int64, string) (*medialibrary.ScanJob, error)
 }
@@ -32,6 +32,7 @@ type mediaScanBody struct {
 	OperationID      string `json:"operationId"`
 	RulesRevision    int64  `json:"rulesRevision"`
 	ExpectedRevision int64  `json:"expectedRevision"`
+	Mode             string `json:"mode"`
 }
 
 type mediaScanRetryBody struct {
@@ -54,6 +55,7 @@ type mediaScanSummary struct {
 	Generation    int64  `json:"generation"`
 	Attempt       int64  `json:"attempt"`
 	RulesRevision int64  `json:"rulesRevision"`
+	Mode          string `json:"mode"`
 	Phase         string `json:"phase"`
 	Processed     int64  `json:"processed"`
 	CreatedAt     int64  `json:"createdAt"`
@@ -89,7 +91,7 @@ func mediaScanSupportHandler(scheduler scanScheduler) handleFunc {
 // or a checkpoint's LastObjectKey through a task response.
 func scanSummary(job *medialibrary.ScanJob) mediaScanSummary {
 	return mediaScanSummary{ID: job.ID, LibraryID: job.LibraryID, BindingID: job.Binding.BindingID, Status: job.Status, ErrorCode: job.ErrorCode, Generation: job.Generation, Attempt: job.Attempt,
-		RulesRevision: job.RulesRevision, Phase: job.Checkpoint.Phase, Processed: job.Checkpoint.Processed, CreatedAt: job.CreatedAt, UpdatedAt: job.UpdatedAt}
+		RulesRevision: job.RulesRevision, Mode: string(job.Checkpoint.Mode), Phase: job.Checkpoint.Phase, Processed: job.Checkpoint.Processed, CreatedAt: job.CreatedAt, UpdatedAt: job.UpdatedAt}
 }
 
 func mediaScanManagement(fn handleFunc) handleFunc {
@@ -138,6 +140,13 @@ func mediaScanCreateHandler(scheduler scanScheduler) handleFunc {
 		if decodeMediaScanBody(w, r, &body) != nil || !validScanID(body.BindingID) || !validScanID(body.OperationID) || body.ExpectedRevision < 1 || body.RulesRevision != mediascan.LocalRulesRevision {
 			return http.StatusBadRequest, fmt.Errorf("扫描参数无效")
 		}
+		mode := medialibrary.ScanMode(body.Mode)
+		if mode == "" {
+			mode = medialibrary.ScanModeFullCover
+		}
+		if !medialibrary.ValidScanMode(mode) {
+			return http.StatusBadRequest, fmt.Errorf("扫描模式无效")
+		}
 		binding, err := d.store.MediaLibrary.GetLibrarySourceByID(r.Context(), d.user.ID, body.BindingID)
 		if err != nil {
 			return mediaScanError(err)
@@ -151,7 +160,7 @@ func mediaScanCreateHandler(scheduler scanScheduler) handleFunc {
 		if scheduler.Ready(r.Context()) != nil {
 			return http.StatusServiceUnavailable, fmt.Errorf("扫描服务暂不可用")
 		}
-		job, err := scheduler.EnqueueScanByBindingID(r.Context(), d.user.ID, binding.LibraryID, body.BindingID, body.ExpectedRevision, body.OperationID, body.RulesRevision)
+		job, err := scheduler.EnqueueScanByBindingID(r.Context(), d.user.ID, binding.LibraryID, body.BindingID, body.ExpectedRevision, body.OperationID, body.RulesRevision, mode)
 		if err != nil {
 			return mediaScanError(err)
 		}
@@ -168,9 +177,17 @@ func mediaScanBatchHandler(scheduler scanScheduler) handleFunc {
 		var body struct {
 			OperationID   string                         `json:"operationId"`
 			RulesRevision int64                          `json:"rulesRevision"`
+			Mode          string                         `json:"mode"`
 			Sources       []medialibrary.ScanBatchSource `json:"sources"`
 		}
 		if decodeMediaScanBody(w, r, &body) != nil || !validScanID(body.OperationID) || body.RulesRevision != mediascan.LocalRulesRevision || len(body.Sources) == 0 || len(body.Sources) > medialibrary.MaxScanBatchSources {
+			return mediaScanError(medialibrary.ErrInvalid)
+		}
+		mode := medialibrary.ScanMode(body.Mode)
+		if mode == "" {
+			mode = medialibrary.ScanModeFullCover
+		}
+		if !medialibrary.ValidScanMode(mode) {
 			return mediaScanError(medialibrary.ErrInvalid)
 		}
 		library, err := itemLibrary(r, d)
@@ -196,7 +213,7 @@ func mediaScanBatchHandler(scheduler scanScheduler) handleFunc {
 				return mediaScanError(err)
 			}
 		}
-		jobs, err := scheduler.EnqueueScanBatch(ctx, d.user.ID, library.ID, body.OperationID, body.RulesRevision, body.Sources)
+		jobs, err := scheduler.EnqueueScanBatch(ctx, d.user.ID, library.ID, body.OperationID, body.RulesRevision, body.Sources, mode)
 		if err != nil {
 			return mediaScanError(err)
 		}

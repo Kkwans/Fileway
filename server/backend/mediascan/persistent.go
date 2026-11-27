@@ -16,7 +16,7 @@ import (
 // LocalRulesRevision identifies the scanner's extension, naming and sidecar
 // rules. Change it whenever those rules change; a claimed job must never be
 // resumed under a different rule set while retaining its old revision label.
-const LocalRulesRevision int64 = 18
+const LocalRulesRevision int64 = 19
 
 var ErrScanRulesUnavailable = errors.New("media scan rules revision is unavailable")
 
@@ -105,6 +105,7 @@ func Run(ctx context.Context, actor uint, store *medialibrary.Store, coord *medi
 	if job.RulesRevision != LocalRulesRevision {
 		return result, ErrScanRulesUnavailable
 	}
+	options.Mode = job.Checkpoint.Mode
 	if options.ProbeMedia == nil {
 		if policy, policyErr := store.GetLibraryMetadataPolicy(ctx, actor, job.LibraryID); policyErr == nil && policy.OnlineEnabled() {
 			options.ProbeMedia = mediatools.ProbeMedia
@@ -139,44 +140,46 @@ func Run(ctx context.Context, actor uint, store *medialibrary.Store, coord *medi
 	if err != nil {
 		return result, err
 	}
-	w := walker{source: source, binding: lease.Binding, actor: actor, options: options}
-	after := ""
-	for {
-		page, err := coord.ListScanMissingCandidates(ctx, actor, lease, after, 100)
-		if err != nil {
-			return result, err
-		}
-		confirmations := make([]medialibrary.ScanMissingConfirmation, 0, len(page.Items))
-		for _, candidate := range page.Items {
-			missing, missingReason, err := w.missingCandidate(ctx, candidate.Locator)
+	if job.Checkpoint.Mode == medialibrary.ScanModeFullCover {
+		w := walker{source: source, binding: lease.Binding, actor: actor, options: options}
+		after := ""
+		for {
+			page, err := coord.ListScanMissingCandidates(ctx, actor, lease, after, 100)
 			if err != nil {
 				return result, err
 			}
-			if !missing {
-				// The object may have moved or been replaced while enumerating. A
-				// fresh whole-root scan is safer than asserting absence.
-				return result, ErrCandidateUncertain
+			confirmations := make([]medialibrary.ScanMissingConfirmation, 0, len(page.Items))
+			for _, candidate := range page.Items {
+				missing, missingReason, err := w.missingCandidate(ctx, candidate.Locator)
+				if err != nil {
+					return result, err
+				}
+				if !missing {
+					// The object may have moved or been replaced while enumerating. A
+					// fresh whole-root scan is safer than asserting absence.
+					return result, ErrCandidateUncertain
+				}
+				confirmations = append(confirmations, medialibrary.ScanMissingConfirmation{
+					SourceFileID: candidate.SourceFileID, Locator: append([]byte(nil), candidate.Locator...), FileRevision: candidate.FileRevision, LocatorRevision: candidate.LocatorRevision,
+					SeenJobID: candidate.SeenJobID, SeenGeneration: candidate.SeenGeneration, MissingReason: missingReason,
+				})
 			}
-			confirmations = append(confirmations, medialibrary.ScanMissingConfirmation{
-				SourceFileID: candidate.SourceFileID, Locator: append([]byte(nil), candidate.Locator...), FileRevision: candidate.FileRevision, LocatorRevision: candidate.LocatorRevision,
-				SeenJobID: candidate.SeenJobID, SeenGeneration: candidate.SeenGeneration, MissingReason: missingReason,
-			})
-		}
-		if len(confirmations) != 0 {
-			next := checkpoint
-			next.Sequence++
-			if err := coord.CommitScanMissing(ctx, actor, lease, confirmations, next); err != nil {
-				return result, err
+			if len(confirmations) != 0 {
+				next := checkpoint
+				next.Sequence++
+				if err := coord.CommitScanMissing(ctx, actor, lease, confirmations, next); err != nil {
+					return result, err
+				}
+				checkpoint = next
 			}
-			checkpoint = next
+			if page.NextCursor == "" {
+				break
+			}
+			if page.NextCursor == after {
+				return result, fs.ErrInvalid
+			}
+			after = page.NextCursor
 		}
-		if page.NextCursor == "" {
-			break
-		}
-		if page.NextCursor == after {
-			return result, fs.ErrInvalid
-		}
-		after = page.NextCursor
 	}
 	if err := coord.CompleteScanReconciliation(ctx, actor, lease, checkpoint.Sequence); err != nil {
 		return result, err

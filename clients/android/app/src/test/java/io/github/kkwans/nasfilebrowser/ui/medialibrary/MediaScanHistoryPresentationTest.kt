@@ -22,7 +22,7 @@ class MediaScanHistoryPresentationTest {
 
     @Test
     fun missingTimestampIsNotInvented() {
-        assertEquals("扫描完成 · 已处理 12 项", mediaScanHistorySubtitle(scan(MediaScanStatus.COMPLETED, 0)))
+        assertEquals("扫描完成 · 全量覆盖 · 已处理 12 项", mediaScanHistorySubtitle(scan(MediaScanStatus.COMPLETED, 0)))
     }
 
     @Test

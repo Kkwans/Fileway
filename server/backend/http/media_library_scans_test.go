@@ -256,13 +256,13 @@ func TestMediaLibraryHTTPRealScanJourneyAndOwnerBoundary(t *testing.T) {
 	if r := f.call(t, 0, http.MethodPost, base+"/scans", map[string]any{}); r.Code != http.StatusUnauthorized {
 		t.Fatalf("anonymous scan: %d", r.Code)
 	}
-	body := map[string]any{"bindingId": source.ID, "operationId": "scan-1", "expectedRevision": source.Revision, "rulesRevision": mediascan.LocalRulesRevision}
+	body := map[string]any{"bindingId": source.ID, "operationId": "scan-1", "expectedRevision": source.Revision, "rulesRevision": mediascan.LocalRulesRevision, "mode": "incremental"}
 	response := f.call(t, f.owner.ID, http.MethodPost, base+"/scans", body)
 	if response.Code != http.StatusAccepted {
 		t.Fatalf("scan enqueue: %d %s", response.Code, response.Body)
 	}
 	var job mediaScanSummary
-	if err := json.Unmarshal(response.Body.Bytes(), &job); err != nil || job.ID == "" {
+	if err := json.Unmarshal(response.Body.Bytes(), &job); err != nil || job.ID == "" || job.Mode != "incremental" {
 		t.Fatalf("scan response: %+v %v", job, err)
 	}
 	if strings.Contains(response.Body.String(), "/films") || strings.Contains(response.Body.String(), "lastObjectKey") || strings.Contains(response.Body.String(), localMediaWorkspaceConfiguration) {
@@ -286,6 +286,9 @@ func TestMediaLibraryHTTPRealScanJourneyAndOwnerBoundary(t *testing.T) {
 	}
 	if r := f.call(t, f.owner.ID, http.MethodPost, base+"/scans", map[string]any{"bindingId": source.ID, "operationId": "forged-scan", "expectedRevision": source.Revision, "rulesRevision": 1, "root": "/"}); r.Code != http.StatusBadRequest {
 		t.Fatalf("arbitrary root accepted: %d %s", r.Code, r.Body)
+	}
+	if r := f.call(t, f.owner.ID, http.MethodPost, base+"/scans", map[string]any{"bindingId": source.ID, "operationId": "bad-mode", "expectedRevision": source.Revision, "rulesRevision": mediascan.LocalRulesRevision, "mode": "quick"}); r.Code != http.StatusBadRequest {
+		t.Fatalf("invalid scan mode accepted: %d %s", r.Code, r.Body)
 	}
 }
 

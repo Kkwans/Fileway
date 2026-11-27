@@ -20,14 +20,19 @@ request as a successful response from an older server.
 ## Scanning multiple folders
 
 A library can bind multiple Fileway server folders. `POST /libraries/{id}/scan-batches`
-takes an `operationId`, `rulesRevision` from `/scan-support`, and `sources`
-containing 1–60 selected `{bindingId, expectedRevision}` entries. It queues
-all selected roots together and returns 202 with `items`, one job per binding.
-An already running job for the same binding and revision is reused. Each job
-has its own progress, cancellation, and retry. Retrying the batch with the
-same operation ID and sources returns the original receipt, even if the job
-has completed. The batch uses the existing local scan rules, including
-recursive enumeration and read-only NFO import.
+takes an `operationId`, `rulesRevision` from `/scan-support`, optional `mode`,
+and `sources` containing 1–60 selected `{bindingId, expectedRevision}` entries.
+Supported modes are `incremental`, `full_fill`, and `full_cover`; omission keeps
+the legacy full-cover behavior. Incremental scans reuse technical evidence for
+unchanged videos while still checking NFO and directory evidence. Full-fill
+scans traverse and update everything without marking absent entries missing.
+Full-cover additionally publishes confirmed absences as missing. All modes are
+read-only with respect to source media and NFO files. The batch queues selected
+roots together and returns 202 with `items`, one job per binding. An already
+running job for the same binding, revision, and mode is reused. Each job has its
+own progress, cancellation, and retry. Retrying the batch with the same
+operation ID and inputs returns the original receipt, even if the job has
+completed.
 
 `GET /libraries/{id}/scans` lists the current library owner's recent scans,
 newest first. It accepts `limit` and `cursor`, and returns `items` and

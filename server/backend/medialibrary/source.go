@@ -4,10 +4,13 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/Kkwans/nas-file-browser/backend/mediatools"
 )
 
 // LocalSource stores a reference to separately authorized connection settings,
@@ -117,6 +120,8 @@ type FileObservation struct {
 type FileObservationRevision struct {
 	FileRevision    int64
 	LocatorRevision int64
+	SourceVersion   string
+	Technical       *mediatools.MediaObservation
 }
 
 // CreateLocalSource registers an owner connection and its first library root in
@@ -353,16 +358,30 @@ func (store *Store) GetObservationRevision(ctx context.Context, actor uint, bind
 	if _, err := validateSourceBinding(ctx, store.db, actor, binding); err != nil {
 		return revision, err
 	}
-	err := store.db.QueryRowContext(ctx, `SELECT COALESCE(f.revision,0),COALESCE(lf.locator_revision,0)
+	var technicalJSON sql.NullString
+	err := store.db.QueryRowContext(ctx, `SELECT COALESCE(f.revision,0),COALESCE(lf.locator_revision,0),COALESCE(f.source_version,''),
+(SELECT json_extract(ie.evidence_json,'$.technical') FROM identification_evidence ie WHERE ie.library_id=ls.library_id AND ie.source_file_id=f.id AND ie.binding_id=ls.binding_id AND ie.binding_epoch=ls.proof_epoch ORDER BY ie.revision DESC LIMIT 1)
 FROM library_source ls JOIN library l ON l.id=ls.library_id JOIN source s ON s.id=ls.source_id
 LEFT JOIN source_file f ON f.source_id=s.id AND f.object_key=?
 LEFT JOIN library_file lf ON lf.library_id=ls.library_id AND lf.source_id=ls.source_id AND lf.root_locator=ls.root_locator AND lf.source_file_id=f.id AND lf.binding_epoch=ls.proof_epoch
 WHERE ls.binding_id=? AND ls.library_id=? AND ls.source_id=? AND ls.root_locator=? AND ls.proof_epoch=? AND ls.revision=? AND s.authorization_revision=? AND l.owner_user_id=? AND s.owner_user_id=? AND s.kind='local' AND l.archived_at IS NULL`,
-		objectKey, binding.BindingID, binding.LibraryID, binding.SourceID, binding.RootLocator, binding.ProofEpoch, binding.BindingRevision, binding.AuthorizationRevision, actor, actor).Scan(&revision.FileRevision, &revision.LocatorRevision)
+		objectKey, binding.BindingID, binding.LibraryID, binding.SourceID, binding.RootLocator, binding.ProofEpoch, binding.BindingRevision, binding.AuthorizationRevision, actor, actor).Scan(&revision.FileRevision, &revision.LocatorRevision, &revision.SourceVersion, &technicalJSON)
 	if errors.Is(err, sql.ErrNoRows) {
 		return revision, ErrRevisionConflict
 	}
-	return revision, err
+	if err != nil {
+		return revision, err
+	}
+	if technicalJSON.Valid && technicalJSON.String != "" {
+		var technical mediatools.MediaObservation
+		if err := json.Unmarshal([]byte(technicalJSON.String), &technical); err != nil {
+			return revision, err
+		}
+		if technical.Valid() == nil {
+			revision.Technical = &technical
+		}
+	}
+	return revision, nil
 }
 
 const sourceFileSelection = `SELECT f.id, f.source_id, f.object_key, f.locator, f.source_version, f.size_bytes, f.revision, f.observed_at, f.missing_since, f.identity_kind, f.identity_epoch FROM source_file f`

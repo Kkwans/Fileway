@@ -77,6 +77,7 @@ enum class MediaScanUnavailableReason { NOT_ENABLED, COORDINATOR_UNAVAILABLE, UN
 data class MediaScanSupport(val localRulesRevision: Long, val available: Boolean, val reason: MediaScanUnavailableReason?)
 
 enum class MediaScanStatus { QUEUED, RUNNING, COMPLETED, FAILED, CANCELED, INTERRUPTED, UNKNOWN }
+enum class MediaScanMode(val wire: String) { INCREMENTAL("incremental"), FULL_FILL("full_fill"), FULL_COVER("full_cover") }
 enum class MediaScanPhase { ENUMERATE, RECONCILE, READY, UNKNOWN }
 
 data class MediaScan(
@@ -84,6 +85,7 @@ data class MediaScan(
     val attempt: Long, val rulesRevision: Long, val phase: MediaScanPhase, val processed: Long,
     val createdAt: Long, val updatedAt: Long, val errorCode: String?, val bindingId: String? = null,
     val sourceLabel: String? = null,
+    val mode: MediaScanMode = MediaScanMode.FULL_COVER,
 )
 data class MediaScanBatch(val libraryId: String, val items: List<MediaScan>)
 
@@ -188,10 +190,16 @@ internal fun parseMediaScan(row: JSONObject): MediaScan {
     }
     val code = row.optionalMediaString("errorCode")
     require(code == null || code.matches(Regex("[a-z0-9_]{1,80}"))) { "扫描错误码无效" }
+    val mode = when (row.optionalMediaString("mode")) {
+        "incremental" -> MediaScanMode.INCREMENTAL
+        "full_fill" -> MediaScanMode.FULL_FILL
+        null, "full_cover" -> MediaScanMode.FULL_COVER
+        else -> error("扫描模式无效")
+    }
     return MediaScan(row.mediaId("id"), row.mediaId("libraryId"), status, row.mediaLong("generation", 1),
         row.mediaLong("attempt", 0), row.mediaLong("rulesRevision", 1), phase, row.mediaLong("processed", 0),
         row.mediaLong("createdAt", 1), row.mediaLong("updatedAt", 1), code,
-        row.optionalMediaString("bindingId")?.also(::requireMediaRouteId), row.optionalMediaString("sourceLabel"))
+        row.optionalMediaString("bindingId")?.also(::requireMediaRouteId), row.optionalMediaString("sourceLabel"), mode)
 }
 
 internal fun parseMetadataJob(row: JSONObject) = MediaMetadataJob(

@@ -12,6 +12,7 @@ import (
 
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/mediasource"
+	"github.com/Kkwans/nas-file-browser/backend/mediatools"
 )
 
 type persistentFixture struct {
@@ -111,6 +112,20 @@ func (f *persistentFixture) claim(t *testing.T) medialibrary.ScanLease {
 	return *lease
 }
 
+func (f *persistentFixture) claimWithMode(t *testing.T, mode medialibrary.ScanMode) medialibrary.ScanLease {
+	t.Helper()
+	f.count++
+	job, err := f.store.EnqueueScan(t.Context(), 7, f.binding.Ref(), fmt.Sprintf("fixture-operation-%d", f.count), LocalRulesRevision, mode)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lease, err := f.coord.ClaimScan(t.Context(), 7, job.ID, job.Generation)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return *lease
+}
+
 func (f *persistentFixture) catalog(t *testing.T) []medialibrary.CatalogItem {
 	t.Helper()
 	page, err := f.store.ListCatalogItems(t.Context(), 7, f.binding.LibraryID, medialibrary.CatalogListOptions{Limit: 100})
@@ -160,6 +175,34 @@ func TestPersistentLocalScanJourneyIsRepeatable(t *testing.T) {
 	contents, err := os.ReadFile(filepath.Join(f.root, "media", "a.mp4"))
 	if err != nil || string(contents) != "video A" {
 		t.Fatalf("source media changed: %q %v", contents, err)
+	}
+}
+
+func TestIncrementalScanReusesUnchangedTechnicalEvidence(t *testing.T) {
+	f := newPersistentFixture(t)
+	f.write(t, "a.mp4", "video A")
+	probes := 0
+	probe := func(context.Context, *os.File) (mediatools.MediaObservation, error) {
+		probes++
+		return mediatools.MediaObservation{DurationMs: 60_000, VideoCodec: "h264", DynamicRange: "sdr"}, nil
+	}
+	first := f.claimWithMode(t, medialibrary.ScanModeFullCover)
+	if _, err := Run(t.Context(), 7, f.store, f.coord, first, f.ownerResolve, Options{Mode: medialibrary.ScanModeFullCover, ProbeMedia: probe}); err != nil {
+		t.Fatal(err)
+	}
+	if probes != 1 {
+		t.Fatalf("initial probe calls = %d", probes)
+	}
+	second := f.claimWithMode(t, medialibrary.ScanModeIncremental)
+	if _, err := Run(t.Context(), 7, f.store, f.coord, second, f.ownerResolve, Options{Mode: medialibrary.ScanModeIncremental, ProbeMedia: func(context.Context, *os.File) (mediatools.MediaObservation, error) {
+		t.Fatal("incremental scan reprobed unchanged media")
+		return mediatools.MediaObservation{}, nil
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	job, err := f.store.GetScan(t.Context(), 7, second.JobID)
+	if err != nil || job.Checkpoint.Mode != medialibrary.ScanModeIncremental {
+		t.Fatalf("incremental job: %+v %v", job, err)
 	}
 }
 

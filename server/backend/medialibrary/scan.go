@@ -33,6 +33,25 @@ const (
 	ScanErrorScanFailed           = "scan_failed"
 )
 
+type ScanMode string
+
+const (
+	ScanModeIncremental ScanMode = "incremental"
+	ScanModeFullFill    ScanMode = "full_fill"
+	ScanModeFullCover   ScanMode = "full_cover"
+)
+
+func ValidScanMode(mode ScanMode) bool {
+	return mode == ScanModeIncremental || mode == ScanModeFullFill || mode == ScanModeFullCover
+}
+
+func normalizeScanMode(mode ScanMode) ScanMode {
+	if mode == "" {
+		return ScanModeFullCover
+	}
+	return mode
+}
+
 // SourceBindingRef is a consistency token, not live filesystem authority.
 // Every scan, resume, batch and finalization also requires the source adapter
 // to resolve the owner's current authority and perform safe opens.
@@ -43,11 +62,12 @@ type ScanLease struct {
 }
 
 type ScanCheckpoint struct {
-	Version       int    `json:"version"`
-	Sequence      int64  `json:"sequence"`
-	Processed     int64  `json:"processed"`
-	LastObjectKey []byte `json:"lastObjectKey,omitempty"`
-	Phase         string `json:"phase"`
+	Version       int      `json:"version"`
+	Sequence      int64    `json:"sequence"`
+	Processed     int64    `json:"processed"`
+	LastObjectKey []byte   `json:"lastObjectKey,omitempty"`
+	Phase         string   `json:"phase"`
+	Mode          ScanMode `json:"mode,omitempty"`
 }
 
 type ScanJob struct {
@@ -227,6 +247,7 @@ func readScan(row rowScanner) (*scanRecord, error) {
 	if !validCheckpoint(r.Checkpoint) {
 		return nil, fmt.Errorf("%w: persisted scan checkpoint", ErrInvalid)
 	}
+	r.Checkpoint.Mode = normalizeScanMode(r.Checkpoint.Mode)
 	return r, nil
 }
 
@@ -285,10 +306,12 @@ func sameBinding(a, b SourceBindingRef) bool {
 }
 
 func validCheckpoint(c ScanCheckpoint) bool {
-	return c.Version == 1 && c.Sequence >= 0 && c.Processed >= 0 && len(c.LastObjectKey) <= 16384 && (c.Phase == "enumerate" || c.Phase == "reconcile" || c.Phase == "ready")
+	return c.Version == 1 && c.Sequence >= 0 && c.Processed >= 0 && len(c.LastObjectKey) <= 16384 && (c.Phase == "enumerate" || c.Phase == "reconcile" || c.Phase == "ready") && (c.Mode == "" || ValidScanMode(c.Mode))
 }
 
-func initialCheckpoint() ScanCheckpoint { return ScanCheckpoint{Version: 1, Phase: "enumerate"} }
+func initialCheckpoint(mode ScanMode) ScanCheckpoint {
+	return ScanCheckpoint{Version: 1, Phase: "enumerate", Mode: normalizeScanMode(mode)}
+}
 
 func scanDigest(kind string, value any) ([]byte, error) {
 	data, err := json.Marshal(struct {
@@ -330,6 +353,11 @@ func publishScanChange(ctx context.Context, tx *sql.Tx, actor uint, job *scanRec
 }
 
 func saveScanCheckpoint(ctx context.Context, tx *sql.Tx, job *scanRecord, checkpoint ScanCheckpoint, digest []byte, result any) error {
+	job.Checkpoint.Mode = normalizeScanMode(job.Checkpoint.Mode)
+	checkpoint.Mode = normalizeScanMode(checkpoint.Mode)
+	if checkpoint.Mode != job.Checkpoint.Mode {
+		return ErrRevisionConflict
+	}
 	encoded, err := json.Marshal(checkpoint)
 	if err != nil {
 		return err
@@ -379,14 +407,18 @@ func (store *Store) ValidateScanLease(ctx context.Context, actor uint, lease Sca
 // EnqueueScan is idempotent for an operation ID within a library. A retry with
 // different binding or rules is a conflict, not a new operation. A terminal
 // failed/canceled job may be retried using a new operation ID.
-func (store *Store) EnqueueScan(ctx context.Context, actor uint, binding SourceBindingRef, operationID string, rulesRevision int64) (*ScanJob, error) {
-	if !validOperationID(operationID) || rulesRevision < 1 {
-		return nil, fmt.Errorf("%w: scan operation or rules revision", ErrInvalid)
+func (store *Store) EnqueueScan(ctx context.Context, actor uint, binding SourceBindingRef, operationID string, rulesRevision int64, modes ...ScanMode) (*ScanJob, error) {
+	mode := ScanModeFullCover
+	if len(modes) > 0 {
+		mode = normalizeScanMode(modes[0])
+	}
+	if !ValidScanMode(mode) || len(modes) > 1 {
+		return nil, fmt.Errorf("%w: scan mode", ErrInvalid)
 	}
 	var result *ScanJob
 	err := store.WithTx(ctx, func(tx *sql.Tx) error {
 		var err error
-		result, err = enqueueScanTx(ctx, tx, actor, binding, operationID, rulesRevision)
+		result, err = enqueueScanTx(ctx, tx, actor, binding, operationID, rulesRevision, mode)
 		return err
 	})
 	if err != nil {
@@ -395,16 +427,17 @@ func (store *Store) EnqueueScan(ctx context.Context, actor uint, binding SourceB
 	return result, nil
 }
 
-func enqueueScanTx(ctx context.Context, tx *sql.Tx, actor uint, binding SourceBindingRef, operationID string, rulesRevision int64) (*ScanJob, error) {
-	if !validOperationID(operationID) || rulesRevision < 1 {
-		return nil, fmt.Errorf("%w: scan operation or rules revision", ErrInvalid)
+func enqueueScanTx(ctx context.Context, tx *sql.Tx, actor uint, binding SourceBindingRef, operationID string, rulesRevision int64, mode ScanMode) (*ScanJob, error) {
+	mode = normalizeScanMode(mode)
+	if !validOperationID(operationID) || rulesRevision < 1 || !ValidScanMode(mode) {
+		return nil, fmt.Errorf("%w: scan operation, mode or rules revision", ErrInvalid)
 	}
 	if _, err := validateSourceBinding(ctx, tx, actor, binding); err != nil {
 		return nil, err
 	}
 	existing, err := readScan(tx.QueryRowContext(ctx, scanSelection+" WHERE sj.library_id = ? AND sj.operation_id = ?", binding.LibraryID, operationID))
 	if err == nil {
-		if existing.OwnerUserID != actor || !sameBinding(existing.Binding, binding) || existing.RulesRevision != rulesRevision {
+		if existing.OwnerUserID != actor || !sameBinding(existing.Binding, binding) || existing.RulesRevision != rulesRevision || existing.Checkpoint.Mode != mode {
 			return nil, ErrRevisionConflict
 		}
 		return &existing.ScanJob, nil
@@ -424,7 +457,7 @@ func enqueueScanTx(ctx context.Context, tx *sql.Tx, actor uint, binding SourceBi
 		return nil, err
 	}
 	now := time.Now().UnixMilli()
-	cp := initialCheckpoint()
+	cp := initialCheckpoint(mode)
 	encoded, err := json.Marshal(cp)
 	if err != nil {
 		return nil, err
@@ -467,7 +500,7 @@ func (store *Store) claimScan(ctx context.Context, actor uint, jobID string, exp
 		if _, err := tx.ExecContext(ctx, "UPDATE job SET status = ?, generation = ?, attempt = ?, updated_at = ? WHERE id = ?", r.Status, r.Generation, r.Attempt, r.UpdatedAt, r.ID); err != nil {
 			return err
 		}
-		if err := saveScanCheckpoint(ctx, tx, r, initialCheckpoint(), nil, nil); err != nil {
+		if err := saveScanCheckpoint(ctx, tx, r, initialCheckpoint(r.Checkpoint.Mode), nil, nil); err != nil {
 			return err
 		}
 		if err := publishScanChange(ctx, tx, actor, r, "media.scan.started"); err != nil {
@@ -957,12 +990,14 @@ func (store *Store) CompleteScanReconciliation(ctx context.Context, actor uint, 
 		if r.Checkpoint.Phase != "reconcile" {
 			return ErrScanState
 		}
-		count, err := countUnstagedMissing(ctx, tx, r)
-		if err != nil {
-			return err
-		}
-		if count != 0 {
-			return ErrRevisionConflict
+		if r.Checkpoint.Mode == ScanModeFullCover {
+			count, err := countUnstagedMissing(ctx, tx, r)
+			if err != nil {
+				return err
+			}
+			if count != 0 {
+				return ErrRevisionConflict
+			}
 		}
 		cp := r.Checkpoint
 		cp.Phase = "ready"
@@ -996,15 +1031,16 @@ func (store *Store) FinishScan(ctx context.Context, actor uint, lease ScanLease,
 			if r.Checkpoint.Phase != "ready" {
 				return ErrScanState
 			}
-			count, err := countUnstagedMissing(ctx, tx, r)
-			if err != nil {
-				return err
-			}
-			if count != 0 {
-				return ErrRevisionConflict
-			}
-			now := time.Now().UnixMilli()
-			_, err = tx.ExecContext(ctx, `UPDATE library_file AS lf SET missing_since = COALESCE(lf.missing_since, ?), missing_reason = COALESCE((SELECT c.missing_reason FROM scan_missing_candidate c JOIN source_file f ON f.id = c.source_file_id AND f.source_id = lf.source_id
+			if r.Checkpoint.Mode == ScanModeFullCover {
+				count, err := countUnstagedMissing(ctx, tx, r)
+				if err != nil {
+					return err
+				}
+				if count != 0 {
+					return ErrRevisionConflict
+				}
+				now := time.Now().UnixMilli()
+				_, err = tx.ExecContext(ctx, `UPDATE library_file AS lf SET missing_since = COALESCE(lf.missing_since, ?), missing_reason = COALESCE((SELECT c.missing_reason FROM scan_missing_candidate c JOIN source_file f ON f.id = c.source_file_id AND f.source_id = lf.source_id
 WHERE c.job_id = ? AND c.generation = ? AND c.source_file_id = lf.source_file_id AND c.file_revision = f.revision AND c.locator_revision=lf.locator_revision AND c.locator = lf.locator
 AND c.seen_job_id IS lf.last_seen_job_id AND c.seen_generation IS lf.last_seen_generation), '')
 WHERE lf.library_id = ? AND lf.source_id = ? AND lf.root_locator = ?
@@ -1013,8 +1049,9 @@ AND NOT (lf.last_seen_job_id IS ? AND lf.last_seen_generation IS ?)
 AND EXISTS (SELECT 1 FROM scan_missing_candidate c JOIN source_file f ON f.id = c.source_file_id AND f.source_id = lf.source_id
 WHERE c.job_id = ? AND c.generation = ? AND c.source_file_id = lf.source_file_id AND c.file_revision = f.revision AND c.locator_revision=lf.locator_revision AND c.locator = lf.locator
 AND c.seen_job_id IS lf.last_seen_job_id AND c.seen_generation IS lf.last_seen_generation)`, now, r.ID, r.Generation, r.LibraryID, r.Binding.SourceID, r.Binding.RootLocator, r.Binding.ProofEpoch, r.ID, r.Generation, r.ID, r.Generation)
-			if err != nil {
-				return err
+				if err != nil {
+					return err
+				}
 			}
 		}
 		r.Status, r.ErrorCode = finish.Status, finish.ErrorCode

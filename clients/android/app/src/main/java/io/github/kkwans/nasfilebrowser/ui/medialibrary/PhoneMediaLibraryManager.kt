@@ -89,6 +89,7 @@ import kotlin.coroutines.coroutineContext
         var sourceCursor by remember { mutableStateOf<String?>(null) }
         var support by remember { mutableStateOf<MediaScanSupport?>(null) }
         var scan by remember { mutableStateOf<MediaScan?>(null) }
+        var scanMode by rememberSaveable { mutableStateOf(MediaScanMode.INCREMENTAL) }
         var scanLibrary by rememberSaveable { mutableStateOf<String?>(null) }
         var scanId by rememberSaveable { mutableStateOf<String?>(null) }
         var batchIds by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
@@ -515,7 +516,7 @@ import kotlin.coroutines.coroutineContext
             if (problem != null) { setupPaused = true; error = problem }
             else {
                 val rules = support?.localRulesRevision ?: return@LaunchedEffect
-                submit("setup-scan") { repository.startScanBatch(it, library.id, activeSources, rules) }
+                submit("setup-scan") { repository.startScanBatch(it, library.id, activeSources, rules, scanMode) }
             }
         }
         val trimmedName = name.trim()
@@ -704,7 +705,7 @@ import kotlin.coroutines.coroutineContext
                                             setupCompleted.forEach { Text("已添加 · ${it.path}", style = PhoneMediaType.secondary) }
                                             draftFolders.forEach { Text("待添加 · ${it.path}", style = PhoneMediaType.secondary,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                            if (setupScanRequested) Text("全部添加后将按已保存的资料策略开始扫描。", style = PhoneMediaType.secondary)
+                                            if (setupScanRequested) Text("全部添加后将按${mediaScanModeLabel(scanMode)}开始扫描。", style = PhoneMediaType.secondary)
                                             if (setupPaused && pendingId == null) TextButton(onClick = {
                                                 setupPaused = false; error = null; refreshPage()
                                             }, enabled = !busy && !loading, modifier = Modifier.heightIn(min = 48.dp)) {
@@ -751,8 +752,9 @@ import kotlin.coroutines.coroutineContext
                                 }
                                 item(key = "scan-history") {
                                     MediaSettingsGroup("扫描与补全") {
-                                        MediaSettingsAction("扫描记录", "查看目录扫描、TMDB 补全和待确认影片", R.drawable.ic_search, enabled = !busy) {
-                                            historyScanId = null; screen = "history"
+                                        MediaSettingsAction("扫描记录", if (scan != null) "直接查看本次扫描与补全结果" else "查看目录扫描、TMDB 补全和待确认影片",
+                                            R.drawable.ic_search, enabled = !busy) {
+                                            historyScanId = scan?.id; historyReviewOpen = false; screen = "history"
                                         }
                                     }
                                 }
@@ -772,13 +774,27 @@ import kotlin.coroutines.coroutineContext
                                 if (sources.isEmpty() && !loading && error == null) item(key = "no-source") {
                                     FilewayEmptyState(R.drawable.ic_folder, "还没有来源", "选择你有权访问的服务器目录。")
                                 }
-                                if (sources.size > 1 && sourceCursor == null && sources.size <= 60 && sources.all { it.access == MediaSourceAccess.AVAILABLE }) item(key = "scan-all-sources") {
-                                    MediaSettingsGroup("扫描") {
-                                        MediaSettingsAction("扫描全部目录", "${sources.size} 个目录 · 在服务器后台运行", R.drawable.ic_search,
-                                            enabled = !busy && pendingId == null && draftLibraryId == null && support?.available == true && !loading, navigation = false) {
-                                            val rules = support?.localRulesRevision ?: return@MediaSettingsAction
-                                            val activeSources = sources
-                                            submit("scan") { repository.startScanBatch(it, library.id, activeSources, rules) }
+                                if (sources.isNotEmpty()) item(key = "scan-controls") {
+                                    MediaSettingsGroup("扫描方式") {
+                                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                MediaScanMode.entries.forEach { mode ->
+                                                    MediaSettingsChip(mediaScanModeLabel(mode), scanMode == mode,
+                                                        !busy && pendingId == null && draftLibraryId == null) { scanMode = mode }
+                                                }
+                                            }
+                                            Text(mediaScanModeDescription(scanMode), style = PhoneMediaType.secondary,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                            if (sources.all { it.access == MediaSourceAccess.AVAILABLE }) {
+                                                FilewayButton(onClick = {
+                                                    val rules = support?.localRulesRevision ?: return@FilewayButton
+                                                    submit("scan") { repository.startScanBatch(it, library.id, sources, rules, scanMode) }
+                                                }, enabled = !busy && pendingId == null && draftLibraryId == null && support?.available == true && !loading,
+                                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                                                    Text("开始${mediaScanModeLabel(scanMode)}", style = PhoneMediaType.action)
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -796,7 +812,7 @@ import kotlin.coroutines.coroutineContext
                                                     openDirectory("attest")
                                                 } else {
                                                     val rules = support?.localRulesRevision ?: return@TextButton
-                                                    submit("scan") { repository.startScan(it, library.id, source.id, source.revision, rules) }
+                                                    submit("scan") { repository.startScan(it, library.id, source.id, source.revision, rules, scanMode) }
                                                 }
                                             }, enabled = !busy && !loading && pendingId == null && draftLibraryId == null &&
                                                 (source.access == MediaSourceAccess.REBIND_REQUIRED || source.access == MediaSourceAccess.AVAILABLE && support?.available == true),

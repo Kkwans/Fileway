@@ -19,8 +19,12 @@ const MaxScanBatchSources = 60
 
 // EnqueueScanBatch queues the selected roots atomically. Both the ordinary
 // jobs and the batch receipt commit together before any worker can claim them.
-func (store *Store) EnqueueScanBatch(ctx context.Context, actor uint, libraryID, operationID string, rulesRevision int64, sources []ScanBatchSource) ([]ScanJob, error) {
-	if len(sources) == 0 || len(sources) > MaxScanBatchSources || rulesRevision < 1 {
+func (store *Store) EnqueueScanBatch(ctx context.Context, actor uint, libraryID, operationID string, rulesRevision int64, sources []ScanBatchSource, modes ...ScanMode) ([]ScanJob, error) {
+	mode := ScanModeFullCover
+	if len(modes) > 0 {
+		mode = normalizeScanMode(modes[0])
+	}
+	if len(sources) == 0 || len(sources) > MaxScanBatchSources || rulesRevision < 1 || !ValidScanMode(mode) || len(modes) > 1 {
 		return nil, ErrInvalid
 	}
 	sources = slices.Clone(sources)
@@ -33,8 +37,9 @@ func (store *Store) EnqueueScanBatch(ctx context.Context, actor uint, libraryID,
 	receipts, err := providerOperation(ctx, store, actor, "scan.enqueue.batch", operationID, struct {
 		LibraryID     string
 		RulesRevision int64
+		Mode          ScanMode
 		Sources       []ScanBatchSource
-	}{libraryID, rulesRevision, sources}, func(tx *sql.Tx) error {
+	}{libraryID, rulesRevision, mode, sources}, func(tx *sql.Tx) error {
 		library, err := activeCatalogLibrary(ctx, tx, actor, libraryID)
 		if err == nil && library.Role != RoleOwner {
 			return ErrForbidden
@@ -53,7 +58,7 @@ func (store *Store) EnqueueScanBatch(ctx context.Context, actor uint, libraryID,
 			ref := binding.Ref()
 			job, err := readScan(tx.QueryRowContext(ctx, scanSelection+" WHERE sj.binding_id=? AND sj.library_id=? AND sj.active=1", binding.ID, libraryID))
 			if err == nil {
-				if !sameBinding(job.Binding, ref) || job.RulesRevision != rulesRevision || job.OwnerUserID != actor {
+				if !sameBinding(job.Binding, ref) || job.RulesRevision != rulesRevision || job.OwnerUserID != actor || job.Checkpoint.Mode != mode {
 					return nil, ErrScanActive
 				}
 				result = append(result, scanBatchReceipt{source.BindingID, scanReceiptFromJob(&job.ScanJob)})
@@ -67,7 +72,7 @@ func (store *Store) EnqueueScanBatch(ctx context.Context, actor uint, libraryID,
 				return nil, err
 			}
 			internalID := fmt.Sprintf("batch_%x", digest[:sha256.Size/2])
-			queued, err := enqueueScanTx(ctx, tx, actor, ref, internalID, rulesRevision)
+			queued, err := enqueueScanTx(ctx, tx, actor, ref, internalID, rulesRevision, mode)
 			if err != nil {
 				return nil, err
 			}

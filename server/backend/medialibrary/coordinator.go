@@ -214,15 +214,15 @@ func (c *ScanCoordinator) FinishScan(ctx context.Context, actor uint, lease Scan
 	})
 }
 
-func (c *ScanCoordinator) EnqueueScanByBindingID(ctx context.Context, actor uint, libraryID, bindingID string, expectedBindingRevision int64, operationID string, rulesRevision int64) (*ScanJob, error) {
+func (c *ScanCoordinator) EnqueueScanByBindingID(ctx context.Context, actor uint, libraryID, bindingID string, expectedBindingRevision int64, operationID string, rulesRevision int64, modes ...ScanMode) (*ScanJob, error) {
 	return coordinatedCall(ctx, c, func(ctx context.Context, store *Store) (*ScanJob, error) {
-		return store.EnqueueScanByBindingID(ctx, actor, libraryID, bindingID, expectedBindingRevision, operationID, rulesRevision)
+		return store.EnqueueScanByBindingID(ctx, actor, libraryID, bindingID, expectedBindingRevision, operationID, rulesRevision, modes...)
 	})
 }
 
-func (c *ScanCoordinator) EnqueueScanBatch(ctx context.Context, actor uint, libraryID, operationID string, rulesRevision int64, sources []ScanBatchSource) ([]ScanJob, error) {
+func (c *ScanCoordinator) EnqueueScanBatch(ctx context.Context, actor uint, libraryID, operationID string, rulesRevision int64, sources []ScanBatchSource, modes ...ScanMode) ([]ScanJob, error) {
 	return coordinatedCall(ctx, c, func(ctx context.Context, store *Store) ([]ScanJob, error) {
-		return store.EnqueueScanBatch(ctx, actor, libraryID, operationID, rulesRevision, sources)
+		return store.EnqueueScanBatch(ctx, actor, libraryID, operationID, rulesRevision, sources, modes...)
 	})
 }
 

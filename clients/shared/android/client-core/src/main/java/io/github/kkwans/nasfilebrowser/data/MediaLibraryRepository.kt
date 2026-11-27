@@ -740,15 +740,17 @@ class MediaLibraryRepository(
         typedWrite(mutation(operation, MediaMutationKind.UNDO_METADATA, libraryId, itemId = itemId,
             body = revisionBody(operation, expectedRevision).put("targetRevision", targetRevision)))
 
-    suspend fun startScan(operation: MediaOperation, libraryId: String, bindingId: String, expectedRevision: Long, rulesRevision: Long): MediaWriteResult<MediaScan> =
+    suspend fun startScan(operation: MediaOperation, libraryId: String, bindingId: String, expectedRevision: Long, rulesRevision: Long,
+        mode: MediaScanMode = MediaScanMode.FULL_COVER): MediaWriteResult<MediaScan> =
         typedWrite(mutation(operation, MediaMutationKind.START_SCAN, libraryId,
-            body = revisionBody(operation, expectedRevision).put("bindingId", bindingId).put("rulesRevision", rulesRevision)))
+            body = revisionBody(operation, expectedRevision).put("bindingId", bindingId).put("rulesRevision", rulesRevision).put("mode", mode.wire)))
 
-    suspend fun startScanBatch(operation: MediaOperation, libraryId: String, sources: List<MediaLibrarySource>, rulesRevision: Long): MediaWriteResult<MediaScanBatch> {
+    suspend fun startScanBatch(operation: MediaOperation, libraryId: String, sources: List<MediaLibrarySource>, rulesRevision: Long,
+        mode: MediaScanMode = MediaScanMode.FULL_COVER): MediaWriteResult<MediaScanBatch> {
         require(sources.all { it.libraryId == libraryId })
         val entries = JSONArray(sources.sortedBy { it.id }.map { JSONObject().put("bindingId", it.id).put("expectedRevision", it.revision) })
         return typedWrite(mutation(operation, MediaMutationKind.START_SCAN_BATCH, libraryId,
-            body = operationBody(operation).put("rulesRevision", rulesRevision).put("sources", entries)))
+            body = operationBody(operation).put("rulesRevision", rulesRevision).put("mode", mode.wire).put("sources", entries)))
     }
 
     suspend fun cancelScan(operation: MediaOperation, libraryId: String, scanId: String, expectedGeneration: Long): MediaWriteResult<MediaScan> =

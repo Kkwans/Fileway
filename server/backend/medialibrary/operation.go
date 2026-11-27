@@ -345,6 +345,7 @@ type scanReceipt struct {
 	Generation    int64
 	Attempt       int64
 	RulesRevision int64
+	Mode          ScanMode
 	Version       int
 	Sequence      int64
 	Processed     int64
@@ -355,21 +356,29 @@ type scanReceipt struct {
 
 func scanReceiptFromJob(job *ScanJob) scanReceipt {
 	return scanReceipt{job.ID, job.LibraryID, job.OwnerUserID, job.Status, job.ErrorCode, job.Generation, job.Attempt, job.RulesRevision,
-		job.Checkpoint.Version, job.Checkpoint.Sequence, job.Checkpoint.Processed, job.Checkpoint.Phase, job.CreatedAt, job.UpdatedAt}
+		normalizeScanMode(job.Checkpoint.Mode), job.Checkpoint.Version, job.Checkpoint.Sequence, job.Checkpoint.Processed, job.Checkpoint.Phase, job.CreatedAt, job.UpdatedAt}
 }
 
 func (ack scanReceipt) job() *ScanJob {
 	return &ScanJob{ID: ack.ID, LibraryID: ack.LibraryID, OwnerUserID: ack.OwnerUserID, Status: ack.Status, ErrorCode: ack.ErrorCode,
 		Generation: ack.Generation, Attempt: ack.Attempt, RulesRevision: ack.RulesRevision,
-		Checkpoint: ScanCheckpoint{Version: ack.Version, Sequence: ack.Sequence, Processed: ack.Processed, Phase: ack.Phase}, CreatedAt: ack.CreatedAt, UpdatedAt: ack.UpdatedAt}
+		Checkpoint: ScanCheckpoint{Version: ack.Version, Sequence: ack.Sequence, Processed: ack.Processed, Phase: ack.Phase, Mode: normalizeScanMode(ack.Mode)}, CreatedAt: ack.CreatedAt, UpdatedAt: ack.UpdatedAt}
 }
 
-func (store *Store) EnqueueScanByBindingID(ctx context.Context, actor uint, libraryID, bindingID string, expectedBindingRevision int64, operationID string, rulesRevision int64) (*ScanJob, error) {
+func (store *Store) EnqueueScanByBindingID(ctx context.Context, actor uint, libraryID, bindingID string, expectedBindingRevision int64, operationID string, rulesRevision int64, modes ...ScanMode) (*ScanJob, error) {
+	mode := ScanModeFullCover
+	if len(modes) > 0 {
+		mode = normalizeScanMode(modes[0])
+	}
+	if !ValidScanMode(mode) || len(modes) > 1 {
+		return nil, ErrInvalid
+	}
 	ack, err := operationTx(ctx, store, actor, "scan.enqueue", operationID, struct {
 		LibraryID, BindingID string
 		BindingRevision      int64
 		RulesRevision        int64
-	}{libraryID, bindingID, expectedBindingRevision, rulesRevision}, func(tx *sql.Tx) (scanReceipt, error) {
+		Mode                 ScanMode
+	}{libraryID, bindingID, expectedBindingRevision, rulesRevision, mode}, func(tx *sql.Tx) (scanReceipt, error) {
 		binding, err := scanLibrarySource(tx.QueryRowContext(ctx, bindingSelection+" WHERE ls.binding_id = ? AND ls.library_id = ? AND l.owner_user_id = ? AND s.owner_user_id = ? AND s.kind = 'local'", bindingID, libraryID, actor, actor))
 		if err != nil {
 			return scanReceipt{}, err
@@ -377,7 +386,7 @@ func (store *Store) EnqueueScanByBindingID(ctx context.Context, actor uint, libr
 		if binding.Revision != expectedBindingRevision || expectedBindingRevision < 1 {
 			return scanReceipt{}, ErrRevisionConflict
 		}
-		job, err := enqueueScanTx(ctx, tx, actor, binding.Ref(), operationID, rulesRevision)
+		job, err := enqueueScanTx(ctx, tx, actor, binding.Ref(), operationID, rulesRevision, mode)
 		if err != nil {
 			return scanReceipt{}, err
 		}
@@ -437,7 +446,7 @@ func (store *Store) RetryScanWithOperation(ctx context.Context, actor uint, jobI
 		if err != nil {
 			return scanReceipt{}, err
 		}
-		job, err := enqueueScanTx(ctx, tx, actor, binding.Ref(), internalID, previous.RulesRevision)
+		job, err := enqueueScanTx(ctx, tx, actor, binding.Ref(), internalID, previous.RulesRevision, previous.Checkpoint.Mode)
 		if err != nil {
 			return scanReceipt{}, err
 		}
