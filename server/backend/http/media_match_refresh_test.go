@@ -13,10 +13,12 @@ import (
 	"github.com/Kkwans/nas-file-browser/backend/mediaprovider"
 )
 
-func TestMetadataRefreshPartsIncludeSeriesAlternatives(t *testing.T) {
-	parts := metadataRefreshParts("series")
-	if !slices.Contains(parts, mediaprovider.AlternativeTitles) {
-		t.Fatalf("series refresh parts = %v", parts)
+func TestMetadataRefreshPartsIncludeAlternatives(t *testing.T) {
+	for _, kind := range []string{"movie", "series"} {
+		parts := metadataRefreshParts(kind)
+		if !slices.Contains(parts, mediaprovider.AlternativeTitles) {
+			t.Fatalf("%s refresh parts = %v", kind, parts)
+		}
 	}
 }
 

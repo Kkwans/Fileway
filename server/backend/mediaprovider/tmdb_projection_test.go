@@ -74,6 +74,23 @@ func TestProjectTMDBMovie(t *testing.T) {
 	}
 }
 
+func TestProjectTMDBMoviePrefersChineseAlternativeForChineseLanguage(t *testing.T) {
+	document := projectionDocument(t, Movie, `{
+		"id": 372058, "title": "Spider-Man: No Way Home", "original_title": "Spider-Man: No Way Home",
+		"release_date": "2021-12-15", "alternative_titles": {"titles": [
+			{"iso_3166_1": "US", "language": "en-US", "title": "Spider-Man: No Way Home"},
+			{"iso_3166_1": "CN", "language": "zh-CN", "title": "蜘蛛侠：英雄无归"}
+		]}
+	}`)
+	projection, err := ProjectTMDB(document)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := projection.Item.Fields["title"]; !reflect.DeepEqual(got, []string{"蜘蛛侠：英雄无归"}) {
+		t.Fatalf("Chinese movie title = %#v", got)
+	}
+}
+
 func TestProjectTMDBSeriesAggregateCredits(t *testing.T) {
 	document := projectionDocument(t, Series, `{
 		"id": 987, "name": "星途", "original_name": "Star Road", "overview": "",

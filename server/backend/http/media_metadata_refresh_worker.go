@@ -103,7 +103,7 @@ func newMetadataRefreshWorker(store *storage.Storage, server *settings.Server, s
 			case slots <- struct{}{}:
 			}
 			document, fetchErr := client.Fetch(ctx, mediaprovider.EntityRef{Provider: "tmdb", Kind: mediaprovider.Kind(match.Kind), ID: match.ExternalID},
-				mediaprovider.FetchOptions{Language: job.Language, Parts: []mediaprovider.Part{mediaprovider.Credits, mediaprovider.ExternalIDs}})
+				mediaprovider.FetchOptions{Language: job.Language, Parts: []mediaprovider.Part{mediaprovider.Credits, mediaprovider.ExternalIDs, mediaprovider.AlternativeTitles}})
 			<-slots
 			if fetchErr != nil {
 				var upstream *mediaprovider.Error

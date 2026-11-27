@@ -129,7 +129,7 @@ func mediaMatchConfirmHandler(slots chan struct{}, starts <-chan time.Time) hand
 			return d.store.MediaProviderVault.Open(scope, sealed)
 		})
 		doc, err := client.Fetch(ctx, mediaprovider.EntityRef{Provider: "tmdb", Kind: mediaprovider.Kind(body.Kind), ID: externalID},
-			mediaprovider.FetchOptions{Language: policy.Language, Parts: []mediaprovider.Part{mediaprovider.Credits, mediaprovider.ExternalIDs}})
+			mediaprovider.FetchOptions{Language: policy.Language, Parts: []mediaprovider.Part{mediaprovider.Credits, mediaprovider.ExternalIDs, mediaprovider.AlternativeTitles}})
 		if err != nil {
 			return matchProviderError(w, err)
 		}

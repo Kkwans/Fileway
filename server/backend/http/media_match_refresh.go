@@ -42,12 +42,8 @@ func mediaMetadataLibraryRefreshPreviewHandler() handleFunc {
 	})
 }
 
-func metadataRefreshParts(kind string) []mediaprovider.Part {
-	parts := []mediaprovider.Part{mediaprovider.Credits, mediaprovider.ExternalIDs}
-	if kind == "series" {
-		parts = append(parts, mediaprovider.AlternativeTitles)
-	}
-	return parts
+func metadataRefreshParts(_ string) []mediaprovider.Part {
+	return []mediaprovider.Part{mediaprovider.Credits, mediaprovider.ExternalIDs, mediaprovider.AlternativeTitles}
 }
 
 func mediaMetadataRefreshHandler(preview bool, slots chan struct{}, starts <-chan time.Time) handleFunc {

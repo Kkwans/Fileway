@@ -90,11 +90,11 @@ func ProjectTMDB(document Document) (TMDBProjection, error) {
 	if document.Entity.Kind == Series {
 		result.Item.Kind = mediametadata.TVShow
 		title, original, date = source.Name, source.OriginalName, source.FirstAirDate
-		title = chineseSeriesTitle(document, title)
 		if source.AggregateCredits != nil {
 			credits = source.AggregateCredits
 		}
 	}
+	title = chineseTitle(document, title)
 	addTMDBField(result.Item.Fields, "title", title)
 	addTMDBField(result.Item.Fields, "originaltitle", original)
 	addTMDBField(result.Item.Fields, "plot", source.Overview)
@@ -240,7 +240,7 @@ func ProjectTMDBSeasonEpisodes(document Document) ([]TMDBEpisodeMetadata, error)
 	return result, nil
 }
 
-func chineseSeriesTitle(document Document, title string) string {
+func chineseTitle(document Document, title string) string {
 	if !strings.HasPrefix(strings.ToLower(document.Language), "zh") || containsHan(title) {
 		return title
 	}

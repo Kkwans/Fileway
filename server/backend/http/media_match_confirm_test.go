@@ -91,7 +91,7 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 				`{"page":1,"total_pages":1,"total_results":1,"results":[{"id":55,"title":"TMDB film","original_title":"Online original","release_date":"2020-01-01"}]}`))}, nil
 		}
 		if r.URL.Path != "/3/movie/55" || r.URL.Query().Get("language") != "zh-CN" ||
-			r.URL.Query().Get("append_to_response") != "credits,external_ids" || r.Header.Get("Authorization") != "Bearer fixture-confirm-token" {
+			r.URL.Query().Get("append_to_response") != "alternative_titles,credits,external_ids" || r.Header.Get("Authorization") != "Bearer fixture-confirm-token" {
 			t.Errorf("unexpected provider route: %s", r.URL.Path)
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
