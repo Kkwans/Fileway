@@ -602,11 +602,9 @@ private fun tvRating(provider: String, metric: MediaRatingMetric, value: Double,
         }
         else -> return null
     }
-    fun number(value: Double) = if (value % 1.0 == 0.0) value.toLong().toString() else value.toString()
-    val label = if (metric in setOf(MediaRatingMetric.CRITIC_APPROVAL, MediaRatingMetric.AUDIENCE_APPROVAL) && scale != null && scale > 0)
-        "${kotlin.math.round(value / scale * 100).toInt()}%"
-    else listOfNotNull(number(value), scale?.let(::number)).joinToString(" / ")
-    return TvMediaRating(source, label, tvMediaRatingCountLabel(source, count, countPrecision))
+    val label = formatMediaRating(value, scale, metric)
+    val detailLabel = formatMediaRating(value, scale, metric, detailed = true)
+    return TvMediaRating(source, label, tvMediaRatingCountLabel(source, count, countPrecision), detailLabel)
 }
 
 private fun tvSize(bytes: Long): String = if (bytes < 1024) "$bytes B" else if (bytes < 1024 * 1024)

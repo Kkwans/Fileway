@@ -26,6 +26,7 @@ data class TvMediaRating(
     /** Already formatted in the source's own scale, e.g. a percentage for Rotten Tomatoes. */
     val valueLabel: String,
     val countLabel: String? = null,
+    val detailValueLabel: String = valueLabel,
 )
 
 internal fun tvMediaRatingCountLabel(source: TvMediaRatingSource, count: Long?, precision: String?): String? {

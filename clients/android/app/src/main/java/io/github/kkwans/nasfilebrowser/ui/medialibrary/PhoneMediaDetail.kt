@@ -348,7 +348,7 @@ private fun RatingColumn(rating: MediaRating) {
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(listOfNotNull(rating.source, rating.metric).filter(String::isNotBlank).joinToString(" · "),
                 Modifier.alignByBaseline(), style = PhoneDetailType.action)
-            Text(rating.value, Modifier.alignByBaseline(), style = PhoneMediaType.workTitle,
+            Text(rating.detailValue, Modifier.alignByBaseline(), style = PhoneMediaType.workTitle,
                 color = FilewayTheme.status.warning)
         }
         listOfNotNull(rating.count, rating.scope).filter(String::isNotBlank).forEach {

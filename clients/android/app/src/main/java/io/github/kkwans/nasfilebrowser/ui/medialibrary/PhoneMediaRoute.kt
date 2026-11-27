@@ -555,9 +555,8 @@ private fun rating(id: String, source: String, metric: MediaRatingMetric, value:
         "tmdb" -> "TMDB"
         else -> source
     }
-    val percent = metric == MediaRatingMetric.CRITIC_APPROVAL || metric == MediaRatingMetric.AUDIENCE_APPROVAL
-    val score = if (percent && scale != null && scale > 0) "${(value / scale * 100).roundToInt()}%"
-    else listOfNotNull(value.toString(), scale?.toString()).joinToString("/")
+    val score = formatMediaRating(value, scale, metric)
+    val detailScore = formatMediaRating(value, scale, metric, detailed = true)
     return MediaRating(id, name, score, when (metric) {
         MediaRatingMetric.CRITIC_APPROVAL, MediaRatingMetric.CRITIC_AVERAGE -> "影评人"
         MediaRatingMetric.AUDIENCE_APPROVAL -> "观众"
@@ -566,5 +565,5 @@ private fun rating(id: String, source: String, metric: MediaRatingMetric, value:
         "douban" -> "$it 人评价"
         "imdb" -> "$it 票"
         else -> null
-    } })
+    } }, detailValue = detailScore)
 }

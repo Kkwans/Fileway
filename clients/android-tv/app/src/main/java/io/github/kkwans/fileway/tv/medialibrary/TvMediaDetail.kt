@@ -105,7 +105,7 @@ fun TvMediaDetail(
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Text(rating.source.label, Modifier.alignByBaseline(), style = MediaType.secondary, color = colors.secondary)
-                                        Text(rating.valueLabel, Modifier.alignByBaseline(), style = MediaType.sectionTitle, color = colors.score)
+                                        Text(rating.detailValueLabel, Modifier.alignByBaseline(), style = MediaType.sectionTitle, color = colors.score)
                                     }
                                     rating.countLabel?.takeIf(String::isNotBlank)?.let {
                                         Text(it, style = MediaType.secondary, color = colors.secondary)

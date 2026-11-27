@@ -15,7 +15,8 @@ internal data class MediaSection<T>(val entries: List<T> = emptyList(), val load
 /** Values/counts include their actual unit. RT metric must say critics/audience; no synthesized
  * aggregate or zero score. Poster priority (Douban/IMDb/RT) belongs in the presentation mapper. */
 internal data class MediaRating(val id: String, val source: String, val value: String,
-    val metric: String? = null, val count: String? = null, val scope: String? = null)
+    val metric: String? = null, val count: String? = null, val scope: String? = null,
+    val detailValue: String = value)
 internal data class MediaPoster(val id: String, val title: String, val subtitle: String,
     val poster: MediaArtwork? = null, val backdrop: MediaArtwork? = null,
     val primaryRating: MediaRating? = null, val availability: String? = null)
