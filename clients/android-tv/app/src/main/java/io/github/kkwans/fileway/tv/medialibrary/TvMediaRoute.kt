@@ -242,43 +242,41 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
             CompositionLocalProvider(LocalTvMediaFocusBinding provides focus) {
                 if (itemId == null || !route.supported) {
                     if (searching && collectionPage != null && route.supported) {
-                        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            TvMediaCollectionWorksHeader(route.collectionName, ::closeCollectionPage)
-                            when {
-                                route.collectionWorksLoading -> MediaLoadingStatus("正在加载合集作品")
-                                route.collectionWorksError != null -> MediaStatus(route.collectionWorksError!!, { route.loadCollectionWorks(true) })
-                                route.collectionWorks.isEmpty() -> MediaStatus("暂无可见作品，该合集可能没有当前账号可访问的影视。")
-                                else -> MediaShelf(TvMediaShelf("collection-works", "作品", route.collectionWorks.map { tvCard(it, art) }),
-                                    imageLoader, onItem = { id ->
-                                        route.collectionWorks.firstOrNull { tvMediaKey(it.ref) == id }?.let {
-                                            library = it.ref.libraryId; item = it.ref.itemId; season = null
-                                        }
-                                    })
-                            }
-                            if (route.collectionWorksCursor != null && !route.collectionWorksLoading) {
-                                MediaAction("加载更多作品", { route.loadCollectionWorks(false) }, modifier = Modifier.padding(horizontal = MediaLayout.pageInset))
-                            }
-                        }
+                        TvMediaWorksPage(
+                            header = { TvMediaCollectionWorksHeader(route.collectionName, ::closeCollectionPage) },
+                            cards = route.collectionWorks.map { tvCard(it, art) },
+                            imageLoader = imageLoader,
+                            loading = route.collectionWorksLoading,
+                            error = route.collectionWorksError,
+                            emptyMessage = "暂无可见作品，该合集可能没有当前账号可访问的影视。",
+                            hasMore = route.collectionWorksCursor != null,
+                            onItem = { id ->
+                                route.collectionWorks.firstOrNull { tvMediaKey(it.ref) == id }?.let {
+                                    library = it.ref.libraryId; item = it.ref.itemId; season = null
+                                }
+                            },
+                            onRetry = { route.loadCollectionWorks(true) },
+                            onMore = { route.loadCollectionWorks(false) },
+                        )
                     } else if (searching && personPage != null && route.supported) {
                         val selected = personPage
                         val person = route.people.firstOrNull { it.ref == selected }
-                        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                            TvMediaPersonWorksHeader(route.personName.ifBlank { person?.name.orEmpty() }, person?.roles.orEmpty(), ::closePersonPage)
-                            when {
-                                route.personWorksLoading -> MediaLoadingStatus("正在加载人物作品")
-                                route.personWorksError != null -> MediaStatus(route.personWorksError!!, { route.loadPersonWorks(true) })
-                                route.personWorks.isEmpty() -> MediaStatus("暂无可见作品，该人物可能没有当前账号可访问的影视。")
-                                else -> MediaShelf(TvMediaShelf("person-works", "作品", route.personWorks.map { tvCard(it, art) }), imageLoader,
-                                    onItem = { id ->
-                                        route.personWorks.firstOrNull { tvMediaKey(it.ref) == id }?.let {
-                                            library = it.ref.libraryId; item = it.ref.itemId; season = null
-                                        }
-                                    })
-                            }
-                            if (route.personWorksCursor != null && !route.personWorksLoading) {
-                                MediaAction("加载更多作品", { route.loadPersonWorks(false) }, modifier = Modifier.padding(horizontal = MediaLayout.pageInset))
-                            }
-                        }
+                        TvMediaWorksPage(
+                            header = { TvMediaPersonWorksHeader(route.personName.ifBlank { person?.name.orEmpty() }, person?.roles.orEmpty(), ::closePersonPage) },
+                            cards = route.personWorks.map { tvCard(it, art) },
+                            imageLoader = imageLoader,
+                            loading = route.personWorksLoading,
+                            error = route.personWorksError,
+                            emptyMessage = "暂无可见作品，该人物可能没有当前账号可访问的影视。",
+                            hasMore = route.personWorksCursor != null,
+                            onItem = { id ->
+                                route.personWorks.firstOrNull { tvMediaKey(it.ref) == id }?.let {
+                                    library = it.ref.libraryId; item = it.ref.itemId; season = null
+                                }
+                            },
+                            onRetry = { route.loadPersonWorks(true) },
+                            onMore = { route.loadPersonWorks(false) },
+                        )
                     } else if (searching && route.supported) {
                         TvMediaSearchScreen(route.searchQuery, route.searchedQuery.isNotBlank(), route.searchMode,
                             route.searchResults.map { tvCard(it, art) }, route.searchLoading, route.searchError, route.searchCursor != null,

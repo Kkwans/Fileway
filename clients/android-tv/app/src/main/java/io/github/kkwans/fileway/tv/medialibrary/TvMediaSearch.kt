@@ -3,6 +3,11 @@ package io.github.kkwans.fileway.tv.medialibrary
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
@@ -13,6 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Text
@@ -95,28 +101,118 @@ internal fun TvMediaSearchScreen(query: String, searched: Boolean, mode: TvMedia
             }
             modes.forEach { (value, label) -> SearchModeTab(label, mode == value, { onMode(value) }, colors.accent, colors.secondary) }
         }
-        when {
-            issue != null && empty -> MediaStatus(issue, onRetry)
-            searched && empty && !busy -> MediaStatus(when (mode) {
-                TvMediaSearchMode.WORKS -> "没有找到相关影视，试试缩短片名或使用原名。"
-                TvMediaSearchMode.PEOPLE -> "没有找到相关人物，试试使用姓名中的一部分。"
-                TvMediaSearchMode.FILES -> "没有找到相关文件，试试使用文件名中的一部分。"
-                TvMediaSearchMode.COLLECTIONS -> "没有找到相关合集，试试使用合集名称中的一部分。"
-            })
-            mode == TvMediaSearchMode.PEOPLE -> TvMediaPeopleShelf(people, onPerson)
-            mode == TvMediaSearchMode.FILES -> TvMediaFileShelf(files, imageLoader, onItem)
-            mode == TvMediaSearchMode.COLLECTIONS -> TvMediaCollectionShelf(collections, imageLoader, onCollection)
-            else -> MediaShelf(TvMediaShelf("search-results", "搜索结果", entries), imageLoader, onItem)
+        if (mode == TvMediaSearchMode.WORKS) {
+            TvMediaWorksGrid(
+                cards = entries,
+                imageLoader = imageLoader,
+                loading = busy,
+                error = issue,
+                emptyMessage = if (searched) "没有找到相关影视，试试缩短片名或使用原名。" else null,
+                hasMore = more,
+                onItem = onItem,
+                onRetry = onRetry,
+                onMore = onMore,
+                modifier = Modifier.weight(1f).fillMaxWidth().testTag("media-search-results"),
+            )
+        } else {
+            LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("media-search-results"),
+                contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                when {
+                    issue != null && empty -> item(key = "issue") { MediaStatus(issue, onRetry) }
+                    searched && empty && !busy -> item(key = "empty") {
+                        MediaStatus(when (mode) {
+                            TvMediaSearchMode.PEOPLE -> "没有找到相关人物，试试使用姓名中的一部分。"
+                            TvMediaSearchMode.FILES -> "没有找到相关文件，试试使用文件名中的一部分。"
+                            TvMediaSearchMode.COLLECTIONS -> "没有找到相关合集，试试使用合集名称中的一部分。"
+                        })
+                    }
+                    mode == TvMediaSearchMode.PEOPLE -> item(key = "people") { TvMediaPeopleShelf(people, onPerson) }
+                    mode == TvMediaSearchMode.FILES -> item(key = "files") { TvMediaFileShelf(files, imageLoader, onItem) }
+                    mode == TvMediaSearchMode.COLLECTIONS -> item(key = "collections") { TvMediaCollectionShelf(collections, imageLoader, onCollection) }
+                    else -> Unit
+                }
+                if (issue != null && !empty) item(key = "issue-more") { MediaStatus(issue, onRetry, compact = true) }
+                if (busy && empty) item(key = "loading") {
+                    MediaLoadingStatus(when (mode) {
+                        TvMediaSearchMode.PEOPLE -> "正在搜索人物"
+                        TvMediaSearchMode.FILES -> "正在搜索文件"
+                        TvMediaSearchMode.COLLECTIONS -> "正在搜索合集"
+                    })
+                }
+                if (busy && !empty) item(key = "loading-more") { MediaLoadingStatus("正在加载更多…", compact = true) }
+                if (more && !busy) item(key = "more") {
+                    MediaAction("加载更多", onMore, modifier = Modifier.padding(horizontal = MediaLayout.pageInset))
+                }
+            }
         }
-        if (issue != null && !empty) MediaStatus(issue, onRetry, compact = true)
-        if (busy && empty) MediaLoadingStatus(when (mode) {
-            TvMediaSearchMode.WORKS -> "正在搜索影视"
-            TvMediaSearchMode.PEOPLE -> "正在搜索人物"
-            TvMediaSearchMode.FILES -> "正在搜索文件"
-            TvMediaSearchMode.COLLECTIONS -> "正在搜索合集"
-        })
-        if (busy && !empty) MediaLoadingStatus("正在加载更多…", compact = true)
-        if (more && !busy) MediaAction("加载更多", onMore, modifier = Modifier.padding(horizontal = MediaLayout.pageInset))
+    }
+}
+
+@Composable
+internal fun TvMediaWorksPage(
+    header: @Composable () -> Unit,
+    cards: List<TvMediaCard>,
+    imageLoader: ImageLoader,
+    loading: Boolean,
+    error: String?,
+    emptyMessage: String,
+    hasMore: Boolean,
+    onItem: (String) -> Unit,
+    onRetry: () -> Unit,
+    onMore: () -> Unit,
+) {
+    Column(Modifier.fillMaxSize()) {
+        header()
+        TvMediaWorksGrid(
+            cards = cards,
+            imageLoader = imageLoader,
+            loading = loading,
+            error = error,
+            emptyMessage = emptyMessage,
+            hasMore = hasMore,
+            onItem = onItem,
+            onRetry = onRetry,
+            onMore = onMore,
+            moreLabel = "加载更多作品",
+            modifier = Modifier.weight(1f).fillMaxWidth().testTag("media-works-results"),
+        )
+    }
+}
+
+@Composable
+private fun TvMediaWorksGrid(
+    cards: List<TvMediaCard>,
+    imageLoader: ImageLoader,
+    loading: Boolean,
+    error: String?,
+    emptyMessage: String?,
+    hasMore: Boolean,
+    onItem: (String) -> Unit,
+    onRetry: () -> Unit,
+    onMore: () -> Unit,
+    modifier: Modifier = Modifier,
+    moreLabel: String = "加载更多",
+) {
+    LazyVerticalGrid(
+        columns = GridCells.Adaptive(minSize = 160.dp),
+        modifier = modifier,
+        contentPadding = PaddingValues(start = MediaLayout.pageInset, end = MediaLayout.pageInset, bottom = 48.dp),
+        horizontalArrangement = Arrangement.spacedBy(MediaLayout.itemGap),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
+        if (loading) item(key = "loading", span = { GridItemSpan(maxLineSpan) }) { MediaLoadingStatus("正在加载…") }
+        if (error != null) item(key = "error", span = { GridItemSpan(maxLineSpan) }) { MediaStatus(error, onRetry) }
+        if (!loading && error == null && cards.isEmpty() && emptyMessage != null) {
+            item(key = "empty", span = { GridItemSpan(maxLineSpan) }) { MediaStatus(emptyMessage) }
+        }
+        items(cards, key = { it.id }) { card ->
+            BoxWithConstraints(Modifier.fillMaxWidth()) {
+                MediaPoster(card, imageLoader, { onItem(card.id) }, width = maxWidth)
+            }
+        }
+        if (hasMore && !loading) item(key = "more", span = { GridItemSpan(maxLineSpan) }) {
+            MediaAction(moreLabel, onMore, modifier = Modifier.padding(horizontal = MediaLayout.pageInset))
+        }
     }
 }
 
