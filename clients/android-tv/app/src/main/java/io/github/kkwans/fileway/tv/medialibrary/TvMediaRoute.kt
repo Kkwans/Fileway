@@ -216,11 +216,12 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                     item = null; library = null; season = null
                     if (collectionPage != null) restore("collection-back", "search-collection")
                     else if (personPage != null) restore("person-back", "search-person")
-                    else if (searching && lastOrigin == "file-result") {
+                    else if (searching) {
                         val target = resolveTvCatalogSearchFocusTarget(lastAnchor, lastOrigin,
-                            route.files.map { "file:${it.fileId}" })
+                            route.files.map { "file:${it.fileId}" } + route.searchResults.map { tvMediaKey(it.ref) } +
+                                route.collectionWorks.map { tvMediaKey(it.ref) } + route.personWorks.map { tvMediaKey(it.ref) })
                         restore(target.id, target.origin)
-                    } else if (searching) restore("search-field", "search") else restoreHome(homeAnchor, homeOrigin)
+                    } else restoreHome(homeAnchor, homeOrigin)
                 }
                 collectionPage != null -> closeCollectionPage()
                 personPage != null -> closePersonPage()

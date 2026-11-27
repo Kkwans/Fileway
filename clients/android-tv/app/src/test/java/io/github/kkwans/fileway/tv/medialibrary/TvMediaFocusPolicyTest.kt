@@ -46,10 +46,34 @@ class TvMediaFocusPolicyTest {
     }
 
     @Test
+    fun workSearchReturnsToVisiblePosterResult() {
+        val id = "lib_1/item_1"
+        assertEquals(TvMediaFocusTarget(id, "poster"), resolveTvCatalogSearchFocusTarget(
+            id, "poster", listOf(id)))
+    }
+
+    @Test
+    fun removedWorkSearchResultFallsBackToSearchField() {
+        assertEquals(TvMediaFocusTarget("search-field", "search"), resolveTvCatalogSearchFocusTarget(
+            "lib_1/item_1", "poster", emptyList()))
+    }
+
+    @Test
     fun emptyHomeReturnsToNavigationWithoutTimedOverride() {
         assertEquals(TvMediaFocusTarget("files", "navigation"), resolveTvMediaFocusTarget(
             "item_1", "poster", emptyList(), 0))
         assertEquals(TvMediaFocusTarget("files", "navigation"), resolveTvMediaFocusTarget(
             "files", "navigation", listOf("item_1"), -1))
+    }
+
+    @Test
+    fun explicitSearchReturnTargetWinsOverDefaultEntryFocus() {
+        val target = TvMediaFocusTarget("person:lib_1/person_1", "person-result")
+        assertEquals(target, resolveTvSearchEntryFocusTarget(target))
+    }
+
+    @Test
+    fun newSearchWithoutReturnTargetFocusesField() {
+        assertEquals(TvMediaFocusTarget("search-field", "search"), resolveTvSearchEntryFocusTarget(null))
     }
 }

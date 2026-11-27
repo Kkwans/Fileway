@@ -35,6 +35,12 @@ internal fun TvMediaSearchScreen(query: String, searched: Boolean, mode: TvMedia
     onPerson: (String, String) -> Unit, onCollection: (String, String) -> Unit, onRetry: () -> Unit, onMore: () -> Unit) {
     val focus = remember { FocusRequester() }
     val interactive = LocalTvInteractive.current
+    val routeFocus = LocalTvMediaFocusBinding.current
+    val entryTarget = remember {
+        resolveTvSearchEntryFocusTarget(routeFocus?.let {
+            it.targetId?.let { id -> it.targetOrigin?.let { origin -> TvMediaFocusTarget(id, origin) } }
+        })
+    }
     val busy = when (mode) {
         TvMediaSearchMode.WORKS -> loading
         TvMediaSearchMode.PEOPLE -> peopleLoading
@@ -59,8 +65,8 @@ internal fun TvMediaSearchScreen(query: String, searched: Boolean, mode: TvMedia
         TvMediaSearchMode.FILES -> files.isEmpty()
         TvMediaSearchMode.COLLECTIONS -> collections.isEmpty()
     }
-    LaunchedEffect(interactive) {
-        if (interactive) {
+    LaunchedEffect(interactive, entryTarget) {
+        if (interactive && entryTarget.id == "search-field" && entryTarget.origin == "search") {
             androidx.compose.runtime.withFrameNanos { }
             runCatching { focus.requestFocus() }
         }
