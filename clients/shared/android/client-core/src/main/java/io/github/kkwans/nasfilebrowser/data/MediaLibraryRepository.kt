@@ -904,7 +904,7 @@ private fun requireProviderToken(token: String) {
         .onUnmappableCharacter(java.nio.charset.CodingErrorAction.REPORT).encode(java.nio.CharBuffer.wrap(token)) }.isSuccess) { "TMDB 凭据格式无效" }
 }
 
-private fun providerFailure(error: Exception, write: Boolean): MediaFailure {
+internal fun providerFailure(error: Exception, write: Boolean): MediaFailure {
     val failure = mediaFailure(error, write)
     return when (failure.status) {
         422 -> failure.copy(kind = MediaFailureKind.INVALID, mutationMayHaveCommitted = false)
@@ -989,6 +989,6 @@ private fun receipt(request: MediaMutationRequest, value: Any): MediaWriteReceip
     else -> error("媒体库回执类型无效")
 }
 
-private val providerMutationKinds = setOf(MediaMutationKind.UPDATE_METADATA_POLICY,
+internal val providerMutationKinds = setOf(MediaMutationKind.UPDATE_METADATA_POLICY, MediaMutationKind.REFRESH_METADATA,
     MediaMutationKind.CONFIRM_PROVIDER_MATCH, MediaMutationKind.UNDO_PROVIDER_MATCH,
     MediaMutationKind.CONFIRM_SERIES_MAPPING, MediaMutationKind.UNDO_SERIES_MAPPING)
