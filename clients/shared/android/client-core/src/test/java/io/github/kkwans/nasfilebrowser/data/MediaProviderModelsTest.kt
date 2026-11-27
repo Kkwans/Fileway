@@ -8,6 +8,26 @@ import org.junit.Test
 
 class MediaProviderModelsTest {
     @Test
+    fun creditPortraitUsesOnlyAuthorizedRelativeEndpoint() {
+        val row = JSONObject()
+            .put("id", "tmdb_credit_4_0")
+            .put("personId", "tmdb_person_8")
+            .put("name", "演员甲")
+            .put("kind", "actor")
+            .put("role", "船长")
+            .put("roles", JSONArray(listOf("船长")))
+            .put("position", 0)
+            .put("portrait", JSONObject().put("endpoint", "/api/media-library/v1/libraries/lib_fixture/items/item_fixture/artwork/tmdb_profile_4_0"))
+        assertEquals("/api/media-library/v1/libraries/lib_fixture/items/item_fixture/artwork/tmdb_profile_4_0", parseMediaCredit(row).portraitEndpoint)
+        row.getJSONObject("portrait").put("endpoint", "https://example.com/actor.jpg")
+        try {
+            parseMediaCredit(row)
+            error("external portrait endpoint accepted")
+        } catch (_: IllegalArgumentException) {
+        }
+    }
+
+    @Test
     fun technicalObservationRetainsCodecHdrAndTracks() {
         val observation = parseMediaTechnicalObservation(JSONObject()
             .put("durationMs", 5_400_000).put("videoCodec", "hevc").put("videoBitDepth", 10)

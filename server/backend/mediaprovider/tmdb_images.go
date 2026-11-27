@@ -18,13 +18,17 @@ const (
 
 const tmdbImageBase = "https://image.tmdb.org/t/p/"
 
-// CatalogArtworkURL uses standard TMDB sizes for the two catalog placements.
-// The path always comes from a confirmed provider document.
+// CatalogArtworkURL uses standard TMDB sizes for supported placements. The
+// path always comes from a confirmed provider document.
 func CatalogArtworkURL(kind ArtworkKind, filePath string) (string, error) {
 	size := "w500"
-	if kind == Backdrop {
+	switch kind {
+	case Poster:
+	case Backdrop:
 		size = "w780"
-	} else if kind != Poster {
+	case Profile:
+		size = "w185"
+	default:
 		return "", &Error{Code: InvalidRequest}
 	}
 	return tmdbImageURL(tmdbImageBase, size, filePath)

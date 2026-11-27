@@ -28,6 +28,9 @@ func tmdbCatalogArtwork(libraryID, itemID string, itemRevision int64, match *med
 }
 
 func tmdbArtworkPath(match *medialibrary.ProviderMatch, role mediaprovider.ArtworkKind) string {
+	if match == nil {
+		return ""
+	}
 	switch role {
 	case mediaprovider.Poster:
 		return match.Document.PosterPath
@@ -38,10 +41,65 @@ func tmdbArtworkPath(match *medialibrary.ProviderMatch, role mediaprovider.Artwo
 	}
 }
 
+func mediaCredits(libraryID, itemID string, itemRevision int64, match *medialibrary.ProviderMatch, credits []medialibrary.MetadataCredit) []mediaCredit {
+	result := make([]mediaCredit, 0, len(credits))
+	for _, credit := range credits {
+		row := mediaCredit{MetadataCredit: credit}
+		if strings.HasPrefix(credit.ID, "tmdb_credit_") {
+			row.Portrait = tmdbCreditPortrait(libraryID, itemID, itemRevision, match, credit.Position)
+		}
+		result = append(result, row)
+	}
+	return result
+}
+
+func tmdbCreditPortrait(libraryID, itemID string, itemRevision int64, match *medialibrary.ProviderMatch, position int) *catalogArtwork {
+	if match == nil || position < 0 || tmdbPortraitPath(match, position) == "" {
+		return nil
+	}
+	id := fmt.Sprintf("%sprofile_%d_%d", tmdbArtworkPrefix, match.Revision, position)
+	return &catalogArtwork{AssetID: id, Revision: itemRevision, Role: string(mediaprovider.Profile),
+		Endpoint: "/api/media-library/v1/libraries/" + libraryID + "/items/" + itemID + "/artwork/" + id}
+}
+
+func tmdbPortraitPath(match *medialibrary.ProviderMatch, position int) string {
+	if match == nil || position < 0 || position >= len(match.Document.Item.Credits) {
+		return ""
+	}
+	for _, artwork := range match.Document.Item.Credits[position].Artwork {
+		if artwork.Role == "portrait" {
+			if _, err := mediaprovider.CatalogArtworkURL(mediaprovider.Profile, artwork.Reference); err == nil {
+				return artwork.Reference
+			}
+		}
+	}
+	return ""
+}
+
+func tmdbPortraitArtwork(libraryID, itemID string, itemRevision int64, match *medialibrary.ProviderMatch, assetID string) (*catalogArtwork, string) {
+	revisionText, positionText, ok := strings.Cut(strings.TrimPrefix(assetID, tmdbArtworkPrefix+"profile_"), "_")
+	if !ok || match == nil {
+		return nil, ""
+	}
+	revision, err := strconv.ParseInt(revisionText, 10, 64)
+	if err != nil || revision != match.Revision {
+		return nil, ""
+	}
+	position, err := strconv.Atoi(positionText)
+	if err != nil {
+		return nil, ""
+	}
+	artwork := tmdbCreditPortrait(libraryID, itemID, itemRevision, match, position)
+	if artwork == nil || artwork.AssetID != assetID {
+		return nil, ""
+	}
+	return artwork, tmdbPortraitPath(match, position)
+}
+
 func serveTMDBArtwork(w http.ResponseWriter, r *http.Request, d *data, library *medialibrary.Library, itemID, artID string, flights *previewCoordinator) (int, error) {
 	role, _, _ := strings.Cut(strings.TrimPrefix(artID, tmdbArtworkPrefix), "_")
 	kind := mediaprovider.ArtworkKind(role)
-	if kind != mediaprovider.Poster && kind != mediaprovider.Backdrop {
+	if kind != mediaprovider.Poster && kind != mediaprovider.Backdrop && kind != mediaprovider.Profile {
 		return mediaAccessError(fs.ErrPermission)
 	}
 	ctx := r.Context()
@@ -63,7 +121,14 @@ func serveTMDBArtwork(w http.ResponseWriter, r *http.Request, d *data, library *
 	if err != nil {
 		return mediaAccessError(err)
 	}
-	art := tmdbCatalogArtwork(library.ID, itemID, item.Revision, match, kind)
+	var art *catalogArtwork
+	var artworkPath string
+	if kind == mediaprovider.Profile {
+		art, artworkPath = tmdbPortraitArtwork(library.ID, itemID, item.Revision, match, artID)
+	} else {
+		art = tmdbCatalogArtwork(library.ID, itemID, item.Revision, match, kind)
+		artworkPath = tmdbArtworkPath(match, kind)
+	}
 	if art == nil || art.AssetID != artID {
 		return mediaAccessError(fs.ErrPermission)
 	}
@@ -84,7 +149,7 @@ func serveTMDBArtwork(w http.ResponseWriter, r *http.Request, d *data, library *
 		return mediaAccessError(err)
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
-	address, err := mediaprovider.CatalogArtworkURL(kind, tmdbArtworkPath(match, kind))
+	address, err := mediaprovider.CatalogArtworkURL(kind, artworkPath)
 	if err != nil {
 		return mediaAccessError(err)
 	}

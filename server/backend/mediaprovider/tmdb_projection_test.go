@@ -29,7 +29,7 @@ func TestProjectTMDBMovie(t *testing.T) {
 		"imdb_id": "tt12345678", "external_ids": {"imdb_id": "tt12345678"},
 		"vote_average": 7.25, "vote_count": 1345, "poster_path": "/poster.jpg", "backdrop_path": "/backdrop.png",
 		"watched": true, "credits": {
-			"cast": [{"id": 44, "name": "演员甲", "character": "船长", "order": 0}],
+			"cast": [{"id": 44, "name": "演员甲", "character": "船长", "order": 0, "profile_path": "/actor.jpg"}],
 			"crew": [
 				{"id": 45, "name": "导演乙", "department": "Directing", "job": "Director"},
 				{"id": 46, "name": "编剧丙", "department": "Writing", "job": "Screenplay"},
@@ -70,6 +70,9 @@ func TestProjectTMDBMovie(t *testing.T) {
 		credit := item.Credits[i]
 		if credit.Kind != want.kind || !reflect.DeepEqual(credit.Fields["name"], []string{want.name}) || !reflect.DeepEqual(credit.Fields["role"], []string{want.role}) || len(credit.ExternalIDs) != 1 || credit.ExternalIDs[0].Provider != "tmdb" || credit.ExternalIDs[0].Value != want.id {
 			t.Fatalf("credit %d = %#v", i, credit)
+		}
+		if i == 0 && (len(credit.Artwork) != 1 || credit.Artwork[0].Role != "portrait" || credit.Artwork[0].Reference != "/actor.jpg") {
+			t.Fatalf("cast portrait = %#v", credit.Artwork)
 		}
 	}
 }

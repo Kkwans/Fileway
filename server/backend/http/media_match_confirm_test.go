@@ -78,6 +78,8 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 			switch r.URL.Path {
 			case "/t/p/w780/backdrop.png":
 				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(picture.Bytes()))}, nil
+			case "/t/p/w185/actor.jpg":
+				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(picture.Bytes()))}, nil
 			case "/t/p/w500/example.jpg":
 				return &http.Response{StatusCode: http.StatusBadGateway, Header: make(http.Header), Body: http.NoBody}, nil
 			default:
@@ -95,7 +97,7 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 			t.Errorf("unexpected provider route: %s", r.URL.Path)
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
-			`{"id":55,"title":"TMDB film","original_title":"Online original","overview":"Online synopsis","poster_path":"/example.jpg","backdrop_path":"/backdrop.png","vote_average":7.2,"vote_count":15,"credits":{"cast":[{"id":8,"name":"Online actor","character":"Hero"}],"crew":[{"id":9,"name":"Online director","job":"Director"}]}}`))}, nil
+			`{"id":55,"title":"TMDB film","original_title":"Online original","overview":"Online synopsis","poster_path":"/example.jpg","backdrop_path":"/backdrop.png","vote_average":7.2,"vote_count":15,"credits":{"cast":[{"id":8,"name":"Online actor","character":"Hero","profile_path":"/actor.jpg"}],"crew":[{"id":9,"name":"Online director","job":"Director"}]}}`))}, nil
 	})}
 	identityResponse := f.call(t, owner, http.MethodGet, base+"/identification", nil)
 	var identity mediaIdentificationResponse
@@ -156,6 +158,18 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 	if len(online.Credits) != 2 || online.Credits[0].Role != "Hero" || online.Credits[1].Kind != "director" {
 		t.Fatalf("online credits: %+v", online.Credits)
 	}
+	detailResponse := f.call(t, owner, http.MethodGet, base, nil)
+	var portraitDetail struct {
+		Credits []struct {
+			Portrait *catalogArtwork `json:"portrait"`
+		} `json:"credits"`
+	}
+	if detailResponse.Code != http.StatusOK || json.Unmarshal(detailResponse.Body.Bytes(), &portraitDetail) != nil ||
+		len(portraitDetail.Credits) != 2 || portraitDetail.Credits[0].Portrait == nil || portraitDetail.Credits[0].Portrait.Role != "profile" ||
+		portraitDetail.Credits[0].Portrait.Endpoint == "" || portraitDetail.Credits[1].Portrait != nil {
+		t.Fatalf("online credit portraits: %d %s", detailResponse.Code, detailResponse.Body)
+	}
+	portraitPath := portraitDetail.Credits[0].Portrait.Endpoint
 	firstCredit := f.call(t, owner, http.MethodGet, base+"/credits?limit=1", nil)
 	var creditPage visibleMetadataPage[medialibrary.MetadataCredit]
 	if firstCredit.Code != http.StatusOK || json.Unmarshal(firstCredit.Body.Bytes(), &creditPage) != nil || creditPage.NextCursor == "" || len(creditPage.Items) != 1 || creditPage.Items[0].ID != online.Credits[0].ID {
@@ -174,8 +188,11 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 	if response := f.call(t, owner, http.MethodGet, backdrop, nil); response.Code != http.StatusOK || response.Header().Get("Content-Type") != "image/png" || imageCalls != 2 {
 		t.Fatalf("initial backdrop: %d", response.Code)
 	}
+	if response := f.call(t, owner, http.MethodGet, portraitPath, nil); response.Code != http.StatusOK || response.Header().Get("Content-Type") != "image/png" || imageCalls != 3 {
+		t.Fatalf("online credit portrait: %d", response.Code)
+	}
 	f.h.storage.TMDBHTTPClient = nil
-	if response := f.call(t, owner, http.MethodGet, backdrop, nil); response.Code != http.StatusOK || imageCalls != 2 {
+	if response := f.call(t, owner, http.MethodGet, backdrop, nil); response.Code != http.StatusOK || imageCalls != 3 {
 		t.Fatalf("cached backdrop offline: %d", response.Code)
 	}
 	grant, err := f.store.GrantMember(t.Context(), owner, library.ID, source.LibraryRevision, f.viewer.ID, medialibrary.RoleViewer)
@@ -210,7 +227,7 @@ func TestMediaMatchConfirmationPersistsAndHonorsPrecedence(t *testing.T) {
 	if offline.Item.Title != "Manual title" || offline.OnlineMatch != nil || len(offline.Ratings) != 0 || len(offline.Credits) != 0 || calls != 2 {
 		t.Fatalf("local-only projection: %+v", offline)
 	}
-	if response := f.call(t, owner, http.MethodGet, backdrop, nil); response.Code != http.StatusNotFound || imageCalls != 2 {
+	if response := f.call(t, owner, http.MethodGet, backdrop, nil); response.Code != http.StatusNotFound || imageCalls != 3 {
 		t.Fatalf("local-only policy exposed cached backdrop: %d", response.Code)
 	}
 	policy.Mode = medialibrary.MetadataOnlineFirst

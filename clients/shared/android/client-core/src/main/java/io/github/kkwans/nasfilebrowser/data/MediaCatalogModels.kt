@@ -16,7 +16,7 @@ data class MediaItemSummary(
     val sourceState: MediaItemSourceState, val metadataState: MediaItemMetadataState,
 )
 data class MediaMetadataField(val values: List<String>, val source: MediaMetadataSource, val locked: Boolean, val explicitClear: Boolean, val revision: Long)
-data class MediaCredit(val id: String, val personId: String, val name: String, val kind: String, val role: String, val roles: List<String>, val position: Long)
+data class MediaCredit(val id: String, val personId: String, val name: String, val kind: String, val role: String, val roles: List<String>, val position: Long, val portraitEndpoint: String? = null)
 
 /** A value remains in its reported scale and metric; null means not supplied or not valid. */
 data class MediaRatingValue(
@@ -79,6 +79,13 @@ internal fun mediaCursor(value: String?): String? = value?.also {
     require(it.isNotEmpty() && it.toByteArray(Charsets.UTF_8).size <= 256) { "影视资料分页参数无效" }
 }
 private fun JSONObject.cursor(key: String): String? = mediaCursor(optionalText(key))
+private fun JSONObject.authorizedMediaArtworkEndpoint(): String? {
+    if (!has("portrait") || isNull("portrait")) return null
+    val endpoint = getJSONObject("portrait").text("endpoint")
+    require(endpoint.length <= 512 && endpoint.startsWith("/api/media-library/v1/libraries/") &&
+        endpoint.none(Char::isISOControl) && !endpoint.contains("..") && !endpoint.contains('?') && !endpoint.contains('#'))
+    return endpoint
+}
 private fun <T> JSONArray.rows(max: Int, parse: (JSONObject) -> T): List<T> {
     require(length() <= max)
     return (0 until length()).map { parse(getJSONObject(it)) }
@@ -102,7 +109,7 @@ internal fun parseMediaItem(row: JSONObject): MediaItemSummary {
 }
 
 internal fun parseMediaCredit(row: JSONObject): MediaCredit = MediaCredit(row.id("id"), row.id("personId"),
-    row.text("name"), row.text("kind"), row.text("role"), row.getJSONArray("roles").strings(128), row.integer("position"))
+    row.text("name"), row.text("kind"), row.text("role"), row.getJSONArray("roles").strings(128), row.integer("position"), row.authorizedMediaArtworkEndpoint())
 
 internal fun parseMediaRating(row: JSONObject): MediaRating {
     val value = row.getJSONObject("rating")

@@ -277,7 +277,7 @@ func loadVisibleItemDetail(ctx context.Context, d *data, library *medialibrary.L
 	if err != nil {
 		return result, err
 	}
-	result.Credits, result.CreditsNextCursor = credits.Items, credits.NextCursor
+	result.Credits, result.CreditsNextCursor = mediaCredits(library.ID, id, revision, match, credits.Items), credits.NextCursor
 	result.Ratings, result.RatingsNextCursor = ratings.Items, ratings.NextCursor
 	result.Artwork, result.ArtworkNextCursor = artwork.Items, artwork.NextCursor
 	result.ExternalIDs, result.ExternalIDsNextCursor = externalIDs.Items, externalIDs.NextCursor
@@ -359,7 +359,11 @@ func mediaItemCollectionHandler(kind string) handleFunc {
 			var match *medialibrary.ProviderMatch
 			match, err = d.store.MediaLibrary.VisibleProviderMatch(r.Context(), d.user.ID, library.ID, itemID, detail.Item.Revision)
 			if err == nil {
-				response, err = visibleCredits(r.Context(), d, library, itemID, detail.Item.Revision, &access, match, after, limit)
+				var page visibleMetadataPage[medialibrary.MetadataCredit]
+				page, err = visibleCredits(r.Context(), d, library, itemID, detail.Item.Revision, &access, match, after, limit)
+				if err == nil {
+					response = visibleMetadataPage[mediaCredit]{Items: mediaCredits(library.ID, itemID, detail.Item.Revision, match, page.Items), NextCursor: page.NextCursor, Revision: page.Revision}
+				}
 			}
 		case "ratings":
 			response, err = visibleRatings(r.Context(), d, library, itemID, detail.Item.Revision, &access, after, limit)

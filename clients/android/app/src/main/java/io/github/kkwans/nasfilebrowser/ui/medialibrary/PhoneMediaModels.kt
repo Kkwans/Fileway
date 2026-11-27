@@ -8,7 +8,7 @@ import io.github.kkwans.nasfilebrowser.data.MediaTechnicalObservation
 /** Presentation only. IDs are opaque; adapters own authorization, formatting and wire versions.
  * Image requests must already be authorized and scoped to account/instance/asset revision.
  * Never put credentials, upstream URLs or private paths into display strings. */
-internal data class MediaArtwork(val request: ImageRequest? = null, val catalog: MediaCatalogArtwork? = null)
+internal data class MediaArtwork(val request: ImageRequest? = null, val catalog: MediaCatalogArtwork? = null, val endpoint: String? = null)
 internal data class MediaProblem(val title: String, val message: String, val recoveryLabel: String? = null)
 internal data class MediaSection<T>(val entries: List<T> = emptyList(), val loading: Boolean = false,
     val problem: MediaProblem? = null, val hasMore: Boolean = false)

@@ -31,6 +31,11 @@ type mediaItemSummary struct {
 	MetadataState string                   `json:"metadataState"`
 }
 
+type mediaCredit struct {
+	medialibrary.MetadataCredit
+	Portrait *catalogArtwork `json:"portrait,omitempty"`
+}
+
 type mediaItemDetail struct {
 	Item                  mediaItemSummary                      `json:"item"`
 	Card                  *catalogCard                          `json:"card,omitempty"`
@@ -38,7 +43,7 @@ type mediaItemDetail struct {
 	PageState             string                                `json:"pageState,omitempty"`
 	MetadataRevision      int64                                 `json:"metadataRevision"`
 	Fields                map[string]medialibrary.MetadataField `json:"fields"`
-	Credits               []medialibrary.MetadataCredit         `json:"credits"`
+	Credits               []mediaCredit                         `json:"credits"`
 	Ratings               []medialibrary.MetadataRating         `json:"ratings"`
 	Artwork               []medialibrary.MetadataArtwork        `json:"artwork"`
 	ExternalIDs           []medialibrary.MetadataExternalID     `json:"externalIds"`
@@ -173,7 +178,7 @@ func itemDetailFields(ctx context.Context, d *data, library *medialibrary.Librar
 		item.Title = access.fallbackTitle
 	}
 	return mediaItemDetail{Item: itemSummary(item, *access), MetadataRevision: detail.MetadataRevision, Fields: fields, providerMatch: match,
-		Credits: []medialibrary.MetadataCredit{}, Ratings: []medialibrary.MetadataRating{}, Artwork: []medialibrary.MetadataArtwork{}, ExternalIDs: []medialibrary.MetadataExternalID{}, Collections: []medialibrary.MetadataCollection{}, Issues: []string{}, Candidates: []mediaMetadataCandidate{}}, nil
+		Credits: []mediaCredit{}, Ratings: []medialibrary.MetadataRating{}, Artwork: []medialibrary.MetadataArtwork{}, ExternalIDs: []medialibrary.MetadataExternalID{}, Collections: []medialibrary.MetadataCollection{}, Issues: []string{}, Candidates: []mediaMetadataCandidate{}}, nil
 }
 
 func itemLibrary(r *http.Request, d *data) (*medialibrary.Library, error) {

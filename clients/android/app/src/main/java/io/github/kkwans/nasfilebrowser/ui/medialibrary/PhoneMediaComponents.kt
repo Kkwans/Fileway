@@ -70,14 +70,14 @@ internal fun phoneMediaGridSpec(width: Dp): PhoneMediaGridSpec {
     description: String? = null, person: Boolean = false) {
     val binding = LocalMediaArtworkBinding.current
     val context = LocalContext.current
-    var leasedRequest by remember(artwork?.catalog, binding) { mutableStateOf<ImageRequest?>(null) }
-    var leaseFailed by remember(artwork?.catalog, binding) { mutableStateOf(false) }
-    LaunchedEffect(artwork?.catalog, binding) {
-        val asset = artwork?.catalog ?: return@LaunchedEffect
+    var leasedRequest by remember(artwork?.catalog, artwork?.endpoint, binding) { mutableStateOf<ImageRequest?>(null) }
+    var leaseFailed by remember(artwork?.catalog, artwork?.endpoint, binding) { mutableStateOf(false) }
+    LaunchedEffect(artwork?.catalog, artwork?.endpoint, binding) {
         val owner = binding ?: return@LaunchedEffect
+        val endpoint = artwork?.catalog?.let { owner.repository.artworkEndpoint(it) } ?: artwork?.endpoint ?: return@LaunchedEffect
         var lease: PreviewLease? = null
         try {
-            lease = owner.session.api.assetLease(owner.repository.artworkEndpoint(asset))
+            lease = owner.session.api.assetLease(endpoint)
             leasedRequest = ImageRequest.Builder(context).data(lease.url)
                 .memoryCachePolicy(CachePolicy.DISABLED).diskCachePolicy(CachePolicy.DISABLED).build()
             awaitCancellation()

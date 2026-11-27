@@ -19,13 +19,14 @@ type TMDBProjection struct {
 }
 
 type tmdbProjectionPerson struct {
-	ID         *int64 `json:"id"`
-	Name       string `json:"name"`
-	Character  string `json:"character"`
-	Order      *int   `json:"order"`
-	Department string `json:"department"`
-	Job        string `json:"job"`
-	Roles      []struct {
+	ID          *int64 `json:"id"`
+	Name        string `json:"name"`
+	ProfilePath string `json:"profile_path"`
+	Character   string `json:"character"`
+	Order       *int   `json:"order"`
+	Department  string `json:"department"`
+	Job         string `json:"job"`
+	Roles       []struct {
 		Character string `json:"character"`
 	} `json:"roles"`
 	Jobs []struct {
@@ -362,6 +363,11 @@ func tmdbPersonCredit(person tmdbProjectionPerson, kind string) (mediametadata.C
 		return mediametadata.Credit{}, false
 	}
 	credit := mediametadata.Credit{Kind: kind, Tag: kind, Fields: map[string][]string{"name": {name}}}
+	if path := strings.TrimSpace(person.ProfilePath); path != "" {
+		if _, err := CatalogArtworkURL(Profile, path); err == nil {
+			credit.Artwork = []mediametadata.ArtworkDeclaration{{Tag: "thumb", Role: "portrait", Reference: path}}
+		}
+	}
 	if person.ID != nil && *person.ID > 0 {
 		credit.ExternalIDs = []mediametadata.ExternalID{{Provider: "tmdb", Value: strconv.FormatInt(*person.ID, 10), Tag: "tmdbid"}}
 	}

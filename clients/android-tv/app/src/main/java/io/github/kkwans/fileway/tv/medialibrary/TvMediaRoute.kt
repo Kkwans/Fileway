@@ -419,7 +419,8 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                                 overview = detail?.fields?.get("plot")?.values?.firstOrNull(),
                                 ratings = ratings.ifEmpty { listOfNotNull(tvRating(card.primaryRating)) })
                             else TvMediaCard("$libraryId/$itemId", detail?.item?.title ?: "影视详情"),
-                            people = detail?.credits?.items.orEmpty().map { TvMediaPerson(it.personId, it.name, it.role.ifBlank { it.kind }) },
+                            people = detail?.credits?.items.orEmpty().map { TvMediaPerson(it.personId, it.name, it.role.ifBlank { it.kind },
+                                portrait = it.portraitEndpoint?.let(art::forEndpoint)) },
                             collections = detail?.collections?.items.orEmpty().map { collection ->
                                 listOfNotNull(collection.name, collection.number?.let { "编号 $it" }).joinToString(" · ")
                             },
@@ -616,11 +617,23 @@ private class TvCatalogArtworkData(val session: SessionContext, val repository: 
     override fun toString(): String = "TvCatalogArtworkData(redacted)"
 }
 
+private class TvCatalogPortraitData(val session: SessionContext, val endpoint: String) {
+    override fun toString(): String = "TvCatalogPortraitData(redacted)"
+}
+
 private class TvCatalogArtworkRequests(
     private val session: SessionContext, private val repository: MediaLibraryRepository, private val context: android.content.Context,
 ) {
     private val requests = object : LinkedHashMap<String, TvMediaArtwork>(96, .75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, TvMediaArtwork>?): Boolean = size > 96
+    }
+    fun forEndpoint(endpoint: String): TvMediaArtwork {
+        val key = "endpoint/$endpoint"
+        return requests.getOrPut(key) {
+            TvMediaArtwork(ImageRequest.Builder(context).data(TvCatalogPortraitData(session, endpoint))
+                .fetcherFactory(TvCatalogPortraitFetcher).memoryCachePolicy(CachePolicy.DISABLED)
+                .diskCachePolicy(CachePolicy.DISABLED).build())
+        }
     }
     fun forArtwork(artwork: MediaCatalogArtwork?): TvMediaArtwork? {
         artwork ?: return null
@@ -629,6 +642,24 @@ private class TvCatalogArtworkRequests(
             TvMediaArtwork(ImageRequest.Builder(context).data(TvCatalogArtworkData(session, repository, artwork))
                 .fetcherFactory(TvCatalogArtworkFetcher).memoryCachePolicy(CachePolicy.DISABLED)
                 .diskCachePolicy(CachePolicy.DISABLED).build())
+        }
+    }
+}
+
+private object TvCatalogPortraitFetcher : Fetcher.Factory<TvCatalogPortraitData> {
+    override fun create(data: TvCatalogPortraitData, options: Options, imageLoader: ImageLoader): Fetcher = object : Fetcher {
+        override suspend fun fetch(): FetchResult {
+            var lease: PreviewLease? = null
+            try {
+                lease = data.session.api.assetLease(data.endpoint)
+                val request = ImageRequest.Builder(options.context).data(lease.url).size(options.size)
+                    .memoryCachePolicy(CachePolicy.DISABLED).diskCachePolicy(CachePolicy.DISABLED).build()
+                val result = imageLoader.execute(request)
+                return if (result is SuccessResult) ImageFetchResult(result.image, result.isSampled, result.dataSource)
+                else throw IllegalStateException("图片暂不可用")
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { throw IllegalStateException("图片暂不可用") }
+            finally { withContext(NonCancellable) { runCatching { lease?.release() } } }
         }
     }
 }

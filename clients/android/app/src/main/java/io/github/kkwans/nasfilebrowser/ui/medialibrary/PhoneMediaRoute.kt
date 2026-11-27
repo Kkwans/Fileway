@@ -341,7 +341,8 @@ internal fun PhoneMediaRoute(
             }
         } else if (creditsPage && detailId != null && libraryId != null) {
             PhoneMediaCredits(route.detail?.card?.title.orEmpty(), route.credits.map { credit ->
-                MediaCredit(credit.id, credit.name, credit.role.ifBlank { credit.roles.joinToString(" · ") }, personId = credit.personId)
+                MediaCredit(credit.id, credit.name, credit.role.ifBlank { credit.roles.joinToString(" · ") },
+                    portrait = credit.portraitEndpoint?.let { MediaArtwork(endpoint = it) }, personId = credit.personId)
             }, route.creditsLoading, route.creditsProblem, route.creditsCursor != null, imageLoader, ::back, action, subpage)
         } else if (detailId != null) {
             pages.SaveableStateProvider("media-detail/$libraryId/$detailId") {
@@ -498,7 +499,8 @@ private fun PhoneMediaRouteState.detailState(scope: String, id: String): PhoneMe
             listOfNotNull(collection.name, collection.number?.let { "编号 $it" }).joinToString(" · ")
         },
         credits = MediaSection(item?.credits?.items.orEmpty().map { credit ->
-            MediaCredit(credit.id, credit.name, credit.role.ifBlank { credit.roles.joinToString(" · ") }, personId = credit.personId)
+            MediaCredit(credit.id, credit.name, credit.role.ifBlank { credit.roles.joinToString(" · ") },
+                portrait = credit.portraitEndpoint?.let { MediaArtwork(endpoint = it) }, personId = credit.personId)
         }, hasMore = item?.credits?.nextCursor != null),
         seasons = seasons.map { MediaSeason(it.ref.itemId, it.label) },
         seasonsLoading = seasonsLoading, seasonsHasMore = seasonsCursor != null, seasonsProblem = seasonsProblem,
