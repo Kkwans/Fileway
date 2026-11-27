@@ -355,9 +355,12 @@ internal fun PhoneMediaRoute(
             PhoneMediaCollectionWorks(route.collectionName, route.collectionWorks.map(::poster), route.collectionWorksLoading,
                 route.collectionWorksProblem, route.collectionWorksCursor != null, imageLoader, onBack = ::back, onAction = action)
         } else if (searching && personPage != null) {
-            val person = personPage
+            val person = requireNotNull(personPage)
             val result = route.people.firstOrNull { it.ref == person }
+            val portraitEndpoint = result?.portraitEndpoint ?: (route.credits.firstOrNull { it.personId == person.personId }
+                ?: route.detail?.detail?.credits?.items?.firstOrNull { it.personId == person.personId })?.portraitEndpoint
             PhoneMediaPersonWorks(route.personName.ifBlank { result?.name.orEmpty() }, result?.roles.orEmpty(),
+                portraitEndpoint?.let { MediaArtwork(endpoint = it) },
                 route.personWorks.map(::poster), route.personWorksLoading, route.personWorksProblem,
                 route.personWorksCursor != null, imageLoader, onBack = ::back, onAction = action)
         } else if (searching) {

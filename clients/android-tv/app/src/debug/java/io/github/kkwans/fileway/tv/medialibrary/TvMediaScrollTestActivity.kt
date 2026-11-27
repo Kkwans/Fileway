@@ -80,7 +80,7 @@ class TvMediaScrollTestActivity : ComponentActivity() {
                                 people = emptyList(), peopleLoading = false, peopleError = null, peopleHasMore = false,
                                 files = emptyList(), filesLoading = false, filesError = null, filesHasMore = false,
                                 collections = emptyList(), collectionsLoading = false, collectionsError = null, collectionsHasMore = false,
-                                canSearchFiles = false, canSearchCollections = false, imageLoader = loader,
+                                canSearchFiles = false, canSearchCollections = false, imageLoader = loader, personPortrait = { null },
                                 onQuery = {}, onSubmit = {}, onMode = { mode = it }, onBack = {}, onItem = {},
                                 onPerson = { _, _ -> }, onCollection = { _, _ -> }, onRetry = {}, onMore = { more = true })
                         }

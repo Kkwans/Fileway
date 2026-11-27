@@ -15,8 +15,10 @@ class MediaCatalogPersonModelsTest {
             .put("ref", JSONObject().put("libraryId", "lib_1").put("personId", "person_1"))
             .put("name", "张三")
             .put("roles", JSONArray(listOf("演员", "导演")))
+            .put("portrait", JSONObject().put("endpoint", "/api/media-library/v1/libraries/lib_1/items/item_1/artwork/tmdb_profile_3_0"))
             .put("preview", JSONArray().put(card())), scope, "device")
         assertEquals("person_1", person.ref.personId)
+        assertEquals("/api/media-library/v1/libraries/lib_1/items/item_1/artwork/tmdb_profile_3_0", person.portraitEndpoint)
         assertEquals(listOf("演员", "导演"), person.roles)
         assertEquals("Fixture", person.preview.single().title)
     }

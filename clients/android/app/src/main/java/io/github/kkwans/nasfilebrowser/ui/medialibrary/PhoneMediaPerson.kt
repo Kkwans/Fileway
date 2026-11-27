@@ -1,7 +1,6 @@
 package io.github.kkwans.nasfilebrowser.ui.medialibrary
 
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -24,28 +23,26 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.ImageLoader
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.data.MediaCatalogPerson
-import io.github.kkwans.nasfilebrowser.ui.FilewayIcon
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayEmptyState
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySpace
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import io.github.kkwans.fileway.design.R as Art
 
 @Composable
-internal fun PhoneMediaPersonResult(person: MediaCatalogPerson, onOpen: () -> Unit) {
+internal fun PhoneMediaPersonResult(person: MediaCatalogPerson, imageLoader: ImageLoader, onOpen: () -> Unit) {
     Card(onClick = onOpen, shape = MaterialTheme.shapes.medium,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
         Row(Modifier.fillMaxWidth().padding(FilewaySpace.content), horizontalArrangement = Arrangement.spacedBy(FilewaySpace.content),
             verticalAlignment = Alignment.CenterVertically) {
             Surface(Modifier.size(56.dp), shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHighest) {
-                Box(contentAlignment = Alignment.Center) {
-                    FilewayIcon(R.drawable.ic_person, null, Modifier.size(28.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
+                MediaImage(person.portraitEndpoint?.let { MediaArtwork(endpoint = it) }, imageLoader,
+                    Modifier.size(56.dp).clip(CircleShape), person = true)
             }
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(person.name, style = PhoneMediaType.itemTitle, maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -61,7 +58,7 @@ internal fun PhoneMediaPersonResult(person: MediaCatalogPerson, onOpen: () -> Un
 }
 
 @Composable
-internal fun PhoneMediaPersonWorks(name: String, roles: List<String>, entries: List<MediaPoster>,
+internal fun PhoneMediaPersonWorks(name: String, roles: List<String>, portrait: MediaArtwork?, entries: List<MediaPoster>,
     loading: Boolean, problem: MediaProblem?, hasMore: Boolean, imageLoader: ImageLoader,
     onBack: () -> Unit, onAction: (PhoneMediaAction) -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
@@ -69,10 +66,14 @@ internal fun PhoneMediaPersonWorks(name: String, roles: List<String>, entries: L
         Column(Modifier.fillMaxSize()) {
             FilewayTopAppBar("人物作品", leadingIcon = Art.drawable.fileway_ic_arrow_back,
                 leadingDescription = "返回人物搜索", onLeadingClick = onBack)
-            Column(Modifier.fillMaxWidth().padding(horizontal = grid.pageInset), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(name, style = PhoneMediaType.pageTitle, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                Text(roles.joinToString(" · ").ifBlank { "演职人员" }, style = PhoneMediaType.secondary,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Row(Modifier.fillMaxWidth().padding(horizontal = grid.pageInset), horizontalArrangement = Arrangement.spacedBy(FilewaySpace.content),
+                verticalAlignment = Alignment.CenterVertically) {
+                MediaImage(portrait, imageLoader, Modifier.size(72.dp).clip(CircleShape), person = true)
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(name, style = PhoneMediaType.pageTitle, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Text(roles.joinToString(" · ").ifBlank { "演职人员" }, style = PhoneMediaType.secondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
             }
             LazyVerticalGrid(columns = GridCells.Fixed(grid.columns), modifier = Modifier.weight(1f).fillMaxSize(),
                 contentPadding = PaddingValues(start = grid.pageInset, end = grid.pageInset, top = grid.pageInset, bottom = FilewaySpace.section),

@@ -129,6 +129,7 @@ data class MediaCatalogPersonRef(val libraryId: String, val personId: String) {
 
 data class MediaCatalogPerson(
     val ref: MediaCatalogPersonRef, val name: String, val roles: List<String>, val preview: List<MediaCatalogCard>,
+    val portraitEndpoint: String? = null,
 )
 
 data class MediaCatalogCollectionRef(val libraryId: String, val collectionId: String) {
@@ -358,7 +359,7 @@ internal fun parseCatalogPerson(row: JSONObject, scope: MediaSessionScope, devic
         (roles.get(index) as? String ?: error("影视人物响应格式无效")).also {
             require(it.toByteArray(Charsets.UTF_8).size <= 128)
         }
-    }, preview)
+    }, preview, row.authorizedMediaArtworkEndpoint())
 }
 
 internal fun parseCatalogCollection(row: JSONObject, scope: MediaSessionScope, deviceSession: String): MediaCatalogCollection {

@@ -36,7 +36,8 @@ internal fun TvMediaSearchScreen(query: String, searched: Boolean, mode: TvMedia
     people: List<MediaCatalogPerson>, peopleLoading: Boolean, peopleError: String?, peopleHasMore: Boolean,
     files: List<TvMediaFileResult>, filesLoading: Boolean, filesError: String?, filesHasMore: Boolean,
     collections: List<TvMediaCollectionResult>, collectionsLoading: Boolean, collectionsError: String?, collectionsHasMore: Boolean,
-    canSearchFiles: Boolean, canSearchCollections: Boolean, imageLoader: ImageLoader, onQuery: (String) -> Unit, onSubmit: () -> Unit,
+    canSearchFiles: Boolean, canSearchCollections: Boolean, imageLoader: ImageLoader,
+    personPortrait: (MediaCatalogPerson) -> TvMediaArtwork?, onQuery: (String) -> Unit, onSubmit: () -> Unit,
     onMode: (TvMediaSearchMode) -> Unit, onBack: () -> Unit, onItem: (String) -> Unit,
     onPerson: (String, String) -> Unit, onCollection: (String, String) -> Unit, onRetry: () -> Unit, onMore: () -> Unit) {
     val focus = remember { FocusRequester() }
@@ -126,7 +127,7 @@ internal fun TvMediaSearchScreen(query: String, searched: Boolean, mode: TvMedia
                             TvMediaSearchMode.COLLECTIONS -> "没有找到相关合集，试试使用合集名称中的一部分。"
                         })
                     }
-                    mode == TvMediaSearchMode.PEOPLE -> item(key = "people") { TvMediaPeopleShelf(people, onPerson) }
+                    mode == TvMediaSearchMode.PEOPLE -> item(key = "people") { TvMediaPeopleShelf(people, imageLoader, personPortrait, onPerson) }
                     mode == TvMediaSearchMode.FILES -> item(key = "files") { TvMediaFileShelf(files, imageLoader, onItem) }
                     mode == TvMediaSearchMode.COLLECTIONS -> item(key = "collections") { TvMediaCollectionShelf(collections, imageLoader, onCollection) }
                     else -> Unit

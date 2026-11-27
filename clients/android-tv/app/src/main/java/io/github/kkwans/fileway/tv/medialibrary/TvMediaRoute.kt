@@ -260,10 +260,13 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             onMore = { route.loadCollectionWorks(false) },
                         )
                     } else if (searching && personPage != null && route.supported) {
-                        val selected = personPage
+                        val selected = requireNotNull(personPage)
                         val person = route.people.firstOrNull { it.ref == selected }
+                        val portraitEndpoint = person?.portraitEndpoint ?: (route.credits.firstOrNull { it.personId == selected.personId }
+                            ?: route.detail?.detail?.credits?.items?.firstOrNull { it.personId == selected.personId })?.portraitEndpoint
                         TvMediaWorksPage(
-                            header = { TvMediaPersonWorksHeader(route.personName.ifBlank { person?.name.orEmpty() }, person?.roles.orEmpty(), ::closePersonPage) },
+                            header = { TvMediaPersonWorksHeader(route.personName.ifBlank { person?.name.orEmpty() }, person?.roles.orEmpty(),
+                                portraitEndpoint?.let(art::forEndpoint), imageLoader, ::closePersonPage) },
                             cards = route.personWorks.map { tvCard(it, art) },
                             imageLoader = imageLoader,
                             loading = route.personWorksLoading,
@@ -288,6 +291,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             route.collectionsLoading, route.collectionsError, route.collectionsCursor != null,
                             route.home?.capabilities?.get("fileSearch") == true,
                             route.home?.capabilities?.get("collections") == true, imageLoader,
+                            personPortrait = { person -> person.portraitEndpoint?.let(art::forEndpoint) },
                             onQuery = route::editSearch, onSubmit = { route.submitSearch(route.searchQuery) }, onMode = route::chooseSearchMode,
                             onBack = ::closeSearch, onItem = { id ->
                                 (route.searchResults + route.files.map { it.card } + route.collectionWorks + route.personWorks + route.catalog + route.home?.hero?.items.orEmpty()).firstOrNull { tvMediaKey(it.ref) == id }?.let {

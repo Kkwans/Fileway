@@ -79,7 +79,7 @@ internal fun mediaCursor(value: String?): String? = value?.also {
     require(it.isNotEmpty() && it.toByteArray(Charsets.UTF_8).size <= 256) { "影视资料分页参数无效" }
 }
 private fun JSONObject.cursor(key: String): String? = mediaCursor(optionalText(key))
-private fun JSONObject.authorizedMediaArtworkEndpoint(): String? {
+internal fun JSONObject.authorizedMediaArtworkEndpoint(): String? {
     if (!has("portrait") || isNull("portrait")) return null
     val endpoint = getJSONObject("portrait").text("endpoint")
     require(endpoint.length <= 512 && endpoint.startsWith("/api/media-library/v1/libraries/") &&

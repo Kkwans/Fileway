@@ -141,7 +141,7 @@ internal fun PhoneMediaSearch(query: String, searched: Boolean, mode: MediaSearc
                         }
                         MediaSearchMode.PEOPLE -> items(people, key = { "people/${it.ref.libraryId}/${it.ref.personId}" },
                             span = { GridItemSpan(maxLineSpan) }) { person ->
-                            PhoneMediaPersonResult(person) {
+                            PhoneMediaPersonResult(person, imageLoader) {
                                 onAction(PhoneMediaAction.OpenCatalogPerson(person.ref.libraryId, person.ref.personId))
                             }
                         }

@@ -63,6 +63,7 @@ func TestCatalogPersonSearchAndWorksUseAuthorizedOnlineCredits(t *testing.T) {
 		}
 		document := medialibrary.ProviderMatchDocument{Item: mediametadata.Item{Kind: mediametadata.Movie, Fields: map[string][]string{"title": {workTitle}},
 			Credits: []mediametadata.Credit{{Kind: "actor", Fields: map[string][]string{"name": {name}, "role": {"演员"}},
+				Artwork:     []mediametadata.ArtworkDeclaration{{Role: "portrait", Reference: "/" + []string{"zhang.jpg", "li.jpg"}[index]}},
 				ExternalIDs: []mediametadata.ExternalID{{Provider: "tmdb", Value: []string{"8", "9"}[index]}}}}}}
 		if _, err := f.store.ConfirmProviderMatch(t.Context(), owner, "person-match-"+name, medialibrary.ProviderMatchRequest{
 			LibraryID: library.ID, ItemID: itemID, ConnectionID: connection.ID, Kind: "movie", ExternalID: int64(55 + index),
@@ -81,6 +82,9 @@ func TestCatalogPersonSearchAndWorksUseAuthorizedOnlineCredits(t *testing.T) {
 		t.Fatalf("person search: %d %s", response.Code, response.Body)
 	}
 	person := page.Items[0]
+	if person.Portrait == nil || person.Portrait.Role != "profile" || !strings.Contains(person.Portrait.Endpoint, "/artwork/tmdb_profile_") {
+		t.Fatalf("person portrait: %+v", person.Portrait)
+	}
 	works := f.call(t, owner, http.MethodGet, "/api/media-library/v1/catalog/people/"+person.Ref.PersonID+"/works?libraryId="+library.ID, nil)
 	var worksPage catalogCardPage
 	if works.Code != http.StatusOK || json.Unmarshal(works.Body.Bytes(), &worksPage) != nil || len(worksPage.Items) != 1 ||

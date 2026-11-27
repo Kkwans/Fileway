@@ -20,10 +20,11 @@ type catalogPersonRef struct {
 }
 
 type catalogPerson struct {
-	Ref     catalogPersonRef `json:"ref"`
-	Name    string           `json:"name"`
-	Roles   []string         `json:"roles"`
-	Preview []catalogCard    `json:"preview"`
+	Ref      catalogPersonRef `json:"ref"`
+	Name     string           `json:"name"`
+	Roles    []string         `json:"roles"`
+	Portrait *catalogArtwork  `json:"portrait,omitempty"`
+	Preview  []catalogCard    `json:"preview"`
 }
 
 type catalogPersonPage struct {
@@ -64,6 +65,28 @@ func (v *catalogView) projectPersonWork(ctx context.Context, library *medialibra
 		return catalogCard{}, false, errCatalogWorkPending
 	}
 	return card, true, nil
+}
+
+func catalogPersonPortrait(ctx context.Context, d *data, libraryID, personID string, preview []catalogCard) (*catalogArtwork, error) {
+	if len(preview) == 0 {
+		return nil, nil
+	}
+	work := preview[0]
+	match, err := d.store.MediaLibrary.VisibleProviderMatch(ctx, d.user.ID, libraryID, work.Ref.ItemID, work.Revision)
+	if err != nil {
+		return nil, err
+	}
+	if match == nil {
+		return nil, nil
+	}
+	for position, credit := range match.Document.Item.Credits {
+		for _, id := range credit.ExternalIDs {
+			if id.Provider == "tmdb" && "tmdb_person_"+id.Value == personID {
+				return tmdbCreditPortrait(libraryID, work.Ref.ItemID, work.Revision, match, position), nil
+			}
+		}
+	}
+	return nil, nil
 }
 
 func parsePersonSearchRequest(r *http.Request) (string, string, int, error) {
@@ -177,9 +200,13 @@ var mediaCatalogPeopleHandler = catalogLibraryRead(func(w http.ResponseWriter, r
 				page.HasMore = true
 				break
 			}
+			portrait, err := catalogPersonPortrait(r.Context(), d, candidate.LibraryID, candidate.ID, preview)
+			if err != nil {
+				return catalogError(w, err)
+			}
 			page.Items = append(page.Items, catalogPerson{
 				Ref:  catalogPersonRef{LibraryID: candidate.LibraryID, PersonID: candidate.ID},
-				Name: candidate.Name, Roles: roles, Preview: preview,
+				Name: candidate.Name, Roles: roles, Portrait: portrait, Preview: preview,
 			})
 		}
 		cursor.AfterID = candidate.ID
