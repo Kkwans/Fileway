@@ -39,6 +39,11 @@ import io.github.kkwans.nasfilebrowser.data.SearchEnding
 import io.github.kkwans.nasfilebrowser.data.SearchResult
 import io.github.kkwans.nasfilebrowser.data.SearchScope
 import io.github.kkwans.nasfilebrowser.data.CompactGridSize
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayWorkspaceHost
+import io.github.kkwans.nasfilebrowser.ui.adaptive.TabletClickAction
+import io.github.kkwans.nasfilebrowser.ui.adaptive.TabletDirectoryOverview
+import io.github.kkwans.nasfilebrowser.ui.adaptive.TabletWorkspacePolicy
+import io.github.kkwans.nasfilebrowser.ui.adaptive.dismissEmbeddedViewersForSwitch
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 
 @Composable internal fun SearchScreen(model: ClientModel, client: ClientState) {
@@ -52,6 +57,24 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
     val focus = LocalFocusManager.current
     val onBack = LocalFilewayBack.current ?: { model.back(); Unit }
     var details by remember(state.resultBaseWirePath) { mutableStateOf<SearchResult?>(null) }
+    val workspaceHost = LocalFilewayWorkspaceHost.current
+    val tabletConfig = io.github.kkwans.nasfilebrowser.ui.adaptive.LocalTabletLayoutConfig.current
+    val splitController = io.github.kkwans.nasfilebrowser.ui.adaptive.LocalSplitWorkspaceController.current
+    LaunchedEffect(workspaceHost, state.query, state.resultBasePath, displayed.size) {
+        if (workspaceHost != null) {
+            workspaceHost.batchSummary = null
+            workspaceHost.directoryOverview = TabletDirectoryOverview(
+                title = if (state.query.isBlank()) "搜索文件" else "搜索：${state.query}",
+                path = state.resultBasePath,
+                totalCount = displayed.size,
+                folderCount = 0,
+                imageCount = 0,
+                videoCount = 0,
+                documentCount = 0,
+                quickActions = emptyList(),
+            )
+        }
+    }
     fun submit() { if (!model.state.value.busy) { focus.clearFocus(); model.search.submit() } }
     MaterialTheme(colorScheme = colors) {
         Scaffold(containerColor = colors.background) { insets ->
@@ -138,9 +161,54 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                         }
                         }
                     }) { result ->
+                        val resource = result.resource(state.resultBasePath, state.resultBaseWirePath)
                         SearchResultRow(model, result, state.resultBasePath, state.resultBaseWirePath, client.fileLayout,
                             state.scope, state.openingPath == result.relativePath, enabled = !client.busy, compactGridSize = client.compactGridSize,
-                            open = { if (selection.active) selection.toggle(result.relativePath) else if (!model.state.value.busy) { focus.clearFocus(); model.search.openResult(result) } }, details = { details = result },
+                            open = { if (selection.active) selection.toggle(result.relativePath) else if (!model.state.value.busy) { focus.clearFocus(); workspaceHost?.clearInspection(); model.search.openResult(result) } },
+                            details = {
+                                if (workspaceHost != null && resource != null) {
+                                    focus.clearFocus()
+                                    when (tabletConfig.resolveClickAction(TabletWorkspacePolicy.actionFor(resource))) {
+                                        TabletClickAction.ENTER_DIRECTORY -> {
+                                            workspaceHost.clearInspection()
+                                            model.search.openResult(result)
+                                        }
+                                        TabletClickAction.STAGE_VIDEO, TabletClickAction.INSPECT_FILE -> {
+                                            dismissEmbeddedViewersForSwitch(model)
+                                            workspaceHost.inspect(
+                                                resource,
+                                                onOpen = { model.search.openResult(result) },
+                                                onLocation = { model.openContainingDirectory(resource) },
+                                            )
+                                        }
+                                        TabletClickAction.OPEN_EMBEDDED -> {
+                                            workspaceHost.clearInspection()
+                                            dismissEmbeddedViewersForSwitch(model)
+                                            model.search.openResult(result)
+                                        }
+                                        TabletClickAction.OPEN_FULLSCREEN -> {
+                                            workspaceHost.clearInspection()
+                                            dismissEmbeddedViewersForSwitch(model)
+                                            splitController?.setDetailFullscreen(true)
+                                            model.search.openResult(result)
+                                        }
+                                    }
+                                } else {
+                                    details = result
+                                }
+                            },
+                            onMoreClick = if (workspaceHost != null && resource != null) {
+                                {
+                                    focus.clearFocus()
+                                    dismissEmbeddedViewersForSwitch(model)
+                                    workspaceHost.inspect(
+                                        resource,
+                                        onOpen = { model.search.openResult(result) },
+                                        onLocation = { model.openContainingDirectory(resource) },
+                                    )
+                                }
+                            } else null,
+                            focused = workspaceHost != null && resource != null && workspaceHost.focusedFileKey == resource.mediaKey,
                             selected = if (selection.active) result.relativePath in selection.ids else null,
                             onSelect = { selection.start(result.relativePath) })
                     }
@@ -177,7 +245,8 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
 }
 
 @Composable private fun SearchResultRow(model: ClientModel, result: SearchResult, basePath: String, baseWirePath: String,
-    layout: FileLayout, scope: SearchScope, opening: Boolean, enabled: Boolean, compactGridSize: CompactGridSize, open: () -> Unit, details: () -> Unit, selected: Boolean?, onSelect: () -> Unit) {
+    layout: FileLayout, scope: SearchScope, opening: Boolean, enabled: Boolean, compactGridSize: CompactGridSize, open: () -> Unit, details: () -> Unit,
+    onMoreClick: (() -> Unit)? = null, focused: Boolean = false, selected: Boolean?, onSelect: () -> Unit) {
     val colors = MaterialTheme.colorScheme
     val resource = remember(result, basePath, baseWirePath) { result.resource(basePath, baseWirePath) }
     Column(Modifier.fillMaxWidth()) {
@@ -186,7 +255,7 @@ Column(Modifier.widthIn(max = 960.dp).fillMaxSize().imePadding()) {
                 SearchScope.CURRENT -> null
                 SearchScope.RECURSIVE -> result.relativePath.substringBeforeLast('/', "").ifBlank { null }
                 SearchScope.GLOBAL -> resource.path.substringBeforeLast('/', "").ifEmpty { "/" }
-            }, compactGridSize = compactGridSize, selected = selected, onSelect = onSelect)
+            }, compactGridSize = compactGridSize, selected = selected, onSelect = onSelect, focused = focused, onMoreClick = onMoreClick)
         else Column(Modifier.fillMaxWidth().combinedClickable(onClick = if (selected != null) open else details, onDoubleClick = if (selected == null) open else null, onLongClick = onSelect,
             onLongClickLabel = "多选文件", role = Role.Button, enabled = enabled).padding(vertical = 12.dp)) {
             Text(result.name, style = MaterialTheme.typography.bodyLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)

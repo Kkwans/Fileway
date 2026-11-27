@@ -24,6 +24,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.*
 import io.github.kkwans.nasfilebrowser.data.*
+import io.github.kkwans.nasfilebrowser.ui.adaptive.FilewaySplitWorkspace
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayWindowLayout
+import io.github.kkwans.nasfilebrowser.ui.adaptive.SplitPaneSpec
+import io.github.kkwans.nasfilebrowser.ui.adaptive.rememberFilewaySplitWorkspaceState
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -48,59 +52,82 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
     var confirmCleanup by remember(state.scope, state.reportId) { mutableStateOf(false) }
     var visibleGroups by remember(state.reportId) { mutableIntStateOf(20) }
     val enabled = !state.loading && !state.changing && !client.busy
+    val windowLayout = LocalFilewayWindowLayout.current
+    val useDual = io.github.kkwans.nasfilebrowser.ui.adaptive.LocalTabletLayoutConfig.current.useWorkspaceDualPane(windowLayout)
     LaunchedEffect(state.scope) { model.storageTools.refresh() }
     BackHandler(state.reportId != null && LocalFilewayPageActive.current) { model.storageTools.closeReport() }
     LibraryScaffold(model, LibrarySection.TOOLS,
-        title = if (state.reportId != null) (if (state.tool == "storage") "存储分析报告" else "重复文件报告") else null,
-        back = if (state.reportId != null) ({ model.storageTools.closeReport() }) else null, tabs = state.reportId == null, actions = {
+        title = if (!useDual && state.reportId != null) (if (state.tool == "storage") "存储分析报告" else "重复文件报告") else null,
+        back = if (!useDual && state.reportId != null) ({ model.storageTools.closeReport() }) else null,
+        tabs = useDual || state.reportId == null, actions = {
         if (state.reportId != null) FilewayIconButton({ state.reportId?.let { model.storageTools.openReport(it) } }, enabled = !state.reportLoading && !state.changing) {
             FilewayIcon(R.drawable.ic_refresh, "刷新报告", Modifier.size(24.dp))
-        } else FilewayIconButton({ scan = true }, enabled = enabled && state.permissions.download) { FilewayIcon(R.drawable.ic_add, "新建扫描", Modifier.size(24.dp)) }
-    }) {
-        if (state.reportId == null) Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            FilterChip(state.tool == "storage", { model.storageTools.tool("storage") }, { Text("存储占用") }, enabled = enabled, colors = libraryChipColors())
-            FilterChip(state.tool == "duplicates", { model.storageTools.tool("duplicates") }, { Text("重复文件") }, enabled = enabled, colors = libraryChipColors())
         }
-        LibraryMessage(state.error, state.notice, state.loading || state.changing) { model.storageTools.refresh() }
-        LazyColumn(Modifier.weight(1f).semantics { contentDescription = "存储工具内容" }, contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (state.reportId == null) {
-                item { Text("选择扫描范围，查看空间占用或内容相同的文件。扫描由当前服务器执行。", Modifier.padding(4.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                if (state.volumes.isNotEmpty()) item { Text("磁盘概览", style = MaterialTheme.typography.titleMedium) }
-                items(state.volumes, key = { "volume/" + it.getString("path") }) { volume ->
-                    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(volume.optString("name"), style = MaterialTheme.typography.titleSmall)
-                            val total = volume.optLong("totalSpace"); val used = volume.optLong("usedSpace")
-                            if (total > 0) LinearProgressIndicator(progress = { (used.toDouble() / total).coerceIn(0.0, 1.0).toFloat() }, modifier = Modifier.fillMaxWidth().height(4.dp), gapSize = 0.dp, drawStopIndicator = {})
-                            Text("已用 ${readableSize(used)}" + if (total > 0) " / ${readableSize(total)} · 可用 ${readableSize(volume.optLong("freeSpace", (total - used).coerceAtLeast(0)))}" else " · 总容量未知", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilewayOutlinedButton({ model.openRemotePath(volume.getString("path")) }, enabled = !client.busy) { Text("打开存储卷") }
-                                FilewayOutlinedButton({ scan = true }, enabled = enabled && state.permissions.download) { Text("扫描范围") }
+        if (useDual || state.reportId == null) FilewayIconButton({ scan = true }, enabled = enabled && state.permissions.download) { FilewayIcon(R.drawable.ic_add, "新建扫描", Modifier.size(24.dp)) }
+    }) {
+        @Composable fun ToolsOverviewList(modifier: Modifier) {
+            Column(modifier) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    FilterChip(state.tool == "storage", { model.storageTools.tool("storage") }, { Text("存储占用") }, enabled = enabled, colors = libraryChipColors())
+                    FilterChip(state.tool == "duplicates", { model.storageTools.tool("duplicates") }, { Text("重复文件") }, enabled = enabled, colors = libraryChipColors())
+                }
+                LibraryMessage(state.error, state.notice, state.loading || state.changing) { model.storageTools.refresh() }
+                LazyColumn(Modifier.weight(1f).semantics { contentDescription = "存储工具内容" }, contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    item { Text("选择扫描范围，查看空间占用或内容相同的文件。扫描由当前服务器执行。", Modifier.padding(4.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    if (state.volumes.isNotEmpty()) item { Text("磁盘概览", style = MaterialTheme.typography.titleMedium) }
+                    items(state.volumes, key = { "volume/" + it.getString("path") }) { volume ->
+                        Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
+                            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(volume.optString("name"), style = MaterialTheme.typography.titleSmall)
+                                val total = volume.optLong("totalSpace"); val used = volume.optLong("usedSpace")
+                                if (total > 0) LinearProgressIndicator(progress = { (used.toDouble() / total).coerceIn(0.0, 1.0).toFloat() }, modifier = Modifier.fillMaxWidth().height(4.dp), gapSize = 0.dp, drawStopIndicator = {})
+                                Text("已用 ${readableSize(used)}" + if (total > 0) " / ${readableSize(total)} · 可用 ${readableSize(volume.optLong("freeSpace", (total - used).coerceAtLeast(0)))}" else " · 总容量未知", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    FilewayOutlinedButton({ model.openRemotePath(volume.getString("path")) }, enabled = !client.busy) { Text("打开存储卷") }
+                                    FilewayOutlinedButton({ scan = true }, enabled = enabled && state.permissions.download) { Text("扫描范围") }
+                                }
                             }
                         }
                     }
-                }
-                state.volumeError?.let { item { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
-                item { Text("最近分析", style = MaterialTheme.typography.titleMedium) }
-                if (state.recent.isEmpty() && !state.loading) item { Text("还没有分析记录。从当前目录开始一次扫描。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                items(state.recent, key = { "scan/" + it.getString("id") }) { row ->
-                    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surface) {
-                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            val scopes = row.optJSONArray("scopes")
-                            Text(scopes?.let { (0 until it.length()).joinToString(" · ") { i -> libraryBasename(it.getString(i)) } }.orEmpty(), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            if (scopes != null) Text((0 until scopes.length()).joinToString(" · ") { scopes.getString(it) },
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text("${serverTime(row.optLong("createdAt"))} · " + when (row.optString("status")) { "completed" -> "已完成"; "failed" -> "失败"; "canceled" -> "已取消"; "interrupted" -> "已中断"; "running" -> "进行中"; else -> "排队中" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                FilewayOutlinedButton({ model.storageTools.openReport(row.getString("id"), row.getString("tool")) }, Modifier.weight(1f)) { Text(if (row.optBoolean("resultReady")) "查看报告" else "查看进度") }
-                                FilewayOutlinedButton({ model.showServerTask(row.getString("id")) }, Modifier.weight(1f)) { Text("任务详情") }
+                    state.volumeError?.let { item { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
+                    item { Text("最近分析", style = MaterialTheme.typography.titleMedium) }
+                    if (state.recent.isEmpty() && !state.loading) item { Text("还没有分析记录。从当前目录开始一次扫描。", color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    items(state.recent, key = { "scan/" + it.getString("id") }) { row ->
+                        val rowId = row.getString("id")
+                        val activeRow = useDual && state.reportId == rowId
+                        Surface(
+                            Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (activeRow) MaterialTheme.colorScheme.primary.copy(alpha = 0.11f) else MaterialTheme.colorScheme.surface,
+                        ) {
+                            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                val scopes = row.optJSONArray("scopes")
+                                Text(scopes?.let { (0 until it.length()).joinToString(" · ") { i -> libraryBasename(it.getString(i)) } }.orEmpty(), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                if (scopes != null) Text((0 until scopes.length()).joinToString(" · ") { scopes.getString(it) },
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                Text("${serverTime(row.optLong("createdAt"))} · " + when (row.optString("status")) { "completed" -> "已完成"; "failed" -> "失败"; "canceled" -> "已取消"; "interrupted" -> "已中断"; "running" -> "进行中"; else -> "排队中" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    FilewayOutlinedButton({ model.storageTools.openReport(rowId, row.getString("tool")) }, Modifier.weight(1f)) { Text(if (row.optBoolean("resultReady")) "查看报告" else "查看进度") }
+                                    FilewayOutlinedButton({ model.showServerTask(rowId) }, Modifier.weight(1f)) { Text("任务详情") }
+                                }
                             }
                         }
                     }
+                    if (state.nextCursor.isNotEmpty()) item { FilewayOutlinedButton({ model.storageTools.refresh(more = true) }, enabled = enabled, modifier = Modifier.fillMaxWidth()) { Text("加载更多分析记录") } }
                 }
-                if (state.nextCursor.isNotEmpty()) item { FilewayOutlinedButton({ model.storageTools.refresh(more = true) }, enabled = enabled, modifier = Modifier.fillMaxWidth()) { Text("加载更多分析记录") } }
-            } else {
+            }
+        }
+        @Composable fun ToolsReportList(modifier: Modifier) {
+            LazyColumn(modifier.semantics { contentDescription = "存储工具报告内容" }, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (useDual && state.reportId != null) {
+                    item {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(if (state.tool == "storage") "存储分析报告" else "重复文件报告", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                            FilewayIconButton({ model.storageTools.closeReport() }) { FilewayIcon(R.drawable.ic_close, "关闭报告") }
+                        }
+                    }
+                }
                 if (state.reportLoading) item { LinearProgressIndicator(Modifier.fillMaxWidth()) }
                 state.reportError?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
                 state.task?.takeIf { state.report == null }?.let { task -> item {
@@ -182,6 +209,37 @@ private fun cleanable(report: JSONObject, group: JSONObject): Boolean {
                         }
                     }
                 }
+            }
+        }
+        if (useDual) {
+            val splitState = rememberFilewaySplitWorkspaceState(
+                sceneKey = "library_tools",
+                spec = SplitPaneSpec(defaultRatio = 0.40f, minLeftDp = 300f, minRightDp = 380f),
+            )
+            FilewaySplitWorkspace(
+                state = splitState,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                listPane = { ToolsOverviewList(Modifier.fillMaxSize()) },
+                detailPane = {
+                    if (state.reportId != null) {
+                        ToolsReportList(Modifier.fillMaxSize())
+                    } else {
+                        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                FilewayIcon(R.drawable.ic_storage, null, Modifier.size(40.dp), tint = MaterialTheme.colorScheme.primary)
+                                Text(if (state.tool == "storage") "存储空间分析工作台" else "重复文件对比工作台", style = MaterialTheme.typography.titleMedium)
+                                Text("点击左侧任意一次扫描记录的「查看报告」，即可在此同屏浏览最大文件排行或逐组清理重复文件。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                if (state.permissions.download) FilewayButton({ scan = true }, enabled = enabled) { Text("新建扫描") }
+                            }
+                        }
+                    }
+                },
+            )
+        } else {
+            if (state.reportId == null) ToolsOverviewList(Modifier.weight(1f).fillMaxWidth())
+            else {
+                LibraryMessage(state.error, state.notice, state.loading || state.changing) { model.storageTools.refresh() }
+                ToolsReportList(Modifier.weight(1f).fillMaxWidth())
             }
         }
     }

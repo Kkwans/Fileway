@@ -17,6 +17,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.ClientModel
+import io.github.kkwans.nasfilebrowser.ui.adaptive.FilewaySplitWorkspace
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayWindowLayout
+import io.github.kkwans.nasfilebrowser.ui.adaptive.SplitPaneSpec
+import io.github.kkwans.nasfilebrowser.ui.adaptive.rememberFilewaySplitWorkspaceState
 import io.github.kkwans.nasfilebrowser.upload.UploadRecord
 
 @Composable internal fun UploadsScreen(model: ClientModel, reselectSource: (UploadRecord, Boolean) -> Unit) {
@@ -56,10 +60,13 @@ import io.github.kkwans.nasfilebrowser.upload.UploadRecord
             "remove" -> remove = current
         }
     }
+    val windowLayout = LocalFilewayWindowLayout.current
+    val useDual = io.github.kkwans.nasfilebrowser.ui.adaptive.LocalTabletLayoutConfig.current.useWorkspaceDualPane(windowLayout)
     TaskCenterHeaderActions {
         FilewaySelectionToggle(selection, "多选上传", !state.busy && items.isNotEmpty())
     }
-    FilewayRefresh(false, model.uploads::refresh) {
+    @Composable fun UploadsListPane(modifier: Modifier) {
+        FilewayRefresh(false, model.uploads::refresh, modifier) {
 Column(Modifier.fillMaxSize()) {
         if (selection.active) FilewayTaskSelectionBar(selection, !state.busy, {
             selection.select(if (selection.ids.size == items.size) emptyList() else items.map { it.id })
@@ -106,7 +113,7 @@ Column(Modifier.fillMaxSize()) {
                     title = item.name,
                     onClick = { if (selection.active) selection.toggle(item.id) else infoId = item.id },
                     onDoubleClick = if (!selection.active && item.complete) ({ perform(item, "open") }) else null,
-                    onLongClick = { if (!state.busy) selection.start(item.id) }, selected = item.id in selection.ids,
+                    onLongClick = { if (!state.busy) selection.start(item.id) }, selected = item.id in selection.ids || (useDual && infoId == item.id),
                     icon = {
                         if (!item.complete && item.canResume && !selection.active) TransferPrimaryControl(item.active,
                             if (item.active) "暂停上传" else "继续上传", !state.busy) {
@@ -132,8 +139,62 @@ Column(Modifier.fillMaxSize()) {
         }
     }
 }
+    }
+    if (useDual) {
+        val splitState = rememberFilewaySplitWorkspaceState(
+            sceneKey = "tasks_uploads",
+            spec = SplitPaneSpec(defaultRatio = 0.44f, minLeftDp = 320f, minRightDp = 360f),
+        )
+        FilewaySplitWorkspace(
+            state = splitState,
+            modifier = Modifier.fillMaxSize(),
+            listPane = { UploadsListPane(Modifier.fillMaxSize()) },
+            detailPane = {
+                val activeRow = state.items.firstOrNull { it.id == infoId && it.accountKey == account }
+                if (activeRow != null) {
+                    val footer = actionsFor(activeRow).filterNot { it.key == "detail" }.map {
+                        FilewayMenuEntry(it.key, when (it.key) { "open" -> "所在目录"; "reselect" -> "选择原文件"; "restart" -> "重新开始"; else -> it.label }, it.icon, enabled = it.enabled,
+                            destructive = it.key in setOf("cancel", "remove"), accessibilityLabel = it.label)
+                    }
+                    Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.TopCenter) {
+                        Column(Modifier.widthIn(max = 600.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("上传任务详情", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                                FilewayIconButton({ infoId = null }) { FilewayIcon(R.drawable.ic_close, "关闭详情") }
+                            }
+                            HorizontalDivider()
+                            Column(Modifier.weight(1f, fill = false).verticalScroll(androidx.compose.foundation.rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(activeRow.name, style = MaterialTheme.typography.titleMedium)
+                                Text("创建：${serverTime(activeRow.createdAt)}", style = MaterialTheme.typography.bodySmall)
+                                Text("更新：${serverTime(activeRow.updatedAt)}", style = MaterialTheme.typography.bodySmall)
+                                Text(transferSummary(activeRow.uploaded, activeRow.activeMillis, activeRow.timingComplete), style = MaterialTheme.typography.bodySmall)
+                                if (!activeRow.timingComplete) Text("旧任务仅累计升级后的运行时间，暂停与离线时间不计入。", style = MaterialTheme.typography.bodySmall)
+                                FileOperationLocation("目标位置", activeRow.targetPath, showBasename = false)
+                                Text("${readableSize(activeRow.uploaded)} / ${readableSize(activeRow.expectedSize)}", style = MaterialTheme.typography.bodyMedium)
+                                if (activeRow.error.isNotEmpty()) Text(activeRow.error, color = MaterialTheme.colorScheme.error)
+                                state.error?.takeIf { it != activeRow.error }?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                            }
+                            if (footer.isNotEmpty()) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilewaySheetActions(footer) { action -> perform(activeRow, action) }
+                            }
+                        }
+                    }
+                } else {
+                    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            FilewayIcon(R.drawable.ic_upload, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.primary)
+                            Text("上传任务共 ${items.size} 项", style = MaterialTheme.typography.titleMedium)
+                            Text("点击左侧上传记录即可在此查看实时进度、目标路径与快捷操作。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            },
+        )
+    } else {
+        UploadsListPane(Modifier.fillMaxSize())
+    }
 
-    state.items.firstOrNull { it.id == infoId && it.accountKey == account }?.let { row ->
+    if (!useDual) state.items.firstOrNull { it.id == infoId && it.accountKey == account }?.let { row ->
         val footer = actionsFor(row).filterNot { it.key == "detail" }.map {
             FilewayMenuEntry(it.key, when (it.key) { "open" -> "所在目录"; "reselect" -> "选择原文件"; "restart" -> "重新开始"; else -> it.label }, it.icon, enabled = it.enabled,
                 destructive = it.key in setOf("cancel", "remove"), accessibilityLabel = it.label)

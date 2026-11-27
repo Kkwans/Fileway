@@ -31,7 +31,7 @@
         <receiver android:name=".upload.UploadCommandsReceiver" android:exported="false" />
         <activity android:name=".MainActivity" android:exported="true" android:supportsPictureInPicture="true"
             android:windowSoftInputMode="adjustResize"
-            android:configChanges="orientation|screenSize|screenLayout">
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|density|keyboard|keyboardHidden">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />

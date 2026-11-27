@@ -22,6 +22,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.*
+import io.github.kkwans.nasfilebrowser.ui.adaptive.FilewaySplitWorkspace
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayWindowLayout
+import io.github.kkwans.nasfilebrowser.ui.adaptive.SplitPaneSpec
+import io.github.kkwans.nasfilebrowser.ui.adaptive.rememberFilewaySplitWorkspaceState
 
 @Composable internal fun TrashScreen(model: ClientModel, client: ClientState) {
     val state by model.trash.state.collectAsStateWithLifecycle()
@@ -40,6 +44,8 @@ import io.github.kkwans.nasfilebrowser.app.*
     LaunchedEffect(state.items) { selected = selected.intersect(state.items.map { it.id }.toSet()) }
     val filtered = state.items.filter { when (status) { "available" -> it.status == "available"; "working" -> it.status in setOf("pending", "restoring") || it.sizeState == "calculating"; "failed" -> it.status == "failed" || it.sizeState == "failed"; else -> true } }
     val displayed = when (order) { "name" -> filtered.sortedBy { it.name.lowercase(java.util.Locale.ROOT) }; "size" -> filtered.sortedByDescending { it.size }; else -> filtered.sortedByDescending { it.deletedAt } }
+    val windowLayout = LocalFilewayWindowLayout.current
+    val useDual = io.github.kkwans.nasfilebrowser.ui.adaptive.LocalTabletLayoutConfig.current.useWorkspaceDualPane(windowLayout)
     LibraryScaffold(model, LibrarySection.TRASH, actions = {
         if (canDelete || canRestore) FilewayIconButton({ selecting = !selecting; selected = emptySet() }, enabled = enabled) {
             FilewayIcon(if (selecting) R.drawable.ic_close else R.drawable.ic_select_multiple, if (selecting) "退出回收站多选" else "多选回收项目")
@@ -48,6 +54,8 @@ import io.github.kkwans.nasfilebrowser.app.*
             FilewayIcon(R.drawable.ic_trash, "清空回收站", tint = MaterialTheme.colorScheme.error)
         }
     }) {
+        @Composable fun TrashListColumn(modifier: Modifier) {
+            Column(modifier) {
         LibraryMessage(state.error, state.notice, state.loading || state.changing) { model.trash.refresh() }
         state.lastTask?.let { task ->
             Surface(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.primary.copy(alpha = .08f)) {
@@ -106,7 +114,7 @@ import io.github.kkwans.nasfilebrowser.app.*
                     summary = "${trashSize(item)} · ${serverTime(item.deletedAt)}",
                     onOpen = { if (selecting) { if (enabled && item.status != "restoring") selected = if (item.id in selected) selected - item.id else selected + item.id } else details = item },
                     enabled = enabled && (!selecting || item.status != "restoring"),
-                    selected = item.id in selected, selectionMode = selecting,
+                    selected = item.id in selected || (useDual && details?.id == item.id), selectionMode = selecting,
                     onLongClick = if (canDelete || canRestore) ({ if (enabled && item.status != "restoring") { selecting = true; selected = selected + item.id } }) else null,
                     trailing = {
                         if (!selecting) {
@@ -120,6 +128,66 @@ import io.github.kkwans.nasfilebrowser.app.*
                     item.error.takeIf { it.isNotEmpty() }?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
                 }
             }
+        }
+            }
+        }
+        if (useDual) {
+            val splitState = rememberFilewaySplitWorkspaceState(
+                sceneKey = "library_trash",
+                spec = SplitPaneSpec(defaultRatio = 0.44f, minLeftDp = 300f, minRightDp = 360f),
+            )
+            FilewaySplitWorkspace(
+                state = splitState,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                listPane = { TrashListColumn(Modifier.fillMaxSize()) },
+                detailPane = {
+                    val activeItem = details?.let { d -> state.items.firstOrNull { it.id == d.id } }
+                    if (activeItem != null) {
+                        Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.TopCenter) {
+                            Column(Modifier.widthIn(max = 600.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    Text("回收站详情", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                                    FilewayIconButton({ details = null }) { FilewayIcon(R.drawable.ic_close, "关闭详情") }
+                                }
+                                HorizontalDivider()
+                                SelectionContainer(Modifier.weight(1f, fill = false)) {
+                                    Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        Text(activeItem.name, style = MaterialTheme.typography.titleMedium)
+                                        FileOperationLocation("原位置", activeItem.path, showBasename = false)
+                                        Text("${if (activeItem.directory) "文件夹" else "文件"} · ${trashSize(activeItem)}", style = MaterialTheme.typography.bodyMedium)
+                                        Text("删除时间：${serverTime(activeItem.deletedAt)}", style = MaterialTheme.typography.bodyMedium)
+                                        if (activeItem.directory && activeItem.status == "available" && activeItem.sizeState !in setOf("accurate", "calculating") && (canDelete || state.permissions.admin)) {
+                                            FilewayOutlinedButton({ model.trash.measure(activeItem) }, enabled = enabled) { Text("统计大小") }
+                                        }
+                                        if (activeItem.sizeTaskId.isNotEmpty() && activeItem.sizeState in setOf("calculating", "failed", "incomplete")) {
+                                            FilewayOutlinedButton({ model.showServerTask(activeItem.sizeTaskId) }) { Text("查看大小统计任务") }
+                                        }
+                                        if (activeItem.error.isNotEmpty()) Text(activeItem.error, color = MaterialTheme.colorScheme.error)
+                                    }
+                                }
+                                if (canDelete || canRestore) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    if (canDelete) FilewayOutlinedButton({ deleting = listOf(activeItem.id); details = null }, enabled = enabled && activeItem.status != "restoring", modifier = Modifier.weight(1f)) {
+                                        FilewayIcon(R.drawable.ic_trash, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("永久删除")
+                                    }
+                                    if (canRestore) FilewayButton({ model.trash.restore(activeItem); details = null }, enabled = enabled && activeItem.status == "available", modifier = Modifier.weight(1f)) {
+                                        FilewayIcon(R.drawable.ic_restore, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("还原")
+                                    }
+                                }
+                            }
+                        }
+                    } else {
+                        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                FilewayIcon(R.drawable.ic_trash, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text("回收站共 ${state.items.size} 项", style = MaterialTheme.typography.titleMedium)
+                                Text("点击左侧项目即可查看原位置、统计大小、还原或永久删除。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                },
+            )
+        } else {
+            TrashListColumn(Modifier.weight(1f).fillMaxWidth())
         }
     }
     if (clearing || deleting != null) FilewayAlertDialog(onDismissRequest = { clearing = false; deleting = null }, title = { Text(if (clearing) "清空回收站？" else "永久删除所选 ${deleting!!.size} 项？") },
@@ -135,7 +203,7 @@ import io.github.kkwans.nasfilebrowser.app.*
             FilewayTextButton({ model.trash.restore(item, "skip") }, enabled = enabled && canRestore) { Text("跳过恢复") }
         }
     }, confirmButton = { FilewayTextButton(model.trash::closeConflict) { Text("取消") } }) }
-    details?.let { item -> FileOperationSheet("回收站详情", { details = null }, footer = if (!canDelete && !canRestore) null else {{
+    if (!useDual) details?.let { item -> FileOperationSheet("回收站详情", { details = null }, footer = if (!canDelete && !canRestore) null else {{
         if (canDelete) FilewayOutlinedButton({ deleting = listOf(item.id); details = null }, enabled = enabled && item.status != "restoring", modifier = Modifier.weight(1f)) {
             FilewayIcon(R.drawable.ic_trash, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text("永久删除")
         }

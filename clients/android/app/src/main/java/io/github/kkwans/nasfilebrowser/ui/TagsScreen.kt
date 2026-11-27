@@ -31,6 +31,10 @@ import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.*
 import io.github.kkwans.nasfilebrowser.app.FileLayout
 import io.github.kkwans.nasfilebrowser.data.*
+import io.github.kkwans.nasfilebrowser.ui.adaptive.FilewaySplitWorkspace
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayWindowLayout
+import io.github.kkwans.nasfilebrowser.ui.adaptive.SplitPaneSpec
+import io.github.kkwans.nasfilebrowser.ui.adaptive.rememberFilewaySplitWorkspaceState
 
 internal fun metadataColor(value: String, fallback: Color): Color = try { Color(android.graphics.Color.parseColor(value)) } catch (_: Exception) { fallback }
 
@@ -72,71 +76,135 @@ internal fun metadataColor(value: String, fallback: Color): Color = try { Color(
                 FilewayTextButton({ creating = true }) { Text("新建第一个标签") }
             }
         } else {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                val colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = .10f), selectedLabelColor = MaterialTheme.colorScheme.primary)
-                state.items.forEach { value -> FilterChip(chosen == value.id, { chosen = value.id }, { Text(value.name) }, colors = colors,
-                    leadingIcon = { Box(Modifier.size(8.dp).background(metadataColor(value.color, MaterialTheme.colorScheme.primary), CircleShape)) }) }
-            }
-            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-                var scopeMenu by remember { mutableStateOf(false) }
-                Box {
-                    FilewayTextButton({ scopeMenu = true }, enabled = enabled, shape = RoundedCornerShape(12.dp)) {
-                        Text(if (currentOnly) "当前目录" else "全部关联")
-                        FilewayIcon(R.drawable.ic_expand_more, null, Modifier.size(18.dp))
-                    }
-                    FilewayMenu(scopeMenu, { scopeMenu = false }, items = buildList {
-                        add(FilewayMenuEntry("all", "全部关联", selected = !currentOnly))
-                        add(FilewayMenuEntry("current", "当前目录", selected = currentOnly))
-                    }, selection = FilewayMenuSelection.Single, onItemClick = {
-                        scopeMenu = false
-                        when (it.key) { "all" -> currentOnly = false; "current" -> currentOnly = true }
-                    })
-                }
-                Text("${state.paths.size} / ${state.pathTotal}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                tag?.let { selected ->
-                    FilewayIconButton({ model.tags.filter(selected.id, !currentOnly); model.tab("files") }, enabled = enabled) {
-                        FilewayIcon(R.drawable.ic_search, "在文件页筛选此标签")
-                    }
-                    FilewayIconButton({ editing = selected }, enabled = enabled) { FilewayIcon(R.drawable.ic_edit, "编辑标签") }
-                    FilewayIconButton({ removing = selected }, enabled = enabled) { FilewayIcon(R.drawable.ic_trash, "删除标签", tint = MaterialTheme.colorScheme.error) }
-                }
-            }
-            LibraryMessage(state.pathsError, null, state.pathsLoading) { tag?.let { model.tags.loadPaths(it.id, if (currentOnly) client.path else null, parentWire = if (currentOnly) client.wirePath else null) } }
+            val windowLayout = LocalFilewayWindowLayout.current
             val candidates = state.paths.mapNotNull { it.file }
             val sourceScope = state.scope
-            LazyColumn(Modifier.weight(1f).semantics { contentDescription = "标签关联路径" }, contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (state.paths.isEmpty() && !state.pathsLoading && state.pathsError == null) item { Text(if (currentOnly) "这个目录还没有直接标记的文件。" else "还没有关联路径。从文件详情中添加标记。", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                items(state.paths, key = { it.key }) { row ->
-                    val file = row.file
-                    if (file != null) LibraryObjectCard(file.name, libraryLocation(file.path), fileArtworkIcon(file.name, file.directory),
-                        enabled = enabled, onLongClick = { selection.start(row.key) },
-                        selected = row.key in selection.ids, selectionMode = selection.active,
-                        summary = if (file.directory) null else readableSize(file.size), artwork = if (file.mediaKind() in setOf(MediaKind.IMAGE, MediaKind.VIDEO)) { {
-                            MediaThumbnail(model, file, Modifier.size(36.dp).clip(MaterialTheme.shapes.small), showStatusText = false)
-                        } } else null, onOpen = { if (selection.active) selection.toggle(row.key) else details = file },
-                        onDoubleClick = {
-                            if (file.directory) model.tags.filter(tag?.id, true)
-                            model.openTagged(file, candidates, sourceScope)
-                        }, trailing = { if (!selection.active) FilewayIconButton({ details = file }, enabled = enabled) { FilewayIcon(R.drawable.ic_info, "标签文件操作：${file.name}") } })
-                    else Surface(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).combinedClickable(
-                        onClick = { if (selection.active && row.ref.openable) selection.toggle(row.key) else pathDetails = row.path },
-                        onLongClick = if (row.ref.openable) ({ selection.start(row.key) }) else null),
-                        shape = RoundedCornerShape(12.dp), color = if (row.key in selection.ids) MaterialTheme.colorScheme.primary.copy(alpha = .09f) else MaterialTheme.colorScheme.surface,
-                        border = if (row.key in selection.ids) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(libraryBasename(row.path), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text("位置 · ${libraryParent(row.path)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(row.error.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-                            Row {
-                                FilewayTextButton({ pathDetails = row.path }) { Text("完整路径") }
-                                tag?.let { value -> FilewayTextButton({ model.tags.removePath(value, row.ref, sourceScope) }, enabled = enabled && row.ref.identity != null) { Text("取消此关联") } }
+            @Composable fun TagPathsColumn(modifier: Modifier) {
+                Column(modifier) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                        if (io.github.kkwans.nasfilebrowser.ui.adaptive.LocalTabletLayoutConfig.current.useWorkspaceDualPane(windowLayout) && tag != null) {
+                            Box(Modifier.size(10.dp).background(metadataColor(tag.color, MaterialTheme.colorScheme.primary), CircleShape))
+                            Spacer(Modifier.width(8.dp))
+                            Text(tag.name, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Spacer(Modifier.width(12.dp))
+                        }
+                        var scopeMenu by remember { mutableStateOf(false) }
+                        Box {
+                            FilewayTextButton({ scopeMenu = true }, enabled = enabled, shape = RoundedCornerShape(12.dp)) {
+                                Text(if (currentOnly) "当前目录" else "全部关联")
+                                FilewayIcon(R.drawable.ic_expand_more, null, Modifier.size(18.dp))
                             }
+                            FilewayMenu(scopeMenu, { scopeMenu = false }, items = buildList {
+                                add(FilewayMenuEntry("all", "全部关联", selected = !currentOnly))
+                                add(FilewayMenuEntry("current", "当前目录", selected = currentOnly))
+                            }, selection = FilewayMenuSelection.Single, onItemClick = {
+                                scopeMenu = false
+                                when (it.key) { "all" -> currentOnly = false; "current" -> currentOnly = true }
+                            })
+                        }
+                        Text("${state.paths.size} / ${state.pathTotal}", Modifier.weight(1f), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        tag?.let { selected ->
+                            FilewayIconButton({ model.tags.filter(selected.id, !currentOnly); model.tab("files") }, enabled = enabled) {
+                                FilewayIcon(R.drawable.ic_search, "在文件页筛选此标签")
+                            }
+                            FilewayIconButton({ editing = selected }, enabled = enabled) { FilewayIcon(R.drawable.ic_edit, "编辑标签") }
+                            FilewayIconButton({ removing = selected }, enabled = enabled) { FilewayIcon(R.drawable.ic_trash, "删除标签", tint = MaterialTheme.colorScheme.error) }
                         }
                     }
+                    LibraryMessage(state.pathsError, null, state.pathsLoading) { tag?.let { model.tags.loadPaths(it.id, if (currentOnly) client.path else null, parentWire = if (currentOnly) client.wirePath else null) } }
+                    LazyColumn(Modifier.weight(1f).semantics { contentDescription = "标签关联路径" }, contentPadding = PaddingValues(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (state.paths.isEmpty() && !state.pathsLoading && state.pathsError == null) item { Text(if (currentOnly) "这个目录还没有直接标记的文件。" else "还没有关联路径。从文件详情中添加标记。", Modifier.padding(16.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        items(state.paths, key = { it.key }) { row ->
+                            val file = row.file
+                            if (file != null) LibraryObjectCard(file.name, libraryLocation(file.path), fileArtworkIcon(file.name, file.directory),
+                                enabled = enabled, onLongClick = { selection.start(row.key) },
+                                selected = row.key in selection.ids, selectionMode = selection.active,
+                                summary = if (file.directory) null else readableSize(file.size), artwork = if (file.mediaKind() in setOf(MediaKind.IMAGE, MediaKind.VIDEO)) { {
+                                    MediaThumbnail(model, file, Modifier.size(36.dp).clip(MaterialTheme.shapes.small), showStatusText = false)
+                                } } else null, onOpen = { if (selection.active) selection.toggle(row.key) else details = file },
+                                onDoubleClick = {
+                                    if (file.directory) model.tags.filter(tag?.id, true)
+                                    model.openTagged(file, candidates, sourceScope)
+                                }, trailing = { if (!selection.active) FilewayIconButton({ details = file }, enabled = enabled) { FilewayIcon(R.drawable.ic_info, "标签文件操作：${file.name}") } })
+                            else Surface(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).combinedClickable(
+                                onClick = { if (selection.active && row.ref.openable) selection.toggle(row.key) else pathDetails = row.path },
+                                onLongClick = if (row.ref.openable) ({ selection.start(row.key) }) else null),
+                                shape = RoundedCornerShape(12.dp), color = if (row.key in selection.ids) MaterialTheme.colorScheme.primary.copy(alpha = .09f) else MaterialTheme.colorScheme.surface,
+                                border = if (row.key in selection.ids) androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else null) {
+                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text(libraryBasename(row.path), style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Text("位置 · ${libraryParent(row.path)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                    Text(row.error.orEmpty(), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                    Row {
+                                        FilewayTextButton({ pathDetails = row.path }) { Text("完整路径") }
+                                        tag?.let { value -> FilewayTextButton({ model.tags.removePath(value, row.ref, sourceScope) }, enabled = enabled && row.ref.identity != null) { Text("取消此关联") } }
+                                    }
+                                }
+                            }
+                        }
+                        if (state.paths.size < state.pathTotal) item { FilewayTextButton({ tag?.let { model.tags.loadPaths(it.id, if (currentOnly) client.path else null, true, if (currentOnly) client.wirePath else null) } }, enabled = !state.pathsLoading && enabled,
+                            modifier = Modifier.fillMaxWidth()) { Text("加载更多关联") } }
+                    }
                 }
-                if (state.paths.size < state.pathTotal) item { FilewayTextButton({ tag?.let { model.tags.loadPaths(it.id, if (currentOnly) client.path else null, true, if (currentOnly) client.wirePath else null) } }, enabled = !state.pathsLoading && enabled,
-                    modifier = Modifier.fillMaxWidth()) { Text("加载更多关联") } }
+            }
+            if (io.github.kkwans.nasfilebrowser.ui.adaptive.LocalTabletLayoutConfig.current.useWorkspaceDualPane(windowLayout)) {
+                val splitState = rememberFilewaySplitWorkspaceState(
+                    sceneKey = "library_tags",
+                    spec = SplitPaneSpec(defaultRatio = 0.32f, minLeftDp = 240f, minRightDp = 380f),
+                )
+                FilewaySplitWorkspace(
+                    state = splitState,
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    listPane = {
+                        LazyColumn(
+                            Modifier.fillMaxSize().semantics { contentDescription = "标签列表" },
+                            contentPadding = PaddingValues(12.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            items(state.items, key = { it.id }) { value ->
+                                val active = chosen == value.id
+                                Surface(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .selectable(selected = active, role = Role.Tab) { chosen = value.id },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = if (active) MaterialTheme.colorScheme.primary.copy(alpha = 0.12f) else MaterialTheme.colorScheme.surface,
+                                ) {
+                                    Row(
+                                        Modifier.fillMaxWidth().heightIn(min = 52.dp).padding(horizontal = 14.dp, vertical = 10.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        Box(Modifier.size(10.dp).background(metadataColor(value.color, MaterialTheme.colorScheme.primary), CircleShape))
+                                        Text(
+                                            value.name,
+                                            modifier = Modifier.weight(1f),
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = if (active) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        Text(
+                                            "${value.paths.size}",
+                                            style = MaterialTheme.typography.labelMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    detailPane = { TagPathsColumn(Modifier.fillMaxSize()) },
+                )
+            } else {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 12.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = .10f), selectedLabelColor = MaterialTheme.colorScheme.primary)
+                    state.items.forEach { value -> FilterChip(chosen == value.id, { chosen = value.id }, { Text(value.name) }, colors = colors,
+                        leadingIcon = { Box(Modifier.size(8.dp).background(metadataColor(value.color, MaterialTheme.colorScheme.primary), CircleShape)) }) }
+                }
+                TagPathsColumn(Modifier.weight(1f).fillMaxWidth())
             }
         }
     }

@@ -24,18 +24,46 @@ import io.github.kkwans.nasfilebrowser.app.mediaKey
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
 
-@Composable internal fun AudioScreen(model: ClientModel, file: ResourceRef) {
+@Composable internal fun AudioScreen(
+    model: ClientModel,
+    file: ResourceRef,
+    embedded: Boolean = false,
+    onToggleFullscreen: (() -> Unit)? = null,
+    onExpandLeftPane: (() -> Unit)? = null,
+) {
+    val hostBackground = MaterialTheme.colorScheme.background
     FilewayTheme(darkTheme = true) {
         io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaTheme(
             io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayPlayerColors, fullscreen = false) {
-        Surface(Modifier.fillMaxSize(), color = FilewayTheme.status.mediaCanvas, contentColor = FilewayTheme.status.mediaContent) {
-            AudioContent(model, file)
-        }
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .then(
+                        if (embedded) {
+                            Modifier
+                                .background(hostBackground)
+                                .statusBarsPadding()
+                                .consumeWindowInsets(WindowInsets.statusBars)
+                        } else {
+                            Modifier
+                        },
+                    ),
+            ) {
+                Surface(Modifier.fillMaxSize(), color = FilewayTheme.status.mediaCanvas, contentColor = FilewayTheme.status.mediaContent) {
+                    AudioContent(model, file, embedded, onToggleFullscreen, onExpandLeftPane)
+                }
+            }
         }
     }
 }
 
-@Composable private fun AudioContent(model: ClientModel, file: ResourceRef) {
+@Composable private fun AudioContent(
+    model: ClientModel,
+    file: ResourceRef,
+    embedded: Boolean,
+    onToggleFullscreen: (() -> Unit)?,
+    onExpandLeftPane: (() -> Unit)?,
+) {
     val state by model.player.state.collectAsStateWithLifecycle()
     val client by model.state.collectAsStateWithLifecycle()
     val queue = client.mediaQueue
@@ -45,17 +73,41 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySelectionRow
     val canvasOwner = remember { Any() }
     val colors = MaterialTheme.colorScheme
     val media = FilewayTheme.status
-    DisposableEffect(registerDarkCanvas, canvasOwner) {
-        registerDarkCanvas(canvasOwner, true)
+    DisposableEffect(registerDarkCanvas, canvasOwner, embedded) {
+        if (!embedded) registerDarkCanvas(canvasOwner, true)
         onDispose { registerDarkCanvas(canvasOwner, false) }
     }
-    BackHandler(enabled = menu == null) { model.leavePlayer() }
+    BackHandler(enabled = menu == null && !embedded) {
+        if (onToggleFullscreen != null) onToggleFullscreen() else model.leavePlayer()
+    }
     Scaffold(containerColor = media.mediaCanvas, contentColor = media.mediaContent, topBar = {
         Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
-            io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar("音频播放", leadingIcon = R.drawable.ic_arrow_back,
-                leadingDescription = "关闭音频", onLeadingClick = model::leavePlayer, actions = {
-                FilewayIconButton({ menu = "queue" }, enabled = queue != null) { FilewayIcon(R.drawable.ic_playlist_play, "音频播放列表") }
-            })
+            io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar(
+                "音频播放",
+                leadingIcon = if (onExpandLeftPane != null) R.drawable.ic_menu else if (embedded) R.drawable.ic_close else R.drawable.ic_arrow_back,
+                leadingDescription = if (onExpandLeftPane != null) "展开文件列表" else if (!embedded && onToggleFullscreen != null) "退出全屏" else "关闭音频",
+                onLeadingClick = {
+                    when {
+                        onExpandLeftPane != null -> onExpandLeftPane()
+                        !embedded && onToggleFullscreen != null -> onToggleFullscreen()
+                        else -> model.leavePlayer()
+                    }
+                },
+                actions = {
+                    if (onToggleFullscreen != null) {
+                        FilewayIconButton(onToggleFullscreen) {
+                            FilewayIcon(
+                                if (embedded) R.drawable.art_fullscreen_on else R.drawable.art_fullscreen_off,
+                                if (embedded) "全屏播放音频" else "退出全屏",
+                            )
+                        }
+                    }
+                    FilewayIconButton({ menu = "queue" }, enabled = queue != null) { FilewayIcon(R.drawable.ic_playlist_play, "音频播放列表") }
+                    if (onExpandLeftPane != null) {
+                        FilewayIconButton(model::leavePlayer) { FilewayIcon(R.drawable.ic_close, "关闭音频") }
+                    }
+                },
+            )
         }
     }) { padding ->
         Box(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding), contentAlignment = Alignment.TopCenter) {

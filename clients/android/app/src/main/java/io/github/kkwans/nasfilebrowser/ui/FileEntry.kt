@@ -43,15 +43,19 @@ import java.util.Locale
     open: () -> Unit, details: () -> Unit, location: String? = null, metadata: @Composable (() -> Unit)? = null,
     selected: Boolean? = null, compactGridSize: CompactGridSize = CompactGridSize.MEDIUM,
     onSelect: (() -> Unit)? = null, singleTapOpen: Boolean = false,
+    focused: Boolean = false,
+    onMoreClick: (() -> Unit)? = null,
     remoteArtwork: (@Composable (Modifier, ContentScale, Boolean) -> Unit)? = null) {
     val colors = FilewayTheme.colors
+    val moreAction = onMoreClick ?: details
     val tags = model?.tags?.state?.collectAsStateWithLifecycle()?.value
     val associated = if (file.downloadId.isNotEmpty()) emptyList() else tags?.items.orEmpty().filter { collectionPath(file.path) in it.paths }
-    val action = if (selected != null) Modifier.toggleable(selected, enabled = enabled, role = Role.Checkbox) { open() }
+    val action = (if (selected != null) Modifier.toggleable(selected, enabled = enabled, role = Role.Checkbox) { open() }
         else Modifier.combinedClickable(enabled = enabled, role = Role.Button, onClick = if (singleTapOpen) open else details,
             onDoubleClick = if (singleTapOpen) null else open,
             onLongClick = onSelect, onLongClickLabel = if (onSelect != null) "多选文件" else null)
-            .semantics { if (!singleTapOpen) customActions = listOf(androidx.compose.ui.semantics.CustomAccessibilityAction("打开") { open(); true }) }
+            .semantics { if (!singleTapOpen) customActions = listOf(androidx.compose.ui.semantics.CustomAccessibilityAction("打开") { open(); true }) })
+        .then(if (enabled && selected == null) Modifier.secondaryClick(moreAction) else Modifier)
     val centered = layout == FileLayout.COVER || layout == FileLayout.COMPACT
     @Composable fun artwork(modifier: Modifier) {
         if (remoteArtwork != null && file.mediaKind() in setOf(MediaKind.IMAGE, MediaKind.VIDEO, MediaKind.AUDIO)) {
@@ -117,9 +121,19 @@ import java.util.Locale
             }
         }
     }
+    val cardColor = when {
+        selected == true -> colors.primaryContainer
+        focused -> colors.primary.copy(alpha = 0.11f)
+        else -> colors.surface
+    }
+    val cardBorder = when {
+        selected == true -> BorderStroke(2.dp, colors.primary)
+        focused -> BorderStroke(1.5.dp, colors.primary.copy(alpha = 0.55f))
+        else -> null
+    }
     Surface(modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).then(action),
-        shape = RoundedCornerShape(12.dp), color = if (selected == true) colors.primaryContainer else colors.surface,
-        border = if (selected == true) BorderStroke(2.dp, colors.primary) else null) {
+        shape = RoundedCornerShape(12.dp), color = cardColor,
+        border = cardBorder) {
         Column {
             when (layout) {
                 FileLayout.COVER -> Column(Modifier.fillMaxWidth().padding(8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
@@ -140,14 +154,23 @@ import java.util.Locale
                 }
                 FileLayout.DETAIL -> Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    artwork(Modifier.fillMaxWidth(.40f).aspectRatio(16f / 9f))
+                    artwork(Modifier.widthIn(min = 104.dp, max = 160.dp).fillMaxWidth(.36f).aspectRatio(16f / 9f))
                     caption(Modifier.weight(1f))
                 }
-                FileLayout.LIST -> Row(Modifier.fillMaxWidth().heightIn(min = 76.dp).padding(start = 12.dp, top = 12.dp, bottom = 12.dp),
+                FileLayout.LIST -> Row(Modifier.fillMaxWidth().heightIn(min = 68.dp).padding(start = 12.dp, top = 10.dp, bottom = 10.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (focused && selected == null) {
+                        Box(
+                            Modifier
+                                .width(3.dp)
+                                .height(28.dp)
+                                .clip(RoundedCornerShape(999.dp))
+                                .background(colors.primary),
+                        )
+                    }
                     artwork(Modifier.size(44.dp))
                     caption(Modifier.weight(1f))
-                    if (selected == null) FilewayIconButton(onClick = details, enabled = enabled,
+                    if (selected == null) FilewayIconButton(onClick = moreAction, enabled = enabled,
                         modifier = Modifier.size(48.dp).semantics { contentDescription = "文件操作：${file.name}" }) {
                         FilewayIcon(R.drawable.ic_more_actions, null, Modifier.size(22.dp), tint = colors.onSurfaceVariant)
                     } else Spacer(Modifier.width(12.dp))

@@ -21,6 +21,17 @@ import io.github.kkwans.nasfilebrowser.app.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.data.AppTheme
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
+import io.github.kkwans.nasfilebrowser.ui.adaptive.FilewayExpandedRail
+import io.github.kkwans.nasfilebrowser.ui.adaptive.FilewayNavigationRail
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayDetailFullscreenOwner
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayHasSideRail
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayWindowLayout
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalTabletLayoutConfig
+import io.github.kkwans.nasfilebrowser.ui.adaptive.TabletLayoutStore
+import io.github.kkwans.nasfilebrowser.ui.adaptive.TabletSidebarStyle
+import io.github.kkwans.nasfilebrowser.ui.adaptive.dismissEmbeddedViewersForSwitch
+import io.github.kkwans.nasfilebrowser.ui.adaptive.filewayHardwareShortcuts
+import androidx.compose.ui.platform.LocalContext
 import kotlinx.coroutines.launch
 import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -40,18 +51,54 @@ internal val LocalFilewayDarkCanvasOwner = staticCompositionLocalOf<(Any, Boolea
 @Composable
 internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () -> Unit, content: @Composable (ClientMainDestination?) -> Unit) {
     val appearance by model.appearance.state.collectAsStateWithLifecycle()
+    val windowLayout = LocalFilewayWindowLayout.current
+    val tabletConfig = LocalTabletLayoutConfig.current
+    val context = LocalContext.current
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val navigationPulse = remember { mutableStateOf("" to 0) }
     val glass = rememberHazeState()
     val glassActive = drawer.isOpen || drawer.targetValue == DrawerValue.Open
     val glassStyle = filewayDrawerGlassStyle()
-    val gestures = state.destination.main != null && state.destination.main != ClientMainDestination.MEDIA && !state.searchDisplayed
+    val isMediaCenter = state.connected && state.destination.main == ClientMainDestination.MEDIA && !state.searchDisplayed
+    val gestures = !windowLayout.useNavigationRail && state.destination.main != null && !isMediaCenter && !state.searchDisplayed
     var about by remember { mutableStateOf(false) }
-    val openTvControl=LocalOpenTvControl.current
+    val openTvControl = LocalOpenTvControl.current
+    val canExpandSidebar = tabletConfig.canToggleExpandedSidebar(windowLayout)
+    var largeRailExpanded by remember(windowLayout.windowClass, tabletConfig.sidebarStyle, tabletConfig.resetRevision) {
+        mutableStateOf(
+            when (tabletConfig.sidebarStyle) {
+                TabletSidebarStyle.RAIL -> false
+                TabletSidebarStyle.EXPANDED -> canExpandSidebar
+                TabletSidebarStyle.AUTO -> if (canExpandSidebar) {
+                    TabletLayoutStore.readLargeRailExpanded(context, defaultExpanded = tabletConfig.defaultSidebarExpanded(windowLayout))
+                } else {
+                    false
+                }
+            },
+        )
+    }
+    val parentFullscreenOwner = LocalFilewayDetailFullscreenOwner.current
+    val localFullscreenOwners = remember { mutableStateMapOf<Any, Unit>() }
+    val registerFullscreen = remember(parentFullscreenOwner) {
+        { owner: Any, active: Boolean ->
+            if (active) localFullscreenOwners[owner] = Unit else localFullscreenOwners.remove(owner)
+            parentFullscreenOwner(owner, active)
+        }
+    }
+    val detailFullscreen = localFullscreenOwners.isNotEmpty()
+    val useRailBranch = windowLayout.useNavigationRail && state.connected && !isMediaCenter
+    val showSideRail = useRailBranch && !detailFullscreen
     if (about) FilewayAboutDialog { about = false }
     BackHandler(drawer.isOpen && !about) { scope.launch { drawer.close() } }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    BoxWithConstraints(
+        Modifier
+            .fillMaxSize()
+            .filewayHardwareShortcuts(
+                onSearch = if (state.connected && !isMediaCenter && !state.searchDisplayed) model::openSearch else null,
+                onBack = if (drawer.isOpen) { { scope.launch { drawer.close() } } } else null,
+            ),
+    ) {
         val drawerWidth = minOf(320.dp, (maxWidth - 56.dp).coerceAtLeast(0.dp))
         ModalNavigationDrawer(
             drawerState = drawer,
@@ -66,7 +113,15 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                     fun navigate(action: () -> Unit) {
                         if (navigating) return
                         navigating = true
-                        scope.launch { try { drawer.close(); action() } finally { navigating = false } }
+                        scope.launch {
+                            try {
+                                drawer.close()
+                                dismissEmbeddedViewersForSwitch(model)
+                                action()
+                            } finally {
+                                navigating = false
+                            }
+                        }
                     }
                     Column(Modifier.fillMaxSize()) {
                         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(vertical = 8.dp)) {
@@ -151,11 +206,64 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
             },
         ) {
             Box(Modifier.fillMaxSize().then(if (glassActive) Modifier.hazeSource(glass) else Modifier)) {
-            CompositionLocalProvider(LocalFilewayNavigationPulse provides navigationPulse, LocalFilewayDrawer provides { scope.launch { drawer.open() }; Unit }, LocalFilewayBack provides onBack,
-                LocalFilewaySessionModel provides model) {
-                if (state.connected && state.destination.main == ClientMainDestination.MEDIA && !state.searchDisplayed) {
+            CompositionLocalProvider(
+                LocalFilewayNavigationPulse provides navigationPulse,
+                LocalFilewayDrawer provides { scope.launch { drawer.open() }; Unit },
+                LocalFilewayBack provides onBack,
+                LocalFilewaySessionModel provides model,
+                LocalFilewayHasSideRail provides showSideRail,
+                LocalFilewayDetailFullscreenOwner provides registerFullscreen,
+            ) {
+                if (isMediaCenter) {
                     CompositionLocalProvider(LocalSkipBottomNavigation provides true, LocalFilewayPageActive provides true) {
                         content(ClientMainDestination.MEDIA)
+                    }
+                } else if (useRailBranch) {
+                    val destination = state.destination.main
+                    Row(Modifier.fillMaxSize()) {
+                        if (!detailFullscreen) {
+                            if (canExpandSidebar && largeRailExpanded) {
+                                FilewayExpandedRail(
+                                    model = model,
+                                    state = state,
+                                    onCollapse = {
+                                        largeRailExpanded = false
+                                        TabletLayoutStore.saveLargeRailExpanded(context, false)
+                                    },
+                                    onOpenTvControl = openTvControl,
+                                    onOpenAbout = { about = true },
+                                )
+                            } else {
+                                FilewayNavigationRail(
+                                    model = model,
+                                    state = state,
+                                    canToggleExpand = canExpandSidebar,
+                                    onMenuOrExpandClick = {
+                                        if (canExpandSidebar) {
+                                            largeRailExpanded = true
+                                            TabletLayoutStore.saveLargeRailExpanded(context, true)
+                                        } else {
+                                            scope.launch { drawer.open() }
+                                        }
+                                    },
+                                    onOpenTvControl = openTvControl,
+                                    onOpenSettings = {
+                                        dismissEmbeddedViewersForSwitch(model)
+                                        model.tab("settings")
+                                    },
+                                )
+                            }
+                        }
+                        key("fileway_rail_content_slot") {
+                            Box(Modifier.weight(1f).fillMaxHeight()) {
+                                CompositionLocalProvider(
+                                    LocalSkipBottomNavigation provides true,
+                                    LocalFilewayPageActive provides true,
+                                ) {
+                                    content(if (state.searchDisplayed) null else destination)
+                                }
+                            }
+                        }
                     }
                 } else if (state.connected && state.destination.main != null && !state.searchDisplayed) {
                     val destination = state.destination.main!!
@@ -165,7 +273,7 @@ internal fun FilewayAppShell(model: ClientModel, state: ClientState, onBack: () 
                         }
                         ClientNavigation(model, destination.route, activeOverride = destination)
                     }
-                } else CompositionLocalProvider(LocalSkipBottomNavigation provides !state.connected) { content(null) }
+                } else CompositionLocalProvider(LocalSkipBottomNavigation provides (!state.connected || windowLayout.useNavigationRail)) { content(null) }
             }
             }
         }
@@ -188,8 +296,13 @@ private fun FilewayDrawerItem(title: String, icon: Int, selected: Boolean = fals
 internal fun FilewayPageHeader(title: String, subtitle: String? = null, actions: @Composable RowScope.() -> Unit = {}) {
     val openDrawer = LocalFilewayDrawer.current
     val model = LocalFilewaySessionModel.current
+    val hasSideRail = LocalFilewayHasSideRail.current
     Column(Modifier.fillMaxWidth()) {
-        FilewayTopAppBar(title, subtitle, R.drawable.ic_menu, "打开导航菜单", openDrawer, actions)
+        if (hasSideRail) {
+            FilewayTopAppBar(title, subtitle, leadingIcon = null, actions = actions)
+        } else {
+            FilewayTopAppBar(title, subtitle, R.drawable.ic_menu, "打开导航菜单", openDrawer, actions)
+        }
         model?.let { FilewaySessionNotice(it) }
     }
 }

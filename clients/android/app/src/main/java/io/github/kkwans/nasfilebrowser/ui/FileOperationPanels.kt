@@ -27,6 +27,7 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowCompat
 import io.github.kkwans.nasfilebrowser.R
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayWindowLayout
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 
 /** One object's foreground. The details owner survives while its child window is shown. */
@@ -74,6 +75,10 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
     title: String, onDismiss: () -> Unit, canDismiss: Boolean, back: Boolean, sheet: Boolean,
     footer: (@Composable RowScope.() -> Unit)?, stableHeight: Boolean, backDescription: String, content: @Composable ColumnScope.() -> Unit,
 ) {
+    val windowLayout = LocalFilewayWindowLayout.current
+    // On tablets/foldables (>= 600dp), convert bottom-attached sheets into centered floating cards
+    // so controls never stretch awkwardly across the bottom edge of a wide display.
+    val bottomAttached = sheet && !windowLayout.useLargeDialogs
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
     val configuration = LocalConfiguration.current
@@ -85,14 +90,14 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
     val safeBottom = safeDrawing.getBottom(density)
     val hostWidth = hostSize.width.takeIf { it > 0 } ?: with(density) { configuration.screenWidthDp.dp.roundToPx() }
     val hostHeight = hostSize.height.takeIf { it > 0 } ?: with(density) { configuration.screenHeightDp.dp.roundToPx() }
-    val horizontalMargin = with(density) { if (sheet) 0.dp.roundToPx() else 24.dp.roundToPx() }
-    val maxWidth = with(density) { (if (sheet) 640.dp else 440.dp).roundToPx() }
+    val horizontalMargin = with(density) { if (bottomAttached) 0.dp.roundToPx() else 24.dp.roundToPx() }
+    val maxWidth = with(density) { (if (bottomAttached) 640.dp else if (sheet) 540.dp else 460.dp).roundToPx() }
     val surfaceWidth = (hostWidth - safeLeft - safeRight - horizontalMargin * 2)
         .coerceAtLeast(1)
         .coerceAtMost(maxWidth)
     // Attached sheets paint the gesture area themselves; floating dialogs stay in
     // the safe rectangle. The footer owns the one navigation inset below its actions.
-    val surfaceHeight = (hostHeight - safeTop - if (sheet) 0 else safeBottom).coerceAtLeast(1)
+    val surfaceHeight = (hostHeight - safeTop - if (bottomAttached) 0 else safeBottom).coerceAtLeast(1)
     val surfaceWidthDp = with(density) { surfaceWidth.toDp() }
     val surfaceHeightDp = with(density) { surfaceHeight.toDp() }
     // Freeze the first complete framework measurement, not the eventual network result.
@@ -100,7 +105,7 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
     var firstHeight by remember(surfaceWidth, surfaceHeight, density.fontScale, density.density) { mutableStateOf<Int?>(null) }
     val heldHeight = firstHeight?.let { with(density) { it.toDp() } }
     Dialog(onDismissRequest = { if (canDismiss) onDismiss() }, properties = DialogProperties(
-        usePlatformDefaultWidth = false, decorFitsSystemWindows = !sheet, dismissOnBackPress = false,
+        usePlatformDefaultWidth = false, decorFitsSystemWindows = !bottomAttached, dismissOnBackPress = false,
         dismissOnClickOutside = canDismiss,
     )) {
         val focus = LocalFocusManager.current
@@ -108,18 +113,18 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
         val view = LocalView.current
         val dialogWindow = (view.parent as? DialogWindowProvider)?.window
         var blurred by remember { mutableStateOf(false) }
-        FilewayDialogGlass(bottomAttached = sheet) { blurred = it }
+        FilewayDialogGlass(bottomAttached = bottomAttached) { blurred = it }
         val glassColor = filewayGlassColor(blurred)
         SideEffect {
             dialogWindow?.let { window ->
-                if (sheet) WindowCompat.setDecorFitsSystemWindows(window, false)
+                if (bottomAttached) WindowCompat.setDecorFitsSystemWindows(window, false)
                 val attributes = window.attributes
-                if (sheet) {
+                if (bottomAttached) {
                     attributes.flags = attributes.flags or WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                         WindowManager.LayoutParams.FLAG_DRAWS_SYSTEM_BAR_BACKGROUNDS
                 }
-                attributes.fitFilewayKeyboard(edgeToEdge = sheet)
-                attributes.gravity = if (sheet) Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL else Gravity.CENTER
+                attributes.fitFilewayKeyboard(edgeToEdge = bottomAttached)
+                attributes.gravity = if (bottomAttached) Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL else Gravity.CENTER
                 attributes.x = 0
                 // The parent frame is already inset by the IME. Adding imeBottom
                 // here would move a floating window twice.
@@ -134,7 +139,7 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
         }
         val localNavigation = WindowInsets.navigationBars.getBottom(density)
         val imeVisible = WindowInsets.isImeVisible
-        val footerBottom = with(density) { if (sheet && !imeVisible) maxOf(safeBottom, localNavigation).toDp() else 0.dp }
+        val footerBottom = with(density) { if (bottomAttached && !imeVisible) maxOf(safeBottom, localNavigation).toDp() else 0.dp }
         var imeDismissRequested by remember { mutableStateOf(false) }
         LaunchedEffect(imeVisible) {
             if (imeVisible && ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true)
@@ -148,13 +153,14 @@ internal val LocalFileOperationForeground = staticCompositionLocalOf<FileOperati
             } else leave()
         }
         BackHandler { requestBack() }
+        val panelShape = if (bottomAttached) RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp) else RoundedCornerShape(16.dp)
         Surface(
             Modifier.requiredWidth(surfaceWidthDp)
                 .then(if (stableHeight && heldHeight != null) Modifier.height(minOf(heldHeight, surfaceHeightDp)) else Modifier.heightIn(max = surfaceHeightDp))
                 .onSizeChanged { if (stableHeight && firstHeight == null && it.height > 0) firstHeight = it.height }
-                .filewayGlassFrame(if (sheet) RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp) else RoundedCornerShape(12.dp)),
+                .filewayGlassFrame(panelShape),
             color = glassColor,
-            shape = if (sheet) RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp) else RoundedCornerShape(12.dp),
+            shape = panelShape,
             tonalElevation = 0.dp,
         ) {
             Column(Modifier.fillMaxWidth()) {

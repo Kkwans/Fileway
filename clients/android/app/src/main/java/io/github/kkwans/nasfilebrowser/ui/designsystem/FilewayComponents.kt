@@ -62,9 +62,9 @@ import io.github.kkwans.nasfilebrowser.R
 fun FilewayTopAppBar(
     title: String,
     subtitle: String? = null,
-    leadingIcon: Int,
-    leadingDescription: String,
-    onLeadingClick: () -> Unit,
+    leadingIcon: Int?,
+    leadingDescription: String = "",
+    onLeadingClick: (() -> Unit)? = null,
     actions: @Composable RowScope.() -> Unit = {},
 ) {
     Row(
@@ -73,9 +73,13 @@ fun FilewayTopAppBar(
             .padding(horizontal = FilewaySpace.tiny),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        FilewayIconButton(onClick = onLeadingClick, modifier = Modifier.size(FilewaySpace.target)) {
-            FilewayIcon(leadingIcon, leadingDescription, Modifier.size(24.dp),
-                tint = MaterialTheme.colorScheme.onBackground)
+        if (leadingIcon != null && onLeadingClick != null) {
+            FilewayIconButton(onClick = onLeadingClick, modifier = Modifier.size(FilewaySpace.target)) {
+                FilewayIcon(leadingIcon, leadingDescription, Modifier.size(24.dp),
+                    tint = MaterialTheme.colorScheme.onBackground)
+            }
+        } else {
+            Spacer(Modifier.width(12.dp))
         }
         Column(Modifier.weight(1f).padding(FilewaySpace.tiny)) {
             Text(

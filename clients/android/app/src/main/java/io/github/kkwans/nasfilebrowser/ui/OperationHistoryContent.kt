@@ -24,6 +24,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.OperationHistoryController
 import io.github.kkwans.nasfilebrowser.data.*
+import io.github.kkwans.nasfilebrowser.ui.adaptive.FilewaySplitWorkspace
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayWindowLayout
+import io.github.kkwans.nasfilebrowser.ui.adaptive.SplitPaneSpec
+import io.github.kkwans.nasfilebrowser.ui.adaptive.rememberFilewaySplitWorkspaceState
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMenuItem
 import java.time.Instant
 import java.time.ZoneId
@@ -55,7 +59,10 @@ import java.time.format.DateTimeFormatter
         }
         return
     }
-    FilewayRefresh(state.loading, { controller.refresh() }) {
+    val windowLayout = LocalFilewayWindowLayout.current
+    val useDual = io.github.kkwans.nasfilebrowser.ui.adaptive.LocalTabletLayoutConfig.current.useWorkspaceDualPane(windowLayout)
+    @Composable fun HistoryListPane(modifier: Modifier) {
+    FilewayRefresh(state.loading, { controller.refresh() }, modifier) {
 Column(Modifier.fillMaxSize()) {
         if (selection.active) FilewayTaskSelectionBar(selection, enabled, {
             if (selection.ids.size == state.total) selection.select(emptyList()) else controller.selectAll { selection.select(it) }
@@ -122,12 +129,63 @@ Column(Modifier.fillMaxSize()) {
         }
     }
 }
+    }
+    if (useDual) {
+        val splitState = rememberFilewaySplitWorkspaceState(
+            sceneKey = "tasks_history",
+            spec = SplitPaneSpec(defaultRatio = 0.44f, minLeftDp = 320f, minRightDp = 360f),
+        )
+        FilewaySplitWorkspace(
+            state = splitState,
+            modifier = Modifier.fillMaxSize(),
+            listPane = { HistoryListPane(Modifier.fillMaxSize()) },
+            detailPane = {
+                val activeEntry = detail
+                if (activeEntry != null) {
+                    Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.TopCenter) {
+                        Column(Modifier.widthIn(max = 600.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("操作记录详情", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                                FilewayIconButton({ detail = null }) { FilewayIcon(R.drawable.ic_close, "关闭详情") }
+                            }
+                            HorizontalDivider()
+                            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text("${activeEntry.actionLabel} · ${activeEntry.statusLabel}", style = MaterialTheme.typography.titleMedium)
+                                SelectionContainer {
+                                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        if (activeEntry.target.isNotBlank()) FileOperationLocation("位置", activeEntry.target, showBasename = false)
+                                        if (activeEntry.detail.isNotEmpty() && activeEntry.detail != activeEntry.target) Text(activeEntry.detail, style = MaterialTheme.typography.bodySmall)
+                                        DetailMetadata("操作时间", historyTime(activeEntry.createdAt))
+                                    }
+                                }
+                            }
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilewaySheetActions(listOf(FilewayMenuEntry("delete", "删除记录", R.drawable.ic_trash, enabled = enabled, destructive = true))) {
+                                    controller.deleteSelected(setOf(activeEntry.id)); detail = null
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            FilewayIcon(R.drawable.ic_history, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text("操作记录共 ${state.total} 条", style = MaterialTheme.typography.titleMedium)
+                            Text("点选左侧记录即可查看完整路径、动作详情与时间戳。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            },
+        )
+    } else {
+        HistoryListPane(Modifier.fillMaxSize())
+    }
 
     if (deleteSelection) FilewayAlertDialog(onDismissRequest = { deleteSelection = false }, title = { Text("删除当前筛选的全部记录？") },
         text = { Text("将删除所选 ${selection.ids.size} 条操作记录。文件和任务保留。") },
         confirmButton = { FilewayButton({ controller.deleteSelected(selection.ids); deleteSelection = false }, enabled = enabled) { Text("删除记录") } },
         dismissButton = { FilewayOutlinedButton({ deleteSelection = false }) { Text("取消") } })
-    detail?.let { entry -> FileOperationSheet("操作记录", { detail = null }, footer = {
+    if (!useDual) detail?.let { entry -> FileOperationSheet("操作记录", { detail = null }, footer = {
         FilewaySheetActions(listOf(FilewayMenuEntry("delete", "删除记录", R.drawable.ic_trash, enabled = enabled, destructive = true))) { controller.deleteSelected(setOf(entry.id)); detail = null }
     }) {
         Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {

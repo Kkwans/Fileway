@@ -116,7 +116,13 @@ private tailrec fun Context.activity(): Activity? = when (this) {
 }
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable internal fun PlayerScreen(model: ClientModel, file: ResourceRef) {
+@Composable internal fun PlayerScreen(
+    model: ClientModel,
+    file: ResourceRef,
+    embedded: Boolean = false,
+    onToggleFullscreen: (() -> Unit)? = null,
+    onExpandLeftPane: (() -> Unit)? = null,
+) {
     val pictureInPicture = LocalPlayerPictureInPicture.current
     val pipMode = pictureInPicture?.let { it.active || it.preparing } == true
     val artwork = rememberPlayerArtwork(model, file)
@@ -181,7 +187,11 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     var dragStart by remember(file) { mutableFloatStateOf(0f) }
     val landscapeOrientation = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
     var displayMode by rememberSaveable { mutableStateOf(PlayerDisplayMode.AUTOMATIC) }
-    val fullscreen = pipMode || landscapeOrientation || displayMode != PlayerDisplayMode.AUTOMATIC
+    val fullscreen = if (onToggleFullscreen != null) {
+        pipMode || !embedded
+    } else {
+        pipMode || landscapeOrientation || displayMode != PlayerDisplayMode.AUTOMATIC
+    }
     val view = LocalView.current
     val hdrDisplay = rememberPlayerHdrDisplay(view)
     val activeOutput = io.github.kkwans.nasfilebrowser.player.activeVideoOutput(state.videoOutput, hdrDisplay, state.firstFrameRendered)
@@ -288,6 +298,11 @@ private tailrec fun Context.activity(): Activity? = when (this) {
     fun changeDisplay(mode: PlayerDisplayMode) {
         touch()
         sheet = null
+        if (onToggleFullscreen != null) {
+            val wantFullscreen = mode != PlayerDisplayMode.AUTOMATIC
+            if (wantFullscreen == embedded) onToggleFullscreen()
+            return
+        }
         displayMode = mode
         context.activity()?.requestedOrientation = if (mode == PlayerDisplayMode.LANDSCAPE_FULLSCREEN)
             ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE else ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
@@ -363,11 +378,13 @@ private tailrec fun Context.activity(): Activity? = when (this) {
         }
     }
     SideEffect { view.keepScreenOn = state.playing }
-    PlayerWindowBars(window, fullscreen && !exploration, fullscreen || pageColors.background.luminance() < .5f)
-    DisposableEffect(context) {
+    if (!embedded) {
+        PlayerWindowBars(window, fullscreen && !exploration, fullscreen || pageColors.background.luminance() < .5f)
+    }
+    DisposableEffect(context, onToggleFullscreen) {
         val owner = context.activity()
         val original = owner?.requestedOrientation
-        onDispose { original?.let { owner.requestedOrientation = it } }
+        onDispose { if (onToggleFullscreen == null) original?.let { owner.requestedOrientation = it } }
     }
     io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaTheme(pageColors, fullscreen) {
         CompositionLocalProvider(LocalContentColor provides if (fullscreen) FilewayTheme.status.mediaContent else pageColors.onBackground) {
@@ -396,7 +413,14 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                     if (!fullscreen) Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))) {
                     Row(Modifier.fillMaxWidth().heightIn(min = 52.dp)
                         .padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                        PlayerIcon(R.drawable.ic_arrow_back, "返回文件", model::leavePlayer)
+                        if (onExpandLeftPane != null) {
+                            PlayerIcon(R.drawable.ic_menu, "展开文件列表", onExpandLeftPane)
+                        }
+                        PlayerIcon(
+                            if (embedded) R.drawable.ic_close else R.drawable.ic_arrow_back,
+                            if (embedded) "关闭视频播放" else "返回文件",
+                            model::leavePlayer,
+                        )
                         Text(file.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f).padding(horizontal = 8.dp))
                         networkStatus?.let { PlayerNetworkStatus(it) }
@@ -634,8 +658,8 @@ private tailrec fun Context.activity(): Activity? = when (this) {
                                         cancelGesture(); sheet = null
                                         if (!pictureInPicture.enter()) uiScope.launch { feedback.showSnackbar("暂时无法进入画中画，请检查系统画中画权限") }
                                     }, controlsEnabled && state.firstFrameRendered)
-                                    if (!fullscreen) PlayerIcon(R.drawable.ic_portrait_fullscreen, "竖屏全屏", { changeDisplay(PlayerDisplayMode.PORTRAIT_FULLSCREEN) }, !touchLocked)
-                                    PlayerIcon(if (fullscreen) R.drawable.art_fullscreen_off else R.drawable.art_fullscreen_on, if (fullscreen) "退出全屏" else "横屏全屏", {
+                                    if (!fullscreen && onToggleFullscreen == null) PlayerIcon(R.drawable.ic_portrait_fullscreen, "竖屏全屏", { changeDisplay(PlayerDisplayMode.PORTRAIT_FULLSCREEN) }, !touchLocked)
+                                    PlayerIcon(if (fullscreen) R.drawable.art_fullscreen_off else R.drawable.art_fullscreen_on, if (fullscreen) "退出全屏" else "全屏播放", {
                                         changeDisplay(if (fullscreen) PlayerDisplayMode.AUTOMATIC else PlayerDisplayMode.LANDSCAPE_FULLSCREEN)
                                     }, !touchLocked)
                                 }

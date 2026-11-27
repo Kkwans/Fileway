@@ -17,6 +17,9 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.app.FileLayout
 import io.github.kkwans.nasfilebrowser.data.CompactGridSize
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayWindowLayout
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalTabletLayoutConfig
+import io.github.kkwans.nasfilebrowser.ui.adaptive.TabletContentDensity
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 
 internal fun FileLayout.collectionDescription() = when (this) {
@@ -87,33 +90,57 @@ private val anchorSaver = listSaver<CollectionAnchor, Any>(
                 if (visible != null && visible.first in keys) anchor = CollectionAnchor.capture(keys, visible.first, visible.second)
             }
         }
+        val windowLayout = LocalFilewayWindowLayout.current
+        val densityPref = if (windowLayout.isCompact) TabletContentDensity.STANDARD else LocalTabletLayoutConfig.current.density
+        val gridSpacing = when (densityPref) {
+            TabletContentDensity.COMFORTABLE -> 16.dp
+            TabletContentDensity.STANDARD -> 12.dp
+            TabletContentDensity.COMPACT -> 8.dp
+        }
+        val listSpacing = when (densityPref) {
+            TabletContentDensity.COMFORTABLE -> 12.dp
+            TabletContentDensity.STANDARD -> 10.dp
+            TabletContentDensity.COMPACT -> 6.dp
+        }
+        val coverAdaptiveMin = when (densityPref) {
+            TabletContentDensity.COMFORTABLE -> 212.dp
+            TabletContentDensity.STANDARD -> 180.dp
+            TabletContentDensity.COMPACT -> 146.dp
+        }
         val area = modifier.background(FilewayTheme.colors.background).semantics { contentDescription = description }
-        val padding = PaddingValues(horizontal = 12.dp, vertical = 12.dp)
+        val padding = PaddingValues(horizontal = gridSpacing, vertical = gridSpacing)
         when (layout) {
             FileLayout.UNBOUNDED -> BoxWithConstraints(area) {
-                LazyVerticalStaggeredGrid(if (maxWidth < 600.dp) StaggeredGridCells.Fixed(2) else StaggeredGridCells.Adaptive(180.dp),
+                val cells = if (maxWidth < 600.dp && densityPref != TabletContentDensity.COMPACT) {
+                    StaggeredGridCells.Fixed(2)
+                } else {
+                    StaggeredGridCells.Adaptive(coverAdaptiveMin)
+                }
+                LazyVerticalStaggeredGrid(cells,
                     Modifier.fillMaxSize(), state = waterfall, contentPadding = padding,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp), verticalItemSpacing = 12.dp) {
+                    horizontalArrangement = Arrangement.spacedBy(gridSpacing), verticalItemSpacing = gridSpacing) {
                     if (header != null) item(key = "collection-header", span = StaggeredGridItemSpan.FullLine) { header() }
                     items(entries, key = { "entry:${keyOf(it)}" }) { entry(it) }
                     if (footer != null) item(key = "collection-footer", span = StaggeredGridItemSpan.FullLine) { footer() }
                 }
             }
             FileLayout.COVER, FileLayout.COMPACT -> BoxWithConstraints(area) {
-                val columns = if (maxWidth < 600.dp) GridCells.Fixed(
+                val columns = if (maxWidth < 600.dp && densityPref != TabletContentDensity.COMPACT) GridCells.Fixed(
                     if (layout == FileLayout.COVER) 2 else compactGridSize.columns
-                ) else GridCells.Adaptive(if (layout == FileLayout.COVER) 180.dp else when (compactGridSize) {
-                    CompactGridSize.SMALL -> 88.dp; CompactGridSize.MEDIUM -> 112.dp; CompactGridSize.LARGE -> 164.dp
+                ) else GridCells.Adaptive(if (layout == FileLayout.COVER) coverAdaptiveMin else when (compactGridSize) {
+                    CompactGridSize.SMALL -> if (densityPref == TabletContentDensity.COMPACT) 76.dp else 88.dp
+                    CompactGridSize.MEDIUM -> if (densityPref == TabletContentDensity.COMPACT) 98.dp else 112.dp
+                    CompactGridSize.LARGE -> if (densityPref == TabletContentDensity.COMPACT) 140.dp else 164.dp
                 })
                 LazyVerticalGrid(columns, Modifier.fillMaxSize(), state = grid, contentPadding = padding,
-                    horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    horizontalArrangement = Arrangement.spacedBy(gridSpacing), verticalArrangement = Arrangement.spacedBy(gridSpacing)) {
                     if (header != null) item(key = "collection-header", span = { GridItemSpan(maxLineSpan) }) { header() }
                     items(entries, key = { "entry:${keyOf(it)}" }) { entry(it) }
                     if (footer != null) item(key = "collection-footer", span = { GridItemSpan(maxLineSpan) }) { footer() }
                 }
             }
             FileLayout.LIST, FileLayout.DETAIL -> LazyColumn(area, state = list, contentPadding = padding,
-                verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                verticalArrangement = Arrangement.spacedBy(listSpacing)) {
                 if (header != null) item(key = "collection-header") { header() }
                 items(entries, key = { "entry:${keyOf(it)}" }) { entry(it) }
                 if (footer != null) item(key = "collection-footer") { footer() }

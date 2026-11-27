@@ -44,6 +44,17 @@ import io.github.kkwans.nasfilebrowser.ui.medialibrary.MediaLoading
 import io.github.kkwans.nasfilebrowser.ui.medialibrary.MediaProblem
 import io.github.kkwans.nasfilebrowser.ui.medialibrary.MediaProblemCard
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
+import io.github.kkwans.nasfilebrowser.ui.adaptive.FileDetailWorkspace
+import io.github.kkwans.nasfilebrowser.ui.adaptive.FilewaySplitWorkspace
+import io.github.kkwans.nasfilebrowser.ui.adaptive.FilewayWorkspaceHost
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayDetailFullscreenOwner
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayWindowLayout
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayWorkspaceHost
+import io.github.kkwans.nasfilebrowser.ui.adaptive.SplitPaneSpec
+import io.github.kkwans.nasfilebrowser.ui.adaptive.TabletClickAction
+import io.github.kkwans.nasfilebrowser.ui.adaptive.TabletWorkspacePolicy
+import io.github.kkwans.nasfilebrowser.ui.adaptive.dismissEmbeddedViewersForSwitch
+import io.github.kkwans.nasfilebrowser.ui.adaptive.rememberFilewaySplitWorkspaceState
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -71,6 +82,25 @@ import java.util.Locale
     val archive by model.archives.state.collectAsStateWithLifecycle()
     val archiveEntry by model.archiveEntry.state.collectAsStateWithLifecycle()
     val shell by model.shell.state.collectAsStateWithLifecycle()
+    val windowLayout = LocalFilewayWindowLayout.current
+    val tabletConfig = io.github.kkwans.nasfilebrowser.ui.adaptive.LocalTabletLayoutConfig.current
+    val workspaceHost = remember(state.previewScope) { FilewayWorkspaceHost() }
+    val splitSceneKey = when {
+        state.searchDisplayed -> "search"
+        state.tab == "recent" -> "recent"
+        else -> "files"
+    }
+    val fileSplitState = rememberFilewaySplitWorkspaceState(
+        sceneKey = splitSceneKey,
+        spec = SplitPaneSpec(defaultRatio = tabletConfig.primaryWorkspaceDefaultRatio(), minLeftDp = 300f, minRightDp = 360f),
+    )
+    val supportsUnifiedFileSplit = state.connected && tabletConfig.useWorkspaceDualPane(windowLayout) &&
+        (state.searchDisplayed || state.tab == "files" || state.tab == "recent")
+    LaunchedEffect(supportsUnifiedFileSplit) {
+        if (!supportsUnifiedFileSplit && fileSplitState.detailFullscreen) {
+            fileSplitState.setDetailFullscreen(false)
+        }
+    }
     val pageState = key(state.previewScope) { rememberSaveableStateHolder() }
     // Local queue filters/scroll survive connecting or changing the server.
     val localTaskState = rememberSaveableStateHolder()
@@ -80,7 +110,11 @@ import java.util.Locale
     val imeVisible = WindowInsets.isImeVisible
     fun requestBack() {
         if (imeVisible) { keyboard?.hide(); focus.clearFocus() }
-        else if (!model.back()) activity?.finish()
+        else if (supportsUnifiedFileSplit && fileSplitState.detailFullscreen) {
+            fileSplitState.setDetailFullscreen(false)
+        } else if (supportsUnifiedFileSplit && workspaceHost.activeViewerKey == null && workspaceHost.inspectedFile != null) {
+            workspaceHost.clearInspection()
+        } else if (!model.back()) activity?.finish()
     }
     // Register before every route/early return, so an external picker result
     // survives Activity/process recreation and restores its original task.
@@ -111,39 +145,41 @@ import java.util.Locale
         }
         return
     }
-    if (state.image != null) { ImageScreen(model, state.image!!); return }
-    if (state.selected != null) {
-        if (state.selected!!.mediaKind() == MediaKind.AUDIO) AudioScreen(model, state.selected!!) else PlayerScreen(model, state.selected!!)
-        return
-    }
-    if (documentEdit.file != null) { LibraryTheme { DocumentEditorScreen(model.documentEdits, {}) }; return }
-    if (document.file != null) { LibraryTheme {
-        DocumentPreviewScreen(model.documents, model::closeTemporaryContent, model::download,
-            document.file!!.downloadId.isEmpty() && state.permissions.download && !model.isTemporaryContent(document.file!!),
-            onEdit = if (document.file!!.downloadId.isEmpty() && state.permissions.modify && !model.isTemporaryContent(document.file!!)) {
-                file, text -> model.documentEdits.open(file, text, state.previewScope)
-            } else null, imageCache = model.cache)
-    }; return }
-    if (archive.file != null) { LibraryTheme {
-        ArchiveScreen(model.archives, ::requestBack, { model.closeArchive(); model.showFileTask() },
-            { directory -> model.archives.close(); model.verifyDocumentDirectory(directory) },
-            onOpenEntry = { entry -> model.openArchiveEntry(entry, state.previewScope) })
-        if (archiveEntry.archive?.mediaKey == archive.file?.mediaKey && (archiveEntry.preparing || archiveEntry.canceling || archiveEntry.error != null))
-            FilewayAlertDialog(onDismissRequest = { if (archiveEntry.preparing) model.archiveEntry.cancel() else model.archiveEntry.dismissError() },
-                title = { Text(if (archiveEntry.error != null) "包内文件未能打开" else "正在准备包内文件") }, text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(archiveEntry.error ?: archiveEntry.stage)
-                        if (archiveEntry.preparing) {
-                            val progress = archiveEntry.progress
-                            if (progress != null) LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-                            else LinearProgressIndicator(Modifier.fillMaxWidth())
-                            if (archiveEntry.size > 0) Text("${readableSize(archiveEntry.processedBytes)} / ${readableSize(archiveEntry.size)}", style = MaterialTheme.typography.bodySmall)
+    if (!supportsUnifiedFileSplit) {
+        if (state.image != null) { ImageScreen(model, state.image!!); return }
+        if (state.selected != null) {
+            if (state.selected!!.mediaKind() == MediaKind.AUDIO) AudioScreen(model, state.selected!!) else PlayerScreen(model, state.selected!!)
+            return
+        }
+        if (documentEdit.file != null) { LibraryTheme { DocumentEditorScreen(model.documentEdits, {}) }; return }
+        if (document.file != null) { LibraryTheme {
+            DocumentPreviewScreen(model.documents, model::closeTemporaryContent, model::download,
+                document.file!!.downloadId.isEmpty() && state.permissions.download && !model.isTemporaryContent(document.file!!),
+                onEdit = if (document.file!!.downloadId.isEmpty() && state.permissions.modify && !model.isTemporaryContent(document.file!!)) {
+                    file, text -> model.documentEdits.open(file, text, state.previewScope)
+                } else null, imageCache = model.cache)
+        }; return }
+        if (archive.file != null) { LibraryTheme {
+            ArchiveScreen(model.archives, ::requestBack, { model.closeArchive(); model.showFileTask() },
+                { directory -> model.archives.close(); model.verifyDocumentDirectory(directory) },
+                onOpenEntry = { entry -> model.openArchiveEntry(entry, state.previewScope) })
+            if (archiveEntry.archive?.mediaKey == archive.file?.mediaKey && (archiveEntry.preparing || archiveEntry.canceling || archiveEntry.error != null))
+                FilewayAlertDialog(onDismissRequest = { if (archiveEntry.preparing) model.archiveEntry.cancel() else model.archiveEntry.dismissError() },
+                    title = { Text(if (archiveEntry.error != null) "包内文件未能打开" else "正在准备包内文件") }, text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text(archiveEntry.error ?: archiveEntry.stage)
+                            if (archiveEntry.preparing) {
+                                val progress = archiveEntry.progress
+                                if (progress != null) LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+                                else LinearProgressIndicator(Modifier.fillMaxWidth())
+                                if (archiveEntry.size > 0) Text("${readableSize(archiveEntry.processedBytes)} / ${readableSize(archiveEntry.size)}", style = MaterialTheme.typography.bodySmall)
+                            }
                         }
-                    }
-                }, confirmButton = { FilewayTextButton({ if (archiveEntry.preparing) model.archiveEntry.cancel() else model.archiveEntry.dismissError() }, enabled = !archiveEntry.canceling) {
-                    Text(if (archiveEntry.preparing) "取消准备" else "关闭")
-                } })
-    }; return }
+                    }, confirmButton = { FilewayTextButton({ if (archiveEntry.preparing) model.archiveEntry.cancel() else model.archiveEntry.dismissError() }, enabled = !archiveEntry.canceling) {
+                        Text(if (archiveEntry.preparing) "取消准备" else "关闭")
+                    } })
+        }; return }
+    }
     if (state.tab == "account" && state.connected) { CompositionLocalProvider(LocalFilewaySessionModel provides model) { LibraryTheme {
         AccountSettingsScreen(model.accountSettings, ::requestBack, model::disconnect)
     } }; return }
@@ -189,15 +225,17 @@ import java.util.Locale
         Column(Modifier.fillMaxSize().statusBarsPadding().consumeWindowInsets(WindowInsets.statusBars)) {
             FilewayPageHeader("连接服务器")
             Box(Modifier.weight(1f).consumeWindowInsets(WindowInsets.navigationBars)) { ConnectionScreen(model, state) }
-            if (!imeVisible) Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                listOf(Triple("cache-images", "图片缓存", R.drawable.ic_image),
-                    Triple("downloads", "下载文件", R.drawable.ic_download),
-                    Triple("settings", "缓存设置", R.drawable.ic_settings)).forEach { (route, label, icon) ->
-                    FilewayTextButton({ model.tab(route) }, Modifier.weight(1f).heightIn(min = 48.dp)) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            FilewayIcon(icon, null, Modifier.size(22.dp))
-                            Text(label, style = MaterialTheme.typography.labelSmall)
+            if (!imeVisible) Box(Modifier.fillMaxWidth().navigationBarsPadding(), contentAlignment = Alignment.Center) {
+                Row(Modifier.widthIn(max = 560.dp).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    listOf(Triple("cache-images", "图片缓存", R.drawable.ic_image),
+                        Triple("downloads", "下载文件", R.drawable.ic_download),
+                        Triple("settings", "缓存设置", R.drawable.ic_settings)).forEach { (route, label, icon) ->
+                        FilewayTextButton({ model.tab(route) }, Modifier.weight(1f).heightIn(min = 48.dp)) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                FilewayIcon(icon, null, Modifier.size(22.dp))
+                                Text(label, style = MaterialTheme.typography.labelSmall)
+                            }
                         }
                     }
                 }
@@ -214,22 +252,55 @@ import java.util.Locale
     }
     pageState.SaveableStateProvider(pageKey) {
         LibraryTheme {
-            when {
-                searchShown -> SearchScreen(model, state)
-                state.tab == "files" -> BrowserScreen(model, state)
-                state.tab == "media" -> MediaCatalogDestination(model)
-                state.tab == "cache-images" -> CacheGalleryScreen(model)
-                state.tab == "settings" -> SettingsScreen(model, state, onBack = ::requestBack)
-                state.tab == "about" -> SettingsScreen(model, state, openAbout = true, onBack = ::requestBack)
-                state.tab == "library" -> LibraryPagerContent(model, state) { section -> when (section) {
-                    io.github.kkwans.nasfilebrowser.app.LibrarySection.FAVORITES -> FavoritesScreen(model, state)
-                    io.github.kkwans.nasfilebrowser.app.LibrarySection.TAGS -> TagsScreen(model, state)
-                    // Compatibility only: old task routes render in the unified center.
-                    io.github.kkwans.nasfilebrowser.app.LibrarySection.TASKS -> TaskCenterScaffold(model, TaskCenterSection.BACKGROUND) { ServerTasksScreen(model, state) }
-                    io.github.kkwans.nasfilebrowser.app.LibrarySection.TRASH -> TrashScreen(model, state)
-                    io.github.kkwans.nasfilebrowser.app.LibrarySection.TOOLS -> StorageToolsScreen(model, state)
-                } }
-                else -> RecentScreen(model, state, recent)
+            val isSplitTarget = supportsUnifiedFileSplit && (searchShown || state.tab == "files" || state.tab == "recent")
+            if (isSplitTarget) {
+                val shellRegisterFullscreen = LocalFilewayDetailFullscreenOwner.current
+                val workspaceFullscreenToken = remember { Any() }
+                LaunchedEffect(shellRegisterFullscreen, workspaceFullscreenToken, fileSplitState.detailFullscreen) {
+                    shellRegisterFullscreen(workspaceFullscreenToken, fileSplitState.detailFullscreen)
+                }
+                DisposableEffect(shellRegisterFullscreen, workspaceFullscreenToken) {
+                    onDispose { shellRegisterFullscreen(workspaceFullscreenToken, false) }
+                }
+                CompositionLocalProvider(LocalFilewayWorkspaceHost provides workspaceHost) {
+                    FilewaySplitWorkspace(
+                        state = fileSplitState,
+                        listPane = {
+                            when {
+                                searchShown -> SearchScreen(model, state)
+                                state.tab == "files" -> BrowserScreen(model, state)
+                                else -> RecentScreen(model, state, recent)
+                            }
+                        },
+                        detailPane = {
+                            FileDetailWorkspace(
+                                model = model,
+                                state = state,
+                                host = workspaceHost,
+                                splitState = fileSplitState,
+                                onRequestBack = ::requestBack,
+                            )
+                        },
+                    )
+                }
+            } else {
+                when {
+                    searchShown -> SearchScreen(model, state)
+                    state.tab == "files" -> BrowserScreen(model, state)
+                    state.tab == "media" -> MediaCatalogDestination(model)
+                    state.tab == "cache-images" -> CacheGalleryScreen(model)
+                    state.tab == "settings" -> SettingsScreen(model, state, onBack = ::requestBack)
+                    state.tab == "about" -> SettingsScreen(model, state, openAbout = true, onBack = ::requestBack)
+                    state.tab == "library" -> LibraryPagerContent(model, state) { section -> when (section) {
+                        io.github.kkwans.nasfilebrowser.app.LibrarySection.FAVORITES -> FavoritesScreen(model, state)
+                        io.github.kkwans.nasfilebrowser.app.LibrarySection.TAGS -> TagsScreen(model, state)
+                        // Compatibility only: old task routes render in the unified center.
+                        io.github.kkwans.nasfilebrowser.app.LibrarySection.TASKS -> TaskCenterScaffold(model, TaskCenterSection.BACKGROUND) { ServerTasksScreen(model, state) }
+                        io.github.kkwans.nasfilebrowser.app.LibrarySection.TRASH -> TrashScreen(model, state)
+                        io.github.kkwans.nasfilebrowser.app.LibrarySection.TOOLS -> StorageToolsScreen(model, state)
+                    } }
+                    else -> RecentScreen(model, state, recent)
+                }
             }
         }
     }
@@ -276,6 +347,28 @@ private fun MediaCatalogDestination(model: ClientModel) {
     val selection = rememberFilewayTaskSelection(state.previewScope, recent.map { it.resourceKey }, pageActive && state.recentSection == RecentSection.PLAYBACK)
     var playbackDeletion by remember(state.previewScope) { mutableStateOf<Set<String>?>(null) }
     val recentEnabled = state.connected && !state.busy && !state.recentPlaybackDeleting && !state.recentPlaybackLoading
+    val workspaceHost = LocalFilewayWorkspaceHost.current
+    LaunchedEffect(workspaceHost, state.recentSection, recent.size) {
+        if (workspaceHost != null) {
+            workspaceHost.batchSummary = null
+            workspaceHost.directoryOverview = io.github.kkwans.nasfilebrowser.ui.adaptive.TabletDirectoryOverview(
+                title = state.recentSection.label,
+                path = "",
+                totalCount = recent.size,
+                folderCount = 0,
+                imageCount = 0,
+                videoCount = recent.size,
+                documentCount = 0,
+                quickActions = listOf(
+                    io.github.kkwans.nasfilebrowser.ui.adaptive.TabletQuickAction(
+                        label = "浏览全部文件",
+                        icon = R.drawable.ic_folder,
+                        onClick = { model.tab("files") },
+                    ),
+                ),
+            )
+        }
+    }
     LaunchedEffect(state.previewScope, state.connected, state.recentSection, pageActive) {
         if (pageActive && state.connected && state.recentSection == RecentSection.PLAYBACK) while (isActive) {
             model.refreshRecentPlayback(); delay(15_000)
@@ -308,7 +401,40 @@ private fun MediaCatalogDestination(model: ClientModel) {
                             }
                             RecentAccessContent(model.recentAccess, state.connected, model::showConnection,
                                 onLocation = { model.openRecentAccessLocation(it, sourceScope) },
-                                onDetails = { detailsActionsEnabled = false; details = it.resource() }) { model.openRecentAccess(it, sourceScope) }
+                                onDetails = { item ->
+                                    if (workspaceHost != null) {
+                                        val res = item.resource()
+                                        dismissEmbeddedViewersForSwitch(model)
+                                        workspaceHost.inspect(
+                                            res,
+                                            onOpen = { model.openRecentAccess(item, sourceScope) },
+                                            onLocation = { model.openRecentAccessLocation(item, sourceScope) },
+                                        )
+                                    } else {
+                                        detailsActionsEnabled = false; details = item.resource()
+                                    }
+                                }) { item ->
+                                if (workspaceHost != null) {
+                                    val res = item.resource()
+                                    when (TabletWorkspacePolicy.actionFor(res)) {
+                                        TabletClickAction.STAGE_VIDEO, TabletClickAction.INSPECT_FILE -> {
+                                            dismissEmbeddedViewersForSwitch(model)
+                                            workspaceHost.inspect(
+                                                res,
+                                                onOpen = { model.openRecentAccess(item, sourceScope) },
+                                                onLocation = { model.openRecentAccessLocation(item, sourceScope) },
+                                            )
+                                        }
+                                        else -> {
+                                            workspaceHost.clearInspection()
+                                            dismissEmbeddedViewersForSwitch(model)
+                                            model.openRecentAccess(item, sourceScope)
+                                        }
+                                    }
+                                } else {
+                                    model.openRecentAccess(item, sourceScope)
+                                }
+                            }
                         }
                     } else FilewayRefresh(state.recentPlaybackLoading, { model.refreshRecentPlayback(force = true) }) { Column(Modifier.fillMaxSize()) {
                         FilewayPageHeaderActions {
@@ -347,8 +473,21 @@ private fun MediaCatalogDestination(model: ClientModel) {
                                 val file = ResourceRef(snapshot.path, snapshot.wirePath, snapshot.name, false, if (mediaKind(snapshot.name) == MediaKind.AUDIO) "audio" else "video", 0)
                                 FileEntry(model, file, FileLayout.DETAIL, enabled = recentEnabled,
                                     open = { if (selection.active) selection.toggle(snapshot.resourceKey) else model.openRecent(snapshot) },
-                                    details = { detailsActionsEnabled = true; details = file }, metadata = { RecentProgress(snapshot) },
+                                    details = {
+                                        if (workspaceHost != null) {
+                                            dismissEmbeddedViewersForSwitch(model)
+                                            workspaceHost.inspect(
+                                                file,
+                                                onOpen = { model.openRecent(snapshot) },
+                                                onLocation = { model.openContainingDirectory(file) },
+                                            )
+                                        } else {
+                                            detailsActionsEnabled = true; details = file
+                                        }
+                                    },
+                                    metadata = { RecentProgress(snapshot) },
                                     selected = if (selection.active) snapshot.resourceKey in selection.ids else null,
+                                    focused = workspaceHost != null && workspaceHost.focusedFileKey == file.mediaKey,
                                     onSelect = { selection.start(snapshot.resourceKey) })
                             }
                         }

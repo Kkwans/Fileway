@@ -41,6 +41,19 @@ import io.github.kkwans.nasfilebrowser.app.mediaKind
 import io.github.kkwans.nasfilebrowser.data.collectionPath
 import io.github.kkwans.nasfilebrowser.data.FileTransferAction
 import io.github.kkwans.nasfilebrowser.data.DirectoryCrumb
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayWorkspaceHost
+import io.github.kkwans.nasfilebrowser.ui.adaptive.TabletBatchAction
+import io.github.kkwans.nasfilebrowser.ui.adaptive.TabletBatchSummary
+import io.github.kkwans.nasfilebrowser.ui.adaptive.TabletClickAction
+import io.github.kkwans.nasfilebrowser.ui.adaptive.TabletDirectoryOverview
+import io.github.kkwans.nasfilebrowser.ui.adaptive.TabletQuickAction
+import io.github.kkwans.nasfilebrowser.ui.adaptive.TabletWorkspacePolicy
+import io.github.kkwans.nasfilebrowser.ui.adaptive.dismissEmbeddedViewersForSwitch
+import io.github.kkwans.nasfilebrowser.ui.adaptive.filewayHardwareShortcuts
+import io.github.kkwans.nasfilebrowser.app.MediaKind
+import io.github.kkwans.nasfilebrowser.app.mediaKey
+import io.github.kkwans.nasfilebrowser.data.DocumentPreviewKind
+import io.github.kkwans.nasfilebrowser.data.documentPreviewKind
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 
 /** Official reference: restrained chrome, cover-led content and compact directory entries. */
@@ -86,9 +99,140 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
     val selectionBusy = downloads.busy || trash.changing || operations.changing
     val context = LocalContext.current
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val workspaceHost = LocalFilewayWorkspaceHost.current
+    val tabletConfig = io.github.kkwans.nasfilebrowser.ui.adaptive.LocalTabletLayoutConfig.current
+    val splitController = io.github.kkwans.nasfilebrowser.ui.adaptive.LocalSplitWorkspaceController.current
+
+    fun handleWorkspaceTap(file: ResourceRef) {
+        val host = workspaceHost ?: return
+        when (tabletConfig.resolveClickAction(TabletWorkspacePolicy.actionFor(file))) {
+            TabletClickAction.ENTER_DIRECTORY -> {
+                host.clearInspection()
+                model.open(file)
+            }
+            TabletClickAction.STAGE_VIDEO, TabletClickAction.INSPECT_FILE -> {
+                dismissEmbeddedViewersForSwitch(model)
+                host.inspect(file, onOpen = { model.open(file) })
+            }
+            TabletClickAction.OPEN_EMBEDDED -> {
+                host.clearInspection()
+                dismissEmbeddedViewersForSwitch(model)
+                model.open(file)
+            }
+            TabletClickAction.OPEN_FULLSCREEN -> {
+                host.clearInspection()
+                dismissEmbeddedViewersForSwitch(model)
+                splitController?.setDetailFullscreen(true)
+                model.open(file)
+            }
+        }
+    }
+
+    fun stepFocusedFile(delta: Int) {
+        val host = workspaceHost ?: return
+        if (selecting || displayed.isEmpty() || state.busy) return
+        val currentIdx = displayed.indexOfFirst { it.mediaKey == host.focusedFileKey }
+        val nextIdx = if (currentIdx < 0) 0 else (currentIdx + delta).coerceIn(displayed.indices)
+        val target = displayed[nextIdx]
+        if (target.directory) {
+            dismissEmbeddedViewersForSwitch(model)
+            host.inspect(target, onOpen = { model.open(target) })
+        } else {
+            handleWorkspaceTap(target)
+        }
+    }
+
+    // Publish directory overview & multi-select batch summary to the right tablet workspace.
+    LaunchedEffect(workspaceHost, state.path, state.wirePath, displayed, state.permissions, state.busy, selectionBusy, uploads.busy, uploads.selecting) {
+        if (workspaceHost != null) {
+            val dirName = state.path.trimEnd('/').substringAfterLast('/').ifBlank { "根目录" }
+            val folderCount = displayed.count { it.directory }
+            val imageCount = displayed.count { !it.directory && it.mediaKind() == MediaKind.IMAGE }
+            val videoCount = displayed.count { !it.directory && it.mediaKind() == MediaKind.VIDEO }
+            val docCount = displayed.count { !it.directory && documentPreviewKind(it) != DocumentPreviewKind.OTHER }
+            val canUpload = !uploads.busy && !uploads.selecting && !selectionBusy
+            val canCreate = !state.busy && !selectionBusy && operations.transfer == null && operations.creation == null && operations.batchRename == null
+            workspaceHost.directoryOverview = TabletDirectoryOverview(
+                title = dirName,
+                path = state.path,
+                totalCount = displayed.size,
+                folderCount = folderCount,
+                imageCount = imageCount,
+                videoCount = videoCount,
+                documentCount = docCount,
+                quickActions = buildList {
+                    if (state.permissions.create) {
+                        add(TabletQuickAction("上传文件", R.drawable.ic_upload, enabled = canUpload) {
+                            if (model.beginUploadSelection()) try { uploadFiles.launch(arrayOf("*/*")) }
+                            catch (_: Exception) { model.uploads.cancelSelection(); model.uploads.reportError("无法打开系统文件选择器") }
+                        })
+                        add(TabletQuickAction("新建文件夹", R.drawable.ic_folder, enabled = canCreate) {
+                            model.startDirectoryCreation(state.previewScope)
+                        })
+                        add(TabletQuickAction("新建文件", R.drawable.ic_file, enabled = canCreate) {
+                            model.startFileCreation(state.previewScope)
+                        })
+                    }
+                    add(TabletQuickAction("搜索文件", R.drawable.ic_search, enabled = !state.busy) { model.openSearch() })
+                },
+            )
+        }
+    }
+    LaunchedEffect(workspaceHost, selecting, chosen, state.busy, selectionBusy, operations.transfer, operations.creation, operations.batchRename, downloads.folderPlan) {
+        if (workspaceHost != null) {
+            workspaceHost.batchSummary = if (!selecting) null else TabletBatchSummary(
+                title = "批量操作",
+                items = chosen,
+                actions = buildList {
+                    if (state.permissions.create) add(TabletBatchAction("copy", "批量复制", R.drawable.ic_copy,
+                        enabled = !state.busy && !selectionBusy && operations.transfer == null && operations.batchRename == null && chosen.isNotEmpty()) {
+                        model.startFileTransfer(chosen, FileTransferAction.COPY, state.previewScope)
+                    })
+                    if (state.permissions.create && state.permissions.rename) add(TabletBatchAction("move", "批量移动", R.drawable.ic_move,
+                        enabled = !state.busy && !selectionBusy && operations.transfer == null && operations.batchRename == null && chosen.isNotEmpty()) {
+                        model.startFileTransfer(chosen, FileTransferAction.MOVE, state.previewScope)
+                    })
+                    if (state.permissions.rename) add(TabletBatchAction("rename", "批量重命名", R.drawable.ic_edit,
+                        enabled = !state.busy && !selectionBusy && operations.transfer == null && operations.creation == null && operations.batchRename == null && chosen.size in 1..500) {
+                        batchKind = "rename"
+                        model.fileOperations.startBatchRename(chosen, DirectoryCrumb("原目录", state.path, state.wirePath), state.previewScope)
+                    })
+                    if (state.permissions.download) add(TabletBatchAction("zip", "打包为 ZIP", R.drawable.ic_folder,
+                        enabled = !state.busy && !selectionBusy && chosen.isNotEmpty()) {
+                        model.startZipExport(chosen, state.previewScope)
+                    })
+                    if (state.permissions.download) add(TabletBatchAction("download", "批量下载", R.drawable.ic_download,
+                        enabled = !state.busy && !selectionBusy && downloads.folderPlan == null && chosen.isNotEmpty()) {
+                        batchKind = "download"
+                        model.downloadFiles(chosen) { file -> selected = selected - key(file) }
+                        if (chosen.none { it.directory } && android.os.Build.VERSION.SDK_INT >= 33 && context.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED)
+                            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                    })
+                    if (state.permissions.delete) add(TabletBatchAction("trash", "移入回收站", R.drawable.ic_trash,
+                        enabled = !state.busy && !selectionBusy && chosen.isNotEmpty(), destructive = true) {
+                        pendingTrash = chosen.toList(); trashAttempted = false
+                    })
+                },
+                onSelectAll = { selected = if (selected == shownKeys) emptySet() else shownKeys },
+                onInvert = { selected = shownKeys - selected },
+                onExit = { selecting = false; selected = emptySet(); batchKind = "" },
+                onRemoveFromSelection = { item -> selected = selected - key(item) },
+            )
+        }
+    }
+    DisposableEffect(workspaceHost) {
+        onDispose { workspaceHost?.batchSummary = null }
+    }
     BackHandler(selecting) { selecting = false; selected = emptySet() }
     MaterialTheme(colorScheme = colors) {
-        Scaffold(containerColor = colors.background, bottomBar = { ClientNavigation(model, "files") }) { insets ->
+        Scaffold(
+            modifier = Modifier.filewayHardwareShortcuts(
+                onMovePrevious = if (workspaceHost != null) { { stepFocusedFile(-1) } } else null,
+                onMoveNext = if (workspaceHost != null) { { stepFocusedFile(1) } } else null,
+            ),
+            containerColor = colors.background,
+            bottomBar = { ClientNavigation(model, "files") },
+        ) { insets ->
             FilewayRefresh(state.busy, model::retry, Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets)) {
 Column(Modifier.fillMaxSize()) {
                 FilewayPageHeader("文件") {
@@ -206,11 +350,33 @@ Column(Modifier.fillMaxSize()) {
                 } else FileCollection(displayed, layout, Modifier.weight(1f), layout.collectionDescription(),
                     resetKey = listOf(state.previewScope, state.wirePath, state.fileCategory, state.fileCategories, state.fileOrder,
                         tags.filterId, tags.globalFilter), keyOf = { it.wirePath.ifEmpty { it.path } }, compactGridSize = state.compactGridSize) { file ->
-                    FileEntry(model, file, layout, !state.busy && (!selecting || !selectionBusy), {
-                        if (selecting) selected = if (key(file) in selected) selected - key(file) else selected + key(file)
-                        else model.open(file)
-                    }, { details = file }, selected = if (selecting) key(file) in selected else null, compactGridSize = state.compactGridSize,
-                        onSelect = { if (!selectionBusy) { selecting = true; selected = selected + key(file) } })
+                    FileEntry(
+                        model = model,
+                        file = file,
+                        layout = layout,
+                        enabled = !state.busy && (!selecting || !selectionBusy),
+                        open = {
+                            if (selecting) selected = if (key(file) in selected) selected - key(file) else selected + key(file)
+                            else {
+                                workspaceHost?.clearInspection()
+                                model.open(file)
+                            }
+                        },
+                        details = {
+                            if (workspaceHost != null) handleWorkspaceTap(file)
+                            else details = file
+                        },
+                        selected = if (selecting) key(file) in selected else null,
+                        compactGridSize = state.compactGridSize,
+                        onSelect = { if (!selectionBusy) { selecting = true; selected = selected + key(file) } },
+                        focused = workspaceHost != null && workspaceHost.focusedFileKey == file.mediaKey,
+                        onMoreClick = if (workspaceHost != null) {
+                            {
+                                dismissEmbeddedViewersForSwitch(model)
+                                workspaceHost.inspect(file, onOpen = { model.open(file) })
+                            }
+                        } else null,
+                    )
                 }
             }
 }

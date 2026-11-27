@@ -28,7 +28,13 @@ import io.github.kkwans.nasfilebrowser.data.isMarkdownDocument
 import io.github.kkwans.nasfilebrowser.data.isCsvDocument
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 
-@Composable internal fun DocumentEditorScreen(controller: DocumentEditController, onClose: () -> Unit) {
+@Composable internal fun DocumentEditorScreen(
+    controller: DocumentEditController,
+    onClose: () -> Unit,
+    embedded: Boolean = false,
+    onToggleFullscreen: (() -> Unit)? = null,
+    onExpandLeftPane: (() -> Unit)? = null,
+) {
     val state by controller.state.collectAsStateWithLifecycle()
     val file = state.file ?: return
     val document = state.document ?: return
@@ -61,10 +67,27 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
     BackHandler { leave() }
     Scaffold(containerColor = MaterialTheme.colorScheme.background) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding()) {
-            FilewayTopAppBar(file.name, saveStatus.trimStart(' ', '·'), R.drawable.ic_arrow_back, "关闭文本编辑", ::leave, actions = {
-                FilewayTextButton(controller::save, enabled = !busy && state.dirty && !state.unknownWrite && !state.conflict,
-                    modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.saving) "正在保存" else "保存") }
-                Box {
+            FilewayTopAppBar(
+                file.name,
+                saveStatus.trimStart(' ', '·'),
+                if (onExpandLeftPane != null) R.drawable.ic_menu else if (embedded) R.drawable.ic_close else R.drawable.ic_arrow_back,
+                if (onExpandLeftPane != null) "展开文件列表" else "关闭文本编辑",
+                if (onExpandLeftPane != null) onExpandLeftPane else ::leave,
+                actions = {
+                    FilewayTextButton(controller::save, enabled = !busy && state.dirty && !state.unknownWrite && !state.conflict,
+                        modifier = Modifier.heightIn(min = 48.dp)) { Text(if (state.saving) "正在保存" else "保存") }
+                    if (onToggleFullscreen != null) {
+                        FilewayIconButton(onToggleFullscreen) {
+                            FilewayIcon(
+                                if (embedded) R.drawable.art_fullscreen_on else R.drawable.art_fullscreen_off,
+                                if (embedded) "全屏编辑文档" else "退出全屏编辑",
+                            )
+                        }
+                    }
+                    if (onExpandLeftPane != null) {
+                        FilewayIconButton(::leave) { FilewayIcon(R.drawable.ic_close, "关闭文本编辑") }
+                    }
+                    Box {
                     FilewayIconButton({ more = true }) { FilewayIcon(R.drawable.ic_more_actions, "编辑操作") }
                     FilewayMenu(more, { more = false }, items = listOf(
                         FilewayMenuEntry("copy", "复制草稿", R.drawable.ic_copy, enabled = state.draft.length <= 131_072),
@@ -90,10 +113,12 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
             (state.error ?: state.notice)?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                 style = MaterialTheme.typography.bodySmall, color = if (state.error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant) }
             if (state.unknownWrite) FilewayTextButton(controller::verifySave, enabled = !busy, modifier = Modifier.padding(horizontal = 8.dp)) { Text(if (state.acknowledged) "核对并恢复刷新" else "核对保存结果") }
-            OutlinedTextField(state.draft, controller::edit, modifier = Modifier.weight(1f).fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-                label = { Text("文本内容") }, readOnly = busy || state.unknownWrite,
-                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = if (monospace) FontFamily.Monospace else FontFamily.SansSerif),
-                keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false))
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                OutlinedTextField(state.draft, controller::edit, modifier = Modifier.widthIn(max = 920.dp).fillMaxSize().padding(horizontal = 12.dp, vertical = 8.dp),
+                    label = { Text("文本内容") }, readOnly = busy || state.unknownWrite,
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = if (monospace) FontFamily.Monospace else FontFamily.SansSerif),
+                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.None, autoCorrectEnabled = false))
+            }
         }
     }
     if (discard) FilewayAlertDialog(onDismissRequest = { discard = false }, title = { Text(

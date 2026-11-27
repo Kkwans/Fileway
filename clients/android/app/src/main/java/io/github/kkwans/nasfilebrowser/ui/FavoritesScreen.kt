@@ -27,6 +27,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.*
+import io.github.kkwans.nasfilebrowser.ui.adaptive.FilewaySplitWorkspace
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayWindowLayout
+import io.github.kkwans.nasfilebrowser.ui.adaptive.SplitPaneSpec
+import io.github.kkwans.nasfilebrowser.ui.adaptive.rememberFilewaySplitWorkspaceState
 
 private fun favoriteColor(value: String, fallback: Color): Color = try { Color(android.graphics.Color.parseColor(value)) } catch (_: Exception) { fallback }
 
@@ -41,10 +45,14 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
     LaunchedEffect(state.groups) { if (!filter.isNullOrEmpty() && state.groups.none { it.id == filter }) filter = null }
     val items = state.items.filter { filter == null || it.groupId == filter }
     val selection = rememberFilewayTaskSelection(state.scope to filter, items.map { it.id })
+    val windowLayout = LocalFilewayWindowLayout.current
+    val useDual = io.github.kkwans.nasfilebrowser.ui.adaptive.LocalTabletLayoutConfig.current.useWorkspaceDualPane(windowLayout)
     LibraryScaffold(model, LibrarySection.FAVORITES, actions = {
         FilewaySelectionToggle(selection, "多选收藏", enabled && items.isNotEmpty())
         FilewayIconButton({ managing = true }, enabled = enabled && state.loaded) { FilewayIcon(R.drawable.ic_settings, "管理收藏分组") }
     }) {
+        @Composable fun FavoritesListColumn(modifier: Modifier) {
+            Column(modifier) {
             if (selection.active) FilewayTaskSelectionBar(selection, enabled, {
                 selection.select(if (selection.ids.size == items.size) emptyList() else items.map { it.id })
             }) {
@@ -83,7 +91,7 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                     LibraryObjectCard(favorite.name.ifEmpty { basename }, libraryLocation(favorite.path), R.drawable.ic_bookmark,
                         onOpen = { if (selection.active) selection.toggle(favorite.id) else details = favorite }, enabled = enabled,
                         onDoubleClick = if (favorite.openable) ({ model.openFavorite(favorite, state.scope) }) else null,
-                        selected = favorite.id in selection.ids, selectionMode = selection.active,
+                        selected = favorite.id in selection.ids || (useDual && details?.id == favorite.id), selectionMode = selection.active,
                         onLongClick = { selection.start(favorite.id) },
                         summary = if (filter == null) state.groups.firstOrNull { it.id == favorite.groupId }?.name else null,
                         trailing = {
@@ -113,8 +121,44 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
                     }
                 }
             }
+            }
+        }
+        if (useDual) {
+            val splitState = rememberFilewaySplitWorkspaceState(
+                sceneKey = "library_favorites",
+                spec = SplitPaneSpec(defaultRatio = 0.44f, minLeftDp = 300f, minRightDp = 360f),
+            )
+            FilewaySplitWorkspace(
+                state = splitState,
+                modifier = Modifier.weight(1f).fillMaxWidth(),
+                listPane = { FavoritesListColumn(Modifier.fillMaxSize()) },
+                detailPane = {
+                    val activeFavorite = details?.let { d -> state.items.firstOrNull { it.id == d.id } }
+                    if (activeFavorite != null) {
+                        FavoriteInlineDetailPane(
+                            model = model,
+                            favorite = activeFavorite,
+                            state = state,
+                            enabled = enabled,
+                            onEdit = { editing = it },
+                            onDismiss = { details = null },
+                        )
+                    } else {
+                        Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                FilewayIcon(R.drawable.ic_bookmark, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.primary)
+                                Text("共 ${items.size} 项收藏", style = MaterialTheme.typography.titleMedium)
+                                Text("点击左侧收藏项即可在此查看详情、管理分组或快速打开。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                },
+            )
+        } else {
+            FavoritesListColumn(Modifier.weight(1f).fillMaxWidth())
+        }
     }
-    details?.let { favorite -> FavoriteDetailsSheet(model, favorite, state, enabled,
+    if (!useDual) details?.let { favorite -> FavoriteDetailsSheet(model, favorite, state, enabled,
         onEdit = { details = null; editing = it }, onDismiss = { details = null }) }
     editing?.let { item ->
         var name by remember(item.id) { mutableStateOf(item.name) }
@@ -185,6 +229,64 @@ private fun favoriteColor(value: String, fallback: Color): Color = try { Color(a
         load = FileDetailsLoad(resource, loading, error) { attempt++ },
         actions = { FileActions(model, file, showFavorite = false, onMoved = onDismiss) },
         additionalActions = { state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) } }, onDismiss = onDismiss)
+}
+
+@Composable private fun FavoriteInlineDetailPane(
+    model: ClientModel,
+    favorite: Favorite,
+    state: FavoritesState,
+    enabled: Boolean,
+    onEdit: (Favorite) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val sourceScope = remember(favorite.id) { state.scope }
+    var resource by remember(favorite.id, sourceScope) { mutableStateOf<ResourceRef?>(null) }
+    var error by remember(favorite.id, sourceScope) { mutableStateOf<String?>(null) }
+    var attempt by remember(favorite.id, sourceScope) { mutableIntStateOf(0) }
+    var loading by remember(favorite.id, sourceScope) { mutableStateOf(true) }
+    LaunchedEffect(favorite.id, sourceScope, attempt) {
+        loading = true; error = null
+        try {
+            check(favorite.openable) { "收藏的原始路径无法确认，请先刷新收藏" }
+            check(model.favorites.state.value.scope == sourceScope) { "收藏来源已切换" }
+            val result = model.resourceMetadata(ResourceRef(favorite.path, favorite.wirePath, libraryBasename(favorite.path), false, "", 0))
+            check(model.favorites.state.value.scope == sourceScope) { "收藏来源已切换" }
+            resource = result
+        } catch (failure: Exception) {
+            if (failure is kotlinx.coroutines.CancellationException) throw failure
+            error = failure.message ?: "文件信息暂时无法读取"
+        } finally { loading = false }
+    }
+    val file = resource ?: ResourceRef(favorite.path, favorite.wirePath, libraryBasename(favorite.path), false, "", 0)
+    val foreground = remember(favorite.id) { FileOperationForeground() }
+    DisposableEffect(foreground) { onDispose { foreground.close() } }
+    Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.TopCenter) {
+        Column(Modifier.widthIn(max = 640.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(favorite.name.ifEmpty { libraryBasename(favorite.path) }, Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                FilewayIconButton(onDismiss) { FilewayIcon(R.drawable.ic_close, "关闭详情") }
+            }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilewayButton({ model.openFavorite(favorite, sourceScope) }, enabled = enabled && favorite.openable, modifier = Modifier.weight(1f)) { Text("打开") }
+                FilewayOutlinedButton({ resource?.let { model.openContainingDirectory(it) } }, enabled = enabled && resource != null) { Text("所在目录") }
+                FilewayOutlinedButton({ onEdit(favorite) }, enabled = enabled) { Text("编辑") }
+                FilewayOutlinedButton({ model.favorites.remove(favorite, onDismiss) }, enabled = enabled) { Text("取消收藏") }
+            }
+            HorizontalDivider()
+            CompositionLocalProvider(LocalFileOperationForeground provides foreground) {
+                FileDetailsBody(
+                    file = file,
+                    model = model,
+                    readMetadata = false,
+                    openEnabled = enabled,
+                    load = FileDetailsLoad(resource, loading, error) { attempt++ },
+                    actions = { FileActions(model, file, showFavorite = false, onMoved = onDismiss) },
+                    additionalActions = { state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) } },
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                )
+            }
+        }
+    }
 }
 
 @Composable private fun FavoriteGroupChoice(id: String, name: String, selected: String, enabled: Boolean = true, choose: () -> Unit) {

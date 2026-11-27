@@ -49,6 +49,7 @@ import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.ClientModel
 import io.github.kkwans.nasfilebrowser.app.ClientState
 import io.github.kkwans.nasfilebrowser.data.*
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayWindowLayout
 
 @Composable internal fun ConnectionScreen(model: ClientModel, state: ClientState) {
     val network by model.networkState.collectAsStateWithLifecycle()
@@ -122,9 +123,10 @@ import io.github.kkwans.nasfilebrowser.data.*
         Box(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets), contentAlignment = Alignment.TopCenter) {
             val page = Modifier.widthIn(max = 560.dp).fillMaxWidth()
                 .imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp)
-            val form: @Composable () -> Unit = {
+            val windowLayout = LocalFilewayWindowLayout.current
+            val form: @Composable (Boolean) -> Unit = { showProfilePicker ->
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Box(Modifier.fillMaxWidth()) {
+                    if (showProfilePicker) Box(Modifier.fillMaxWidth()) {
                         FilewayOutlinedButton(onClick = { focus.clearFocus(); profilesOpen = true }, enabled = !state.busy, shape = MaterialTheme.shapes.medium,
                             modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).semantics { contentDescription = "选择服务器档案" }) {
                             FilewayIcon(R.drawable.ic_storage, null, Modifier.size(22.dp))
@@ -258,7 +260,133 @@ import io.github.kkwans.nasfilebrowser.data.*
                     Spacer(Modifier.height(12.dp))
                 }
             }
-            Column(page) { form() }
+            if (windowLayout.useDualPane) {
+                Row(
+                    Modifier
+                        .widthIn(max = 1040.dp)
+                        .fillMaxSize()
+                        .imePadding()
+                        .padding(horizontal = 32.dp, vertical = 16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(32.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    // Left brand & saved server profiles column
+                    Column(
+                        Modifier
+                            .weight(1f)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(16.dp),
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Surface(
+                                modifier = Modifier.size(48.dp),
+                                shape = RoundedCornerShape(14.dp),
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            ) {
+                                Box(contentAlignment = Alignment.Center) {
+                                    FilewayIcon(R.drawable.ic_server, null, Modifier.size(26.dp), tint = MaterialTheme.colorScheme.primary)
+                                }
+                            }
+                            Column {
+                                Text("栖卷 · Fileway", style = MaterialTheme.typography.headlineSmall)
+                                Text("本地优先的 NAS 与桌面文件工作台", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        Text("已保存服务器档案", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        if (profiles.isEmpty()) {
+                            Surface(
+                                shape = RoundedCornerShape(14.dp),
+                                color = MaterialTheme.colorScheme.surface,
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                Text(
+                                    "还没有已保存的服务器档案。在右侧填写服务器地址与账号即可连接并自动保存。",
+                                    modifier = Modifier.padding(16.dp),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        } else {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                profiles.forEach { profile ->
+                                    val selected = profile.id == state.profile?.id
+                                    Surface(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable(enabled = !state.busy, role = Role.Button) {
+                                                focus.clearFocus()
+                                                model.selectProfile(profile)
+                                            },
+                                        shape = RoundedCornerShape(14.dp),
+                                        color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.11f) else MaterialTheme.colorScheme.surface,
+                                        border = BorderStroke(
+                                            if (selected) 1.5.dp else 1.dp,
+                                            if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.55f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f),
+                                        ),
+                                    ) {
+                                        Row(
+                                            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 12.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                        ) {
+                                            FilewayIcon(
+                                                R.drawable.ic_storage,
+                                                null,
+                                                Modifier.size(22.dp),
+                                                tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                                Text(profile.name, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                                Text(
+                                                    "${if (profile.backend == BackendKind.WINDOWS) "Windows" else "NAS"} · ${serverAddressSummary(profile.address)} · ${if (profile.network == ConnectionMode.TAILNET) "Tailscale" else "直连"}",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis,
+                                                )
+                                            }
+                                            if (selected) {
+                                                FilewayIconButton(onClick = { remove = profile }, enabled = !state.busy) {
+                                                    FilewayIcon(R.drawable.ic_trash, "移除档案", Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        FilewayOutlinedButton(
+                            onClick = { focus.clearFocus(); model.selectProfile(null) },
+                            enabled = !state.busy && state.profile != null,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 44.dp),
+                        ) {
+                            FilewayIcon(R.drawable.ic_add, null, Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("新建服务器档案")
+                        }
+                    }
+                    // Right bounded 440dp form card
+                    Surface(
+                        modifier = Modifier.width(440.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.65f)),
+                    ) {
+                        Column(
+                            Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState())
+                                .padding(20.dp),
+                        ) {
+                            form(false)
+                        }
+                    }
+                }
+            } else Column(page) { form(true) }
         }
     }
     remove?.let { profile -> FileOperationSheet("移除 ${profile.name}？", { remove = null }, footer = {

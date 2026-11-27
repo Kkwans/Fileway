@@ -61,7 +61,8 @@ import kotlin.math.roundToInt
 
 @Composable internal fun DocumentPreviewScreen(controller: DocumentPreviewController, onClose: () -> Unit,
     onDownload: (ResourceRef) -> Unit, canDownload: Boolean, onOpenExternal: ((ResourceRef) -> Unit)? = null,
-    onEdit: ((ResourceRef, DocumentText) -> Unit)? = null, imageCache: CacheController? = null) {
+    onEdit: ((ResourceRef, DocumentText) -> Unit)? = null, imageCache: CacheController? = null,
+    embedded: Boolean = false, onToggleFullscreen: (() -> Unit)? = null, onExpandLeftPane: (() -> Unit)? = null) {
     val state by controller.state.collectAsStateWithLifecycle()
     val file = state.file ?: return
     val view = LocalView.current
@@ -77,13 +78,50 @@ import kotlin.math.roundToInt
         if (inputFocused || ViewCompat.getRootWindowInsets(view)?.isVisible(WindowInsetsCompat.Type.ime()) == true) {
             focus.clearFocus(); keyboard?.hide(); return
         }
+        if (!embedded && onToggleFullscreen != null) {
+            onToggleFullscreen(); return
+        }
         controller.close(); onClose()
     }
-    BackHandler { leave() }
-    Scaffold(containerColor = MaterialTheme.colorScheme.background) { insets ->
+    BackHandler(enabled = !embedded || inputFocused) { leave() }
+    Scaffold(
+        containerColor = MaterialTheme.colorScheme.background,
+        contentWindowInsets = if (embedded) {
+            WindowInsets.safeDrawing.only(WindowInsetsSides.Vertical + WindowInsetsSides.End)
+        } else {
+            ScaffoldDefaults.contentWindowInsets
+        },
+    ) { insets ->
         Column(Modifier.fillMaxSize().padding(insets).consumeWindowInsets(insets).imePadding()) {
             val summary = if (state.loading) "读取中" else null
-            FilewayTopAppBar(file.name, summary, R.drawable.ic_arrow_back, "关闭文档", ::leave, actions = {
+            FilewayTopAppBar(
+                file.name,
+                summary,
+                if (onExpandLeftPane != null) R.drawable.ic_menu else if (embedded) R.drawable.ic_close else R.drawable.ic_arrow_back,
+                if (onExpandLeftPane != null) "展开文件列表" else if (!embedded && onToggleFullscreen != null) "退出全屏" else "关闭文档",
+                if (onExpandLeftPane != null) onExpandLeftPane else ::leave,
+                actions = {
+                    if (embedded || onToggleFullscreen != null) {
+                        if (onEdit != null && state.text != null) {
+                            DocumentIcon(R.drawable.ic_edit, "编辑文本", enabled = !state.loading) {
+                                state.text?.let { onEdit.invoke(file, it) }
+                            }
+                        }
+                        if (state.text != null) {
+                            DocumentIcon(R.drawable.ic_search, "查找文档文字", enabled = !state.loading) {
+                                findRequested = true
+                            }
+                        }
+                        if (onToggleFullscreen != null) {
+                            DocumentIcon(
+                                if (embedded) R.drawable.art_fullscreen_on else R.drawable.art_fullscreen_off,
+                                if (embedded) "全屏阅读文档" else "退出全屏阅读",
+                            ) { onToggleFullscreen() }
+                        }
+                        if (onExpandLeftPane != null) {
+                            DocumentIcon(R.drawable.ic_close, "关闭文档") { controller.close(); onClose() }
+                        }
+                    }
                 Box {
                     DocumentIcon(R.drawable.ic_more_actions, "文档操作") { focus.clearFocus(); keyboard?.hide(); menu = true }
                     FilewayMenu(menu, { menu = false }, items = buildList {
@@ -129,19 +167,26 @@ import kotlin.math.roundToInt
             }
             if (state.loading && state.text == null && state.pageCount == 0) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 Text(if (state.kind == DocumentPreviewKind.PDF) "正在准备 PDF…" else "正在读取文档…", color = MaterialTheme.colorScheme.onSurfaceVariant)
-            } else when (state.kind) {
-                DocumentPreviewKind.TEXT -> if (state.text != null) DocumentTextContent(controller, state, imageCache, findRequested, { findRequested = false }) { inputFocused = it }
-                DocumentPreviewKind.PDF -> if (state.pageCount > 0) DocumentPdfContent(controller, state)
-                DocumentPreviewKind.OTHER -> Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text("文件详情", style = MaterialTheme.typography.titleMedium)
-                    SelectionContainer { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(file.name, style = MaterialTheme.typography.bodyLarge)
-                        Text(file.path, style = MaterialTheme.typography.bodyMedium)
-                        Text("${fileTypeLabel(file)} · ${readableSize(file.size)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(displayModified(file.modified) ?: "未提供修改时间", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    } }
-                    Text("此类型暂不支持内置阅读，可下载后使用系统应用打开。", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    FilewayButton({ onDownload(file) }, enabled = canDownload) { Text("下载文件") }
+            } else {
+                val wideReader = state.kind != DocumentPreviewKind.TEXT || !isCsvDocument(file)
+                Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopCenter) {
+                    Column(if (wideReader) Modifier.widthIn(max = 780.dp).fillMaxSize() else Modifier.fillMaxSize()) {
+                        when (state.kind) {
+                            DocumentPreviewKind.TEXT -> if (state.text != null) DocumentTextContent(controller, state, imageCache, findRequested, { findRequested = false }) { inputFocused = it }
+                            DocumentPreviewKind.PDF -> if (state.pageCount > 0) DocumentPdfContent(controller, state)
+                            DocumentPreviewKind.OTHER -> Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                Text("文件详情", style = MaterialTheme.typography.titleMedium)
+                                SelectionContainer { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Text(file.name, style = MaterialTheme.typography.bodyLarge)
+                                    Text(file.path, style = MaterialTheme.typography.bodyMedium)
+                                    Text("${fileTypeLabel(file)} · ${readableSize(file.size)}", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(displayModified(file.modified) ?: "未提供修改时间", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                } }
+                                Text("此类型暂不支持内置阅读，可下载后使用系统应用打开。", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                FilewayButton({ onDownload(file) }, enabled = canDownload) { Text("下载文件") }
+                            }
+                        }
+                    }
                 }
             }
         }

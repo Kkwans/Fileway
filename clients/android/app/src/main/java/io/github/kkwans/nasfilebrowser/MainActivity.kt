@@ -28,6 +28,11 @@ import io.github.kkwans.nasfilebrowser.app.mediaKey
 import io.github.kkwans.nasfilebrowser.ui.ClientApp
 import io.github.kkwans.nasfilebrowser.ui.ClientTheme
 import io.github.kkwans.nasfilebrowser.ui.LocalFilewayDarkCanvasOwner
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayDetailFullscreenOwner
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayWindowLayout
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalTabletLayoutConfig
+import io.github.kkwans.nasfilebrowser.ui.adaptive.TabletLayoutPreferences
+import io.github.kkwans.nasfilebrowser.ui.adaptive.rememberFilewayWindowLayout
 
 class MainActivity : ComponentActivity() {
     private val model: ClientModel by viewModels()
@@ -46,6 +51,8 @@ class MainActivity : ComponentActivity() {
         setContent {
             val appearance by model.appearance.state.collectAsStateWithLifecycle()
             val client by model.state.collectAsStateWithLifecycle()
+            val windowLayout = rememberFilewayWindowLayout()
+            val tabletConfig by TabletLayoutPreferences.observe(applicationContext).collectAsStateWithLifecycle()
             // Local viewers need dark bars without turning their parent page dark.
             // Owner tokens also make nested/overlapping lifetimes safe on disposal.
             val darkCanvasOwners = remember { mutableStateMapOf<Any, Unit>() }
@@ -55,15 +62,27 @@ class MainActivity : ComponentActivity() {
                     Unit
                 }
             }
+            val detailFullscreenOwners = remember { mutableStateMapOf<Any, Unit>() }
+            val registerDetailFullscreen = remember {
+                { owner: Any, active: Boolean ->
+                    if (active) detailFullscreenOwners[owner] = Unit else detailFullscreenOwners.remove(owner)
+                    Unit
+                }
+            }
             val darkCanvas = darkCanvasOwners.isNotEmpty()
+            val detailFullscreen = detailFullscreenOwners.isNotEmpty()
             val dark = when (appearance.theme) {
                 AppTheme.SYSTEM -> isSystemInDarkTheme()
                 AppTheme.LIGHT -> false
                 AppTheme.DARK -> true
             }
+            // In tablet dual-pane mode, embedded media viewers sit inside the right pane;
+            // only fullscreen immersive viewers should flip the global system bars to dark.
+            val viewerOwnsGlobalBars = (!tabletConfig.useWorkspaceDualPane(windowLayout) || detailFullscreen) &&
+                (client.selected != null || client.image != null)
             // Read media state during composition, not only inside an effect;
             // otherwise entering the viewer does not invalidate this scope.
-            val lightBars = !dark && client.selected == null && client.image == null && !darkCanvas
+            val lightBars = !dark && !viewerOwnsGlobalBars && !darkCanvas
             DisposableEffect(lightBars) {
                 val style = if (lightBars) SystemBarStyle.light(Color.TRANSPARENT, Color.TRANSPARENT)
                     else SystemBarStyle.dark(Color.TRANSPARENT)
@@ -77,13 +96,19 @@ class MainActivity : ComponentActivity() {
                 onDispose { }
             }
             androidx.compose.runtime.SideEffect {
-                if (client.selected == null && client.image == null && !darkCanvas) {
+                if (!viewerOwnsGlobalBars && !darkCanvas) {
                     val bars = WindowCompat.getInsetsController(window, window.decorView)
                     bars.isAppearanceLightStatusBars = !dark
                     bars.isAppearanceLightNavigationBars = !dark
                 }
             }
-            CompositionLocalProvider(LocalFilewayDarkCanvasOwner provides registerDarkCanvas, LocalPlayerPictureInPicture provides pictureInPicture) {
+            CompositionLocalProvider(
+                LocalFilewayWindowLayout provides windowLayout,
+                LocalTabletLayoutConfig provides tabletConfig,
+                LocalFilewayDarkCanvasOwner provides registerDarkCanvas,
+                LocalFilewayDetailFullscreenOwner provides registerDetailFullscreen,
+                LocalPlayerPictureInPicture provides pictureInPicture,
+            ) {
                 ClientTheme(darkTheme = dark) {
                     androidx.compose.material3.Surface(androidx.compose.ui.Modifier.fillMaxSize(), color = androidx.compose.material3.MaterialTheme.colorScheme.background) {
                         io.github.kkwans.nasfilebrowser.ui.FilewayTvHost(model) { ClientApp(model) }

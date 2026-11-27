@@ -27,6 +27,10 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.app.*
 import io.github.kkwans.nasfilebrowser.data.*
+import io.github.kkwans.nasfilebrowser.ui.adaptive.FilewaySplitWorkspace
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayWindowLayout
+import io.github.kkwans.nasfilebrowser.ui.adaptive.SplitPaneSpec
+import io.github.kkwans.nasfilebrowser.ui.adaptive.rememberFilewaySplitWorkspaceState
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMenuItem
 import java.time.Instant
 import java.time.ZoneId
@@ -69,8 +73,11 @@ internal fun serverTime(value: Long): String = if (value <= 0) "未提供" else 
             FilewayIcon(R.drawable.ic_refresh, "批量重试", Modifier.size(24.dp))
         }
     }
+    val windowLayout = LocalFilewayWindowLayout.current
+    val useDual = io.github.kkwans.nasfilebrowser.ui.adaptive.LocalTabletLayoutConfig.current.useWorkspaceDualPane(windowLayout)
     LaunchedEffect(list, state.scope) { snapshotFlow { list.layoutInfo.visibleItemsInfo.mapNotNull { it.key as? String }.toSet() }.collect(model.tasks::watch) }
-    FilewayRefresh(state.loading, { model.tasks.refresh() }) {
+    @Composable fun ServerTasksListPane(modifier: Modifier) {
+    FilewayRefresh(state.loading, { model.tasks.refresh() }, modifier) {
 Column(Modifier.fillMaxSize()) {
         if (selection.active) FilewayTaskSelectionBar(selection, enabled, {
             if (selection.ids.size == state.total) selection.select(emptyList()) else model.tasks.selectAll { selection.select(it) }
@@ -130,7 +137,7 @@ Column(Modifier.fillMaxSize()) {
                     },
                     onDoubleClick = if (!selection.active && task.status == "completed" && task.outputPath.startsWith('/')) ({ model.openRemotePath(task.outputPath) }) else null,
                     onClick = { if (selection.active) selection.toggle(task.id) else model.tasks.select(task.id) },
-                    onLongClick = { if (enabled) selection.start(task.id) }, selected = task.id in selection.ids,
+                    onLongClick = { if (enabled) selection.start(task.id) }, selected = task.id in selection.ids || (useDual && state.focusId == task.id),
                 ) {
                     if (task.active || task.status != "completed" && (task.processedItems > 0 || task.processedBytes > 0 || task.processedSeconds > 0)) TaskProgress(task)
                     task.error.takeIf { it.isNotEmpty() && !(task.status == "canceled" && it in setOf("任务已取消", "task canceled", "context canceled")) }?.let {
@@ -143,13 +150,97 @@ Column(Modifier.fillMaxSize()) {
         }
     }
 }
+    }
+    if (useDual) {
+        val splitState = rememberFilewaySplitWorkspaceState(
+            sceneKey = "tasks_server",
+            spec = SplitPaneSpec(defaultRatio = 0.44f, minLeftDp = 320f, minRightDp = 360f),
+        )
+        FilewaySplitWorkspace(
+            state = splitState,
+            modifier = Modifier.fillMaxSize(),
+            listPane = { ServerTasksListPane(Modifier.fillMaxSize()) },
+            detailPane = {
+                if (state.focusId != null) {
+                    val task = state.selected
+                    val detailEnabled = enabled && !state.detailLoading && state.detailError == null
+                    val buttons = buildList {
+                        if (task != null) {
+                            if (task.type in setOf("analysis.storage", "analysis.duplicates")) add(FilewayMenuEntry("report", if (task.status == "completed") "分析报告" else "分析进度", R.drawable.ic_storage, enabled = !client.busy))
+                            if (task.status == "completed" && task.outputPath.startsWith('/')) add(FilewayMenuEntry("output", "打开输出", R.drawable.ic_visibility, enabled = !client.busy))
+                            if (task.active) add(FilewayMenuEntry("cancel", if (task.pendingDeletion) "撤销删除" else "停止任务", R.drawable.ic_close, enabled = detailEnabled && model.tasks.canEdit(task)))
+                            if (task.canRetry) add(FilewayMenuEntry("retry", "重试", R.drawable.ic_refresh, enabled = detailEnabled && model.tasks.canEdit(task)))
+                            if (task.canArchive) add(FilewayMenuEntry("archive", "删除记录", R.drawable.ic_trash, enabled = detailEnabled && model.tasks.canEdit(task), destructive = true))
+                            if (task.archivedAt > 0) add(FilewayMenuEntry("unarchive", "恢复记录", R.drawable.ic_restore, enabled = detailEnabled && model.tasks.canEdit(task)))
+                        }
+                    }
+                    Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.TopCenter) {
+                        Column(Modifier.widthIn(max = 620.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("任务详情", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                                FilewayIconButton(model::closeTaskDetail) { FilewayIcon(R.drawable.ic_close, "关闭任务详情") }
+                            }
+                            HorizontalDivider()
+                            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                                state.detailError?.let { Text(it, color = MaterialTheme.colorScheme.error); FilewayOutlinedButton({ state.focusId?.let(model.tasks::select) }) { Text("重新读取") } }
+                                if (task == null) {
+                                    Text(if (state.detailLoading) "读取中…" else "暂时无法读取", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                                task?.let {
+                                    Text(task.title.ifEmpty { task.typeLabel }, style = MaterialTheme.typography.titleMedium)
+                                    Text("${task.typeLabel} · ${task.statusLabel}", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    if (task.active) TaskProgress(task)
+                                    if (task.sourcePath.isNotEmpty()) FileOperationLocation("来源", task.sourcePath, showBasename = false)
+                                    if (task.outputPath.isNotEmpty()) FileOperationLocation("输出", task.outputPath, showBasename = false)
+                                    if (task.error.isNotEmpty()) Text(task.error, color = MaterialTheme.colorScheme.error)
+                                    HorizontalDivider()
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                        DetailMetadata("创建时间", taskTimestamp(task.createdAt), Modifier.weight(1f))
+                                        DetailMetadata(if (task.finishedAt > 0) "结束时间" else "开始时间", taskTimestamp(if (task.finishedAt > 0) task.finishedAt else task.startedAt), Modifier.weight(1f))
+                                    }
+                                    if (task.totalBytes > 0 || task.totalItems > 0) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                        if (task.totalBytes > 0) DetailMetadata("处理大小", "${readableSize(task.processedBytes)} / ${readableSize(task.totalBytes)}", Modifier.weight(1f))
+                                        if (task.totalItems > 0) DetailMetadata("处理项目", "${task.processedItems} / ${task.totalItems}", Modifier.weight(1f))
+                                    }
+                                    if (!task.active && task.duration > 0) DetailMetadata("处理时长", "${clock((task.processedSeconds * 1000).toLong())} / ${clock((task.duration * 1000).toLong())}")
+                                    FilewayTextButton({ technicalDetails = !technicalDetails }) {
+                                        FilewayIcon(R.drawable.ic_info, null, Modifier.size(20.dp)); Spacer(Modifier.width(8.dp)); Text(if (technicalDetails) "收起技术信息" else "技术信息")
+                                    }
+                                    if (technicalDetails) SelectionContainer { Text("任务 ID：${task.id}\n创建：${taskTimestamp(task.createdAt)}\n开始：${taskTimestamp(task.startedAt)}\n结束：${taskTimestamp(task.finishedAt)}", style = MaterialTheme.typography.bodySmall) }
+                                }
+                            }
+                            if (buttons.isNotEmpty()) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilewaySheetActions(buttons) { action -> if (task != null) when (action) {
+                                    "report" -> { model.tasks.closeDetail(); model.showAnalysis(task.id, task.type) }
+                                    "output" -> { model.tasks.closeDetail(); model.openRemotePath(task.outputPath) }
+                                    "archive", "unarchive" -> { model.tasks.action(task, action); model.tasks.closeDetail() }
+                                    "cancel" -> if (task.pendingDeletion) model.tasks.action(task, "cancel") else confirmAction(task, action)
+                                    else -> confirmAction(task, action)
+                                } }
+                            }
+                        }
+                    }
+                } else {
+                    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            FilewayIcon(R.drawable.ic_tasks, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.primary)
+                            Text("后台任务共 ${state.total} 项", style = MaterialTheme.typography.titleMedium)
+                            Text("点选左侧任务即可查看实时进度、输入输出路径、日志与控制操作。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            },
+        )
+    } else {
+        ServerTasksListPane(Modifier.fillMaxSize())
+    }
 
     if (deleteSelection) FilewayAlertDialog(onDismissRequest = { deleteSelection = false }, title = { Text("删除当前列表的全部已结束记录？") },
         text = { Text("将删除 ${chosen.size} 条任务记录，文件和运行结果保留。记录可从“已删除”中恢复。") },
         confirmButton = { FilewayButton({ model.tasks.actionSelected(selection.ids, "archive"); deleteSelection = false }, enabled = enabled) { Text("删除记录") } },
         dismissButton = { FilewayOutlinedButton({ deleteSelection = false }) { Text("取消") } })
     if (advanced) TaskFilterSheet(state, client.accountName, { model.tasks.filter(it); search = it.text; advanced = false }) { advanced = false }
-    if (state.focusId != null && LocalFilewayPageActive.current) {
+    if (!useDual && state.focusId != null && LocalFilewayPageActive.current) {
         val task = state.selected
         val detailEnabled = enabled && !state.detailLoading && state.detailError == null
         val buttons = buildList {

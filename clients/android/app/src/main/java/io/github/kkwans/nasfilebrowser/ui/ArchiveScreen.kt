@@ -17,7 +17,8 @@ import io.github.kkwans.nasfilebrowser.data.*
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 
 @Composable internal fun ArchiveScreen(controller: ArchiveController, onBack: () -> Unit, onOpenTasks: () -> Unit,
-    onOpenDirectory: (DirectoryCrumb) -> Unit, onOpenEntry: ((ArchiveEntry) -> Unit)? = null) {
+    onOpenDirectory: (DirectoryCrumb) -> Unit, onOpenEntry: ((ArchiveEntry) -> Unit)? = null,
+    embedded: Boolean = false, onToggleFullscreen: (() -> Unit)? = null, onExpandLeftPane: (() -> Unit)? = null) {
     val state by controller.state.collectAsStateWithLifecycle()
     val listing = state.listing
     val displayPrefix = remember(listing, state.prefix) {
@@ -46,17 +47,37 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
             else -> onBack()
         }
     }
-    BackHandler { back() }
+    BackHandler(enabled = !embedded || selecting || state.query.isNotEmpty() || state.prefix.isNotEmpty()) { back() }
     fun extract(entry: ArchiveEntry? = null) {
         controller.clearSelection()
         if (entry != null) controller.toggle(entry)
         else if (state.query.isNotBlank()) controller.selectRows() else controller.selectDirectory()
         if (controller.state.value.selected.isNotEmpty()) review = true
     }
+    val topInsetSides = if (embedded) WindowInsetsSides.Top + WindowInsetsSides.End else WindowInsetsSides.Top + WindowInsetsSides.Horizontal
+    val bottomInsetSides = if (embedded) WindowInsetsSides.Bottom + WindowInsetsSides.End else WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal
     Scaffold(containerColor = MaterialTheme.colorScheme.background, topBar = {
-        Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))) {
-            FilewayTopAppBar(state.file?.name ?: "压缩包浏览", listing?.let { "${it.format.uppercase()} · ${it.entries.size} 项 · ${readableSize(it.sourceSize)}" },
-                R.drawable.ic_arrow_back, "返回文件", ::back, actions = {
+        Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.safeDrawing.only(topInsetSides))) {
+            FilewayTopAppBar(
+                state.file?.name ?: "压缩包浏览",
+                listing?.let { "${it.format.uppercase()} · ${it.entries.size} 项 · ${readableSize(it.sourceSize)}" },
+                if (onExpandLeftPane != null && state.prefix.isEmpty()) R.drawable.ic_menu
+                else if (embedded && state.prefix.isEmpty() && !selecting && state.query.isEmpty()) R.drawable.ic_close
+                else R.drawable.ic_arrow_back,
+                if (onExpandLeftPane != null && state.prefix.isEmpty()) "展开文件列表" else "返回文件",
+                if (onExpandLeftPane != null && state.prefix.isEmpty()) onExpandLeftPane else ::back,
+                actions = {
+                    if (onToggleFullscreen != null) {
+                        FilewayIconButton(onToggleFullscreen) {
+                            FilewayIcon(
+                                if (embedded) R.drawable.art_fullscreen_on else R.drawable.art_fullscreen_off,
+                                if (embedded) "全屏浏览压缩包" else "退出全屏浏览",
+                            )
+                        }
+                    }
+                    if (onExpandLeftPane != null && state.prefix.isEmpty()) {
+                        FilewayIconButton(::back) { FilewayIcon(R.drawable.ic_close, "关闭压缩包") }
+                    }
                 FilewayIconButton(controller::refresh, enabled = !busy && state.task?.active != true && !state.reportLoading) {
                     FilewayIcon(R.drawable.ic_refresh, "刷新压缩包")
                 }
@@ -75,7 +96,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
         }
     }, bottomBar = {
         if (listing != null) Surface(color = MaterialTheme.colorScheme.background) {
-            Column(Modifier.fillMaxWidth().imePadding().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))) {
+            Column(Modifier.fillMaxWidth().imePadding().windowInsetsPadding(WindowInsets.safeDrawing.only(bottomInsetSides))) {
                 if (selecting) {
                     Row(Modifier.fillMaxWidth().padding(start = 16.dp, end = 4.dp), verticalAlignment = Alignment.CenterVertically) {
                         Text("已选 ${state.selectedEntries.size} 项", Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)

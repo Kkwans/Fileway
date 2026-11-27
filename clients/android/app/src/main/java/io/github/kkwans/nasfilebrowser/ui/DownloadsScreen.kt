@@ -31,6 +31,10 @@ import io.github.kkwans.nasfilebrowser.app.*
 import io.github.kkwans.nasfilebrowser.download.*
 import io.github.kkwans.nasfilebrowser.data.DocumentPreviewKind
 import io.github.kkwans.nasfilebrowser.data.documentPreviewKind
+import io.github.kkwans.nasfilebrowser.ui.adaptive.FilewaySplitWorkspace
+import io.github.kkwans.nasfilebrowser.ui.adaptive.LocalFilewayWindowLayout
+import io.github.kkwans.nasfilebrowser.ui.adaptive.SplitPaneSpec
+import io.github.kkwans.nasfilebrowser.ui.adaptive.rememberFilewaySplitWorkspaceState
 import java.util.Locale
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -105,10 +109,13 @@ import kotlinx.coroutines.withContext
     val selection = rememberFilewayTaskSelection("downloads" to filter, records.map { it.id })
     val chosen = records.filter { it.id in selection.ids }
     var clearSelected by remember(filter) { mutableStateOf(false) }
+    val windowLayout = LocalFilewayWindowLayout.current
+    val useDual = io.github.kkwans.nasfilebrowser.ui.adaptive.LocalTabletLayoutConfig.current.useWorkspaceDualPane(windowLayout)
     TaskCenterHeaderActions {
         FilewaySelectionToggle(selection, "多选下载", !state.busy && records.isNotEmpty())
     }
-    FilewayRefresh(false, model.downloads::refresh) {
+    @Composable fun DownloadsListPane(modifier: Modifier) {
+    FilewayRefresh(false, model.downloads::refresh, modifier) {
 Column(Modifier.fillMaxSize()) {
         if (selection.active) FilewayTaskSelectionBar(selection, !state.busy, {
             selection.select(if (selection.ids.size == records.size) emptyList() else records.map { it.id })
@@ -168,7 +175,7 @@ Column(Modifier.fillMaxSize()) {
                     },
                     onDoubleClick = if (!selection.active && canOpen) ({ openDownloaded(context, model, item, kind) }) else null,
                     onClick = { if (selection.active) selection.toggle(item.id) else detailsId = item.id },
-                    onLongClick = { if (!state.busy) selection.start(item.id) }, selected = item.id in selection.ids,
+                    onLongClick = { if (!state.busy) selection.start(item.id) }, selected = item.id in selection.ids || (useDual && detailsId == item.id),
                     meta = {
                         TransferListMeta(item.createdAt, item.activeMillis, item.timingComplete,
                             item.status in setOf("running", "paused"), item.expectedSize)
@@ -188,8 +195,69 @@ Column(Modifier.fillMaxSize()) {
         }
     }
 }
+    }
+    if (useDual) {
+        val splitState = rememberFilewaySplitWorkspaceState(
+            sceneKey = "tasks_downloads",
+            spec = SplitPaneSpec(defaultRatio = 0.44f, minLeftDp = 320f, minRightDp = 360f),
+        )
+        FilewaySplitWorkspace(
+            state = splitState,
+            modifier = Modifier.fillMaxSize(),
+            listPane = { DownloadsListPane(Modifier.fillMaxSize()) },
+            detailPane = {
+                val activeItem = state.items.firstOrNull { it.id == detailsId }
+                if (activeItem != null) {
+                    val footer = actionsFor(activeItem).filter { it.key in setOf("toggle", "open", "folder", "delete") }.map {
+                        FilewayMenuEntry(it.key, when (it.key) { "folder" -> "所在目录"; "delete" -> "删除"; else -> it.label }, it.icon,
+                            enabled = it.enabled, destructive = it.key == "delete", accessibilityLabel = it.label)
+                    }
+                    Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.TopCenter) {
+                        Column(Modifier.widthIn(max = 600.dp).fillMaxSize(), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("下载任务详情", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge)
+                                FilewayIconButton({ detailsId = null }) { FilewayIcon(R.drawable.ic_close, "关闭详情") }
+                            }
+                            HorizontalDivider()
+                            Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                SelectionContainer {
+                                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(activeItem.name, style = MaterialTheme.typography.titleMedium)
+                                        Text("创建：${serverTime(activeItem.createdAt)}", style = MaterialTheme.typography.bodySmall)
+                                        Text("更新：${serverTime(activeItem.updatedAt)}", style = MaterialTheme.typography.bodySmall)
+                                        if (activeItem.timingComplete || activeItem.activeMillis > 0) Text(transferSummary(activeItem.downloaded, activeItem.activeMillis, activeItem.timingComplete), style = MaterialTheme.typography.bodySmall)
+                                        if (!activeItem.timingComplete) Text("旧任务仅累计升级后的运行时间，暂停与离线时间不计入。", style = MaterialTheme.typography.bodySmall)
+                                        Text("服务器原位置：${activeItem.path}", style = MaterialTheme.typography.bodySmall)
+                                        if (activeItem.relativeDirectory.isNotEmpty()) Text("本机子目录：${activeItem.relativeDirectory}", style = MaterialTheme.typography.bodySmall)
+                                        Text(if (activeItem.zipExport && !activeItem.complete) "已接收 ${readableSize(activeItem.downloaded)} · ZIP 总量待生成" else "${readableSize(activeItem.downloaded)} / ${readableSize(activeItem.expectedSize)}", style = MaterialTheme.typography.bodySmall)
+                                        if (activeItem.zipExport && !activeItem.complete) Text("ZIP总大小生成中；恢复时从零重新打包，旧的未完成输出会被截断。", style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        if (activeItem.error.isNotEmpty()) Text(activeItem.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                                        state.error?.takeIf { it != activeItem.error }?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
+                                    }
+                                }
+                            }
+                            if (footer.isNotEmpty()) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                FilewaySheetActions(footer) { action -> perform(activeItem, action) }
+                            }
+                        }
+                    }
+                } else {
+                    Box(Modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            FilewayIcon(R.drawable.ic_download, null, Modifier.size(36.dp), tint = MaterialTheme.colorScheme.primary)
+                            Text("下载记录共 ${records.size} 项", style = MaterialTheme.typography.titleMedium)
+                            Text("点击左侧下载任务即可查看实时进度、本机目录与离线打开入口。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            },
+        )
+    } else {
+        DownloadsListPane(Modifier.fillMaxSize())
+    }
 
-    state.items.firstOrNull { it.id == detailsId }?.let { item ->
+    if (!useDual) state.items.firstOrNull { it.id == detailsId }?.let { item ->
         val footer = actionsFor(item).filter { it.key in setOf("toggle", "open", "folder", "delete") }.map {
             FilewayMenuEntry(it.key, when (it.key) { "folder" -> "所在目录"; "delete" -> "删除"; else -> it.label }, it.icon,
                 enabled = it.enabled, destructive = it.key == "delete", accessibilityLabel = it.label)

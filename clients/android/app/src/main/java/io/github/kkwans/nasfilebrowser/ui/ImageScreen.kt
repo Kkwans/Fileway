@@ -52,15 +52,43 @@ import me.saket.telephoto.zoomable.rememberZoomableState
 import me.saket.telephoto.zoomable.coil3.ZoomableAsyncImage
 import kotlin.math.abs
 
-@Composable internal fun ImageScreen(model: ClientModel, file: ResourceRef) {
+@Composable internal fun ImageScreen(
+    model: ClientModel,
+    file: ResourceRef,
+    embedded: Boolean = false,
+    onToggleFullscreen: (() -> Unit)? = null,
+    onExpandLeftPane: (() -> Unit)? = null,
+) {
+    val hostBackground = MaterialTheme.colorScheme.background
     FilewayTheme(darkTheme = true) {
-        Surface(Modifier.fillMaxSize(), color = Color.Black, contentColor = FilewayTheme.status.mediaContent) {
-            ImageViewerContent(model, file)
+        Box(
+            Modifier
+                .fillMaxSize()
+                .then(
+                    if (embedded) {
+                        Modifier
+                            .background(hostBackground)
+                            .statusBarsPadding()
+                            .consumeWindowInsets(WindowInsets.statusBars)
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
+            Surface(Modifier.fillMaxSize(), color = Color.Black, contentColor = FilewayTheme.status.mediaContent) {
+                ImageViewerContent(model, file, embedded, onToggleFullscreen, onExpandLeftPane)
+            }
         }
     }
 }
 
-@Composable private fun ImageViewerContent(model: ClientModel, file: ResourceRef) {
+@Composable private fun ImageViewerContent(
+    model: ClientModel,
+    file: ResourceRef,
+    embedded: Boolean,
+    onToggleFullscreen: (() -> Unit)?,
+    onExpandLeftPane: (() -> Unit)?,
+) {
     val media = FilewayTheme.status
     val client by model.state.collectAsStateWithLifecycle()
     val queue = client.mediaQueue
@@ -94,9 +122,30 @@ import kotlin.math.abs
                 }
                 if (chrome) {
                     Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Color.Black.copy(alpha = .55f)), verticalAlignment = Alignment.CenterVertically) {
-                        FilewayIconButton(onClick = model::closeImage) { FilewayIcon(R.drawable.ic_arrow_back, "返回文件", tint = Color.White) }
+                        if (onExpandLeftPane != null) {
+                            FilewayIconButton(onClick = onExpandLeftPane) { FilewayIcon(R.drawable.ic_menu, "展开文件列表", tint = Color.White) }
+                        }
+                        FilewayIconButton(onClick = {
+                            if (!embedded && onToggleFullscreen != null) onToggleFullscreen()
+                            else model.closeImage()
+                        }) {
+                            FilewayIcon(
+                                if (embedded) R.drawable.ic_close else R.drawable.ic_arrow_back,
+                                if (!embedded && onToggleFullscreen != null) "退出全屏" else if (embedded) "关闭图片预览" else "返回文件",
+                                tint = Color.White,
+                            )
+                        }
                         Text(current.name, Modifier.weight(1f), color = Color.White, style = MaterialTheme.typography.titleMedium,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        if (onToggleFullscreen != null) {
+                            FilewayIconButton(onClick = onToggleFullscreen) {
+                                FilewayIcon(
+                                    if (embedded) R.drawable.art_fullscreen_on else R.drawable.art_fullscreen_off,
+                                    if (embedded) "全屏查看图片" else "退出全屏",
+                                    tint = Color.White,
+                                )
+                            }
+                        }
                         TvHandoffIcon(current,client.previewScope,tint=Color.White)
                         FilewayIconButton({ details = current }) { FilewayIcon(R.drawable.ic_info, "图片详情", tint = Color.White) }
                         if (!model.isTemporaryContent(current)) FilewayIconButton({ saving = true; scope.launch {
