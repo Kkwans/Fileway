@@ -151,6 +151,35 @@ private fun PhoneMediaScanProgress(repository: MediaLibraryRepository, libraryId
         scan?.let { entry -> item {
             MediaSettingsGroup(if (entry.status == MediaScanStatus.COMPLETED) "目录扫描结果" else "目录扫描") {
                 ScanProgressText(directoryStatus(entry.status), "已处理 ${entry.processed} 项")
+                mediaDirectoryScanAction(entry.status)?.let { action ->
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                        TextButton(onClick = {
+                            changing = true
+                            scope.launch {
+                                val operation = repository.newOperation()
+                                try {
+                                    val result = if (action == MediaDirectoryScanAction.CANCEL) {
+                                        repository.cancelScan(operation, libraryId, scanId, entry.generation)
+                                    } else repository.retryScan(operation, libraryId, scanId, entry.generation)
+                                    when (result) {
+                                        is MediaWriteResult.Success -> if (result.scope == repository.scope) {
+                                            repository.forgetResolvedOperation(operation)
+                                            refresh++
+                                        }
+                                        is MediaWriteResult.Failure -> if (result.scope == repository.scope) {
+                                            if (!result.error.mutationMayHaveCommitted) repository.forgetResolvedOperation(operation)
+                                            problem = if (result.error.mutationMayHaveCommitted) "操作结果请以刷新后的状态为准。"
+                                                else providerProblem(result.error)
+                                        }
+                                    }
+                                } finally { changing = false }
+                            }
+                        }, enabled = !changing && !busy, modifier = Modifier.heightIn(min = 48.dp)) {
+                            Text(if (changing) "正在处理…" else if (action == MediaDirectoryScanAction.CANCEL) "取消扫描" else "重试扫描",
+                                style = PhoneMediaType.action)
+                        }
+                    }
+                }
                 if (entry.status == MediaScanStatus.COMPLETED) {
                     MediaSettingsAction("浏览已收录影片", "返回媒体库并筛选当前媒体库", R.drawable.ic_library, action = onBrowse)
                 }
@@ -220,6 +249,14 @@ private fun ScanProgressText(title: String, details: String) {
         Text(title, style = PhoneMediaType.itemTitle)
         Text(details, style = PhoneMediaType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+}
+
+internal enum class MediaDirectoryScanAction { CANCEL, RETRY }
+
+internal fun mediaDirectoryScanAction(status: MediaScanStatus): MediaDirectoryScanAction? = when (status) {
+    MediaScanStatus.QUEUED, MediaScanStatus.RUNNING -> MediaDirectoryScanAction.CANCEL
+    MediaScanStatus.FAILED, MediaScanStatus.CANCELED, MediaScanStatus.INTERRUPTED -> MediaDirectoryScanAction.RETRY
+    else -> null
 }
 
 private val activeScanStates = setOf(MediaScanStatus.QUEUED, MediaScanStatus.RUNNING, MediaScanStatus.INTERRUPTED)
