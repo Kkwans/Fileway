@@ -2,6 +2,7 @@ package io.github.kkwans.nasfilebrowser.ui.medialibrary
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,6 +15,7 @@ import androidx.compose.runtime.saveable.listSaver
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -559,10 +561,12 @@ import kotlin.coroutines.coroutineContext
                             FilewayEmptyState(R.drawable.ic_library, "还没有媒体库", "创建媒体库后再选择已有影视目录。")
                         }
                         items(libraries, key = { it.id }) { library ->
-                            Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
-                                MediaSettingsAction(library.name, "${mediaLibraryKindLabel(library.contentKind)} · ${if (library.role == MediaLibraryRole.OWNER) "管理目录与资料" else "共享媒体库"}",
-                                    R.drawable.ic_library, enabled = !busy) { selectedId = library.id; selected = null; screen = "library"; notice = null }
-                            }
+                            MediaLibraryRow(library, enabled = !busy,
+                                onOpen = { selectedId = library.id; selected = null; screen = "library"; notice = null },
+                                onHistory = {
+                                    selectedId = library.id; selected = null; historyScanId = null
+                                    historyReviewOpen = false; screen = "history"; notice = null
+                                })
                         }
                         if (libraryCursor != null && !loading && !paging) item(key = "more-libraries") {
                             TextButton(onClick = {
@@ -873,6 +877,30 @@ import kotlin.coroutines.coroutineContext
 }
 
 @Composable
+private fun MediaLibraryRow(library: MediaLibrarySummary, enabled: Boolean, onOpen: () -> Unit, onHistory: () -> Unit) {
+    val colors = MaterialTheme.colorScheme
+    Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = colors.surface) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 88.dp).padding(start = 16.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.size(42.dp).background(colors.primaryContainer, MaterialTheme.shapes.small),
+                contentAlignment = Alignment.Center) {
+                FilewayIcon(R.drawable.ic_library, null, Modifier.size(21.dp), tint = colors.onPrimaryContainer)
+            }
+            Column(Modifier.weight(1f).clickable(enabled = enabled, role = Role.Button, onClick = onOpen).padding(vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(library.name, style = PhoneMediaType.body, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(mediaLibraryRowSubtitle(library), style = PhoneMediaType.secondary,
+                    color = colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            TextButton(onClick = onHistory, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text("扫描记录", style = PhoneMediaType.action)
+            }
+        }
+    }
+}
+
+@Composable
 private fun MediaScanSummaryCard(scan: MediaScan, metadata: MediaMetadataJob?, onOpen: () -> Unit, onReview: () -> Unit,
     onCancel: () -> Unit, onRetry: () -> Unit, enabled: Boolean) {
     Surface(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surface) {
@@ -936,6 +964,9 @@ private fun mediaLibraryKindLabel(kind: MediaLibraryKind): String = when (kind) 
     MediaLibraryKind.MIXED -> "混合"
     MediaLibraryKind.UNKNOWN -> "类型未知"
 }
+
+internal fun mediaLibraryRowSubtitle(library: MediaLibrarySummary): String =
+    "${mediaLibraryKindLabel(library.contentKind)} · ${if (library.role == MediaLibraryRole.OWNER) "管理目录与资料" else "共享媒体库"}"
 
 private fun metadataPolicySummary(policy: MediaProviderPolicy?): String {
     if (policy == null) return "读取后可配置语言、地区与时长过滤"
