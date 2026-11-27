@@ -34,6 +34,8 @@ import io.github.kkwans.nasfilebrowser.ui.FilewayOutlinedButton
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayEmptyState
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
@@ -96,6 +98,7 @@ import kotlin.coroutines.coroutineContext
         var historyReviewOpen by rememberSaveable { mutableStateOf(false) }
         var attestingSourceId by rememberSaveable { mutableStateOf<String?>(null) }
         var loading by remember { mutableStateOf(false) }
+        var auxiliaryLoading by remember { mutableStateOf(false) }
         var paging by remember { mutableStateOf(false) }
         var busy by remember { mutableStateOf(false) }
         var error by remember { mutableStateOf<String?>(null) }
@@ -154,8 +157,13 @@ import kotlin.coroutines.coroutineContext
             selected?.let { kindDraft = it.contentKind }
         }
         LaunchedEffect(repository, screen, selectedId, refresh) {
-            if (screen != "libraries" && screen != "library") return@LaunchedEffect
+            if (!mediaLibraryShowsCoreLoading(screen)) return@LaunchedEffect
             loading = true; error = null
+            if (screen == "library") {
+                auxiliaryLoading = false
+                policy = null; support = null; scan = null; scanId = null; scanLibrary = null
+                batchIds = arrayListOf(); batchScans = emptyList(); scanMetadata = emptyMap()
+            }
             try {
                 if (screen == "libraries") {
                     when (val result = repository.listLibraries(limit = 30)) {
@@ -175,10 +183,6 @@ import kotlin.coroutines.coroutineContext
                         }
                     }
                     if (selected?.id == id && selected?.role == MediaLibraryRole.OWNER) {
-                        when (val result = repository.metadataPolicy(id)) {
-                            is MediaReadResult.Success -> if (result.scope == repository.scope) policy = result.value
-                            is MediaReadResult.Failure -> if (result.scope == repository.scope) policy = null
-                        }
                         val preparingScan = draftLibraryId == id && setupScanRequested && draftFolders.isEmpty()
                         if (preparingScan) {
                             when (val result = readAllSetupSources(repository, id)) {
@@ -199,17 +203,53 @@ import kotlin.coroutines.coroutineContext
                                 if (draftLibraryId == id) setupPaused = true
                             }
                         }
-                        when (val result = repository.scanSupport()) {
+                    } else { sources = emptyList(); sourceCursor = null; support = null; policy = null }
+                }
+                if (screen == "libraries") {
+                    scan = null; scanId = null; scanLibrary = null; batchIds = arrayListOf(); batchScans = emptyList(); scanMetadata = emptyMap()
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { error = "暂时无法读取媒体库，请检查连接后重试。" }
+            finally { loading = false }
+        }
+
+        LaunchedEffect(repository, screen, selectedId, selected?.id, selected?.role, draftLibraryId, setupScanRequested, refresh) {
+            val library = selected ?: return@LaunchedEffect
+            if (library.id != selectedId || !mediaLibraryNeedsAuxiliaryLoad(screen, library.role)) return@LaunchedEffect
+            val id = library.id
+            auxiliaryLoading = true
+            try {
+                coroutineScope {
+                    val policyResult = async { repository.metadataPolicy(id) }
+                    val supportResult = async { repository.scanSupport() }
+                    val scansResult = async { repository.listScans(id, limit = 10) }
+                    launch {
+                        val result = policyResult.await()
+                        if (!mediaLibraryAuxiliaryResultIsCurrent(selectedId, selected?.id, screen, id)) return@launch
+                        when (result) {
+                            is MediaReadResult.Success -> if (result.scope == repository.scope) policy = result.value
+                            is MediaReadResult.Failure -> if (result.scope == repository.scope) policy = null
+                        }
+                    }
+                    launch {
+                        val result = supportResult.await()
+                        if (!mediaLibraryAuxiliaryResultIsCurrent(selectedId, selected?.id, screen, id)) return@launch
+                        when (result) {
                             is MediaReadResult.Success -> if (result.scope == repository.scope) support = result.value
                             is MediaReadResult.Failure -> if (result.scope == repository.scope) {
                                 support = null
+                                val preparingScan = draftLibraryId == id && setupScanRequested && draftFolders.isEmpty()
                                 if (preparingScan && error == null) {
                                     setupPaused = true
                                     error = "媒体库和文件夹已保存，但无法读取扫描服务状态：${managerFailure(result.error)}"
                                 }
                             }
                         }
-                        when (val result = repository.listScans(id, limit = 10)) {
+                    }
+                    launch {
+                        val result = scansResult.await()
+                        if (!mediaLibraryAuxiliaryResultIsCurrent(selectedId, selected?.id, screen, id)) return@launch
+                        when (result) {
                             is MediaReadResult.Success -> if (result.scope == repository.scope) {
                                 val recent = result.value.items.sortedByDescending { it.updatedAt }
                                 val latest = recent.firstOrNull()
@@ -221,14 +261,11 @@ import kotlin.coroutines.coroutineContext
                             }
                             is MediaReadResult.Failure -> Unit
                         }
-                    } else { sources = emptyList(); sourceCursor = null; support = null; policy = null }
-                }
-                if (screen == "libraries") {
-                    scan = null; scanId = null; scanLibrary = null; batchIds = arrayListOf(); batchScans = emptyList(); scanMetadata = emptyMap()
+                    }
                 }
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { error = "暂时无法读取媒体库，请检查连接后重试。" }
-            finally { loading = false }
+            catch (_: Exception) { if (selectedId == id && error == null) error = "暂时无法读取扫描服务与记录，请稍后重试。" }
+            finally { if (selectedId == id) auxiliaryLoading = false }
         }
 
         val currentDirectory = browseStack.last()
@@ -547,6 +584,7 @@ import kotlin.coroutines.coroutineContext
                 }
                 if (busy) item(key = "busy") { MediaLoading("正在处理，请稍候") }
                 if (loading) item(key = "loading") { MediaLoading("正在读取媒体库") }
+                if (auxiliaryLoading) item(key = "auxiliary-loading") { PhoneDetailLoading("正在读取扫描服务与记录") }
                 when (screen) {
                     "libraries" -> {
                         if (draftLibraryId != null) item(key = "setup-pending") {
@@ -724,7 +762,7 @@ import kotlin.coroutines.coroutineContext
                                             enabled = !busy && pendingId == null && (draftLibraryId == null || setupPaused)) { screen = "policy" }
                                     }
                                 }
-                                if (!loading && support?.available != true) item(key = "scan-unavailable") {
+                                if (!loading && !auxiliaryLoading && support?.available != true) item(key = "scan-unavailable") {
                                     Column {
                                         Text(if (support == null) "无法确认扫描服务状态，请重新检查。" else "扫描服务暂不可用，添加来源后可稍后再试。", style = PhoneMediaType.secondary,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1028,6 +1066,14 @@ private val mediaFolderSaver = listSaver<List<ResourceRef>, String>(
     save = { folders -> folders.flatMap { listOf(it.path, it.wirePath, it.name) } },
     restore = { saved -> saved.chunked(3).map { ResourceRef(it[0], it[1], it[2], true, "", 0) } },
 )
+
+internal fun mediaLibraryShowsCoreLoading(screen: String): Boolean = screen == "libraries" || screen == "library"
+
+internal fun mediaLibraryNeedsAuxiliaryLoad(screen: String, role: MediaLibraryRole?): Boolean =
+    screen == "library" && role == MediaLibraryRole.OWNER
+
+internal fun mediaLibraryAuxiliaryResultIsCurrent(selectedId: String?, selectedLibraryId: String?, screen: String, loadId: String): Boolean =
+    selectedId == loadId && selectedLibraryId == loadId && screen == "library"
 
 private fun managerFailure(error: MediaFailure): String = when (error.kind) {
     MediaFailureKind.AUTHENTICATION -> "登录状态已失效，请重新登录。"
