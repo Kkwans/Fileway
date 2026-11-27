@@ -32,6 +32,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.ImageLoader
 import io.github.kkwans.nasfilebrowser.R
+import io.github.kkwans.nasfilebrowser.data.MediaLibrarySummary
 import io.github.kkwans.nasfilebrowser.ui.FilewayIcon
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayEmptyState
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMenuItem
@@ -50,6 +51,15 @@ internal fun phoneMediaPageForTab(tab: String): PhoneMediaPage = when (tab) {
     "categories" -> PhoneMediaPage.CATEGORIES
     else -> PhoneMediaPage.HOME
 }
+
+internal fun phoneMediaLibraryCatalogTitle(
+    page: PhoneMediaPage,
+    selectedLibraryId: String?,
+    libraries: List<MediaLibrarySummary>,
+    fallback: String,
+): String = if (page == PhoneMediaPage.LIBRARIES) {
+    libraries.firstOrNull { it.id == selectedLibraryId }?.name ?: "全部媒体库"
+} else fallback
 
 internal fun phoneMediaCatalogForPage(entries: List<MediaPoster>, page: PhoneMediaPage, columns: Int = 2): List<MediaPoster> =
     if (page == PhoneMediaPage.HOME) entries.take(columns * PHONE_HOME_PREVIEW_ROWS) else entries
@@ -148,10 +158,16 @@ internal fun phoneMediaCatalogForPage(entries: List<MediaPoster>, page: PhoneMed
                     item(key = "libraries", span = { GridItemSpan(maxLineSpan) }) {
                         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             item { FilterChip(selected = selectedLibrary == null, onClick = { onLibrary(null) },
-                                label = { Text("全部媒体库") }, modifier = Modifier.heightIn(min = 48.dp)) }
+                                label = { Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text("全部媒体库", maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text("全部类型", style = PhoneMediaType.badge)
+                                } }, modifier = Modifier.heightIn(min = 48.dp)) }
                             items(libraries, key = { it.id }) { library ->
                                 FilterChip(selected = selectedLibrary == library.id, onClick = { onLibrary(library.id) },
-                                    label = { Text(library.name) }, modifier = Modifier.heightIn(min = 48.dp))
+                                    label = { Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                        Text(library.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                        Text(mediaLibraryKindLabel(library.contentKind), style = PhoneMediaType.badge)
+                                    } }, modifier = Modifier.heightIn(min = 48.dp))
                             }
                         }
                     }
@@ -171,7 +187,8 @@ internal fun phoneMediaCatalogForPage(entries: List<MediaPoster>, page: PhoneMed
                     val viewAll = page == PhoneMediaPage.HOME &&
                         (state.catalog.entries.size > previewLimit || state.catalog.hasMore)
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        MediaHeading(if (page == PhoneMediaPage.HOME) "最近加入" else state.catalogTitle,
+                        MediaHeading(if (page == PhoneMediaPage.HOME) "最近加入" else
+                            phoneMediaLibraryCatalogTitle(page, selectedLibrary, libraries, state.catalogTitle),
                             actionLabel = if (viewAll) "查看全部" else null,
                             onAction = if (viewAll) ({ onAction(PhoneMediaAction.ViewAllCatalog) }) else null)
                         state.filterSummary?.let { Text(it, style = PhoneMediaType.secondary,

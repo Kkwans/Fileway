@@ -1003,7 +1003,7 @@ private fun MediaScanStat(label: String, value: Long, modifier: Modifier = Modif
     }
 }
 
-private fun mediaLibraryKindLabel(kind: MediaLibraryKind): String = when (kind) {
+internal fun mediaLibraryKindLabel(kind: MediaLibraryKind): String = when (kind) {
     MediaLibraryKind.MOVIE -> "电影"
     MediaLibraryKind.SERIES -> "电视剧"
     MediaLibraryKind.MIXED -> "混合"
