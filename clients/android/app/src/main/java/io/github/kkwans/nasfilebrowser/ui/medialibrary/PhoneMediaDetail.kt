@@ -90,6 +90,51 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
                 state.userStateProblem?.let { issue -> item(key = "user-state-recovery") {
                     MediaProblemCard(issue, { onAction(PhoneMediaAction.Retry("user-state")) }, Modifier.padding(horizontal = inset))
                 } }
+                if (state.collections.isNotEmpty()) item(key = "collections") {
+                    Column(Modifier.padding(horizontal = inset), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        PhoneDetailHeading("合集")
+                        state.collections.forEach { label ->
+                            Text(label, style = PhoneDetailType.body, color = MaterialTheme.colorScheme.onBackground)
+                        }
+                    }
+                }
+                item(key = "overview") {
+                    Column(Modifier.padding(horizontal = inset), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        PhoneDetailHeading("剧情简介")
+                        val overview = state.overview?.takeIf(String::isNotBlank)
+                        var overflows by remember(overview) { mutableStateOf(false) }
+                        Text(overview ?: "暂无简介", style = PhoneDetailType.body,
+                            color = if (overview == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onBackground,
+                            maxLines = if (expanded) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
+                            onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow })
+                        if (overflows || expanded) PhoneDetailAction(if (expanded) "收起简介" else "展开简介",
+                            if (expanded) Art.drawable.fileway_ic_expand_less else Art.drawable.fileway_ic_expand_more,
+                            { expanded = !expanded })
+                    }
+                }
+                item(key = "credits") {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        PhoneDetailHeading("演职人员", Modifier.padding(horizontal = inset)) {
+                            if (state.credits.entries.isNotEmpty()) PhoneDetailAction("全部", Art.drawable.fileway_ic_arrow_forward,
+                                { onAction(PhoneMediaAction.AllCredits(state.id)) })
+                        }
+                        state.credits.problem?.let {
+                            MediaProblemCard(it, { onAction(PhoneMediaAction.Retry("credits")) }, Modifier.padding(horizontal = inset))
+                        }
+                        if (state.credits.loading && state.credits.entries.isEmpty()) {
+                            PhoneDetailLoading("正在加载演职人员", Modifier.padding(horizontal = inset))
+                        }
+                        if (state.credits.entries.isEmpty() && !state.credits.loading && state.credits.problem == null) {
+                            Text("暂无演职员资料", Modifier.padding(horizontal = inset), style = PhoneDetailType.metadata,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        LazyRow(contentPadding = PaddingValues(horizontal = inset), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            items(state.credits.entries, key = { it.id }) { credit -> CreditColumn(credit, imageLoader) {
+                                onAction(PhoneMediaAction.OpenPerson(credit.personId))
+                            } }
+                        }
+                    }
+                }
                 if (state.seasons.isNotEmpty() || state.seasonsLoading || state.seasonsProblem != null ||
                     state.episodes.entries.isNotEmpty() || state.episodes.loading || state.episodes.problem != null) {
                     item(key = "seasons") {
@@ -147,51 +192,6 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
                     }
                     item(key = "episodes-paging") {
                         DetailPaging("episodes", state.episodes.loading, state.episodes.hasMore, onAction, Modifier.padding(horizontal = inset))
-                    }
-                }
-                if (state.collections.isNotEmpty()) item(key = "collections") {
-                    Column(Modifier.padding(horizontal = inset), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        PhoneDetailHeading("合集")
-                        state.collections.forEach { label ->
-                            Text(label, style = PhoneDetailType.body, color = MaterialTheme.colorScheme.onBackground)
-                        }
-                    }
-                }
-                item(key = "overview") {
-                    Column(Modifier.padding(horizontal = inset), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        PhoneDetailHeading("剧情简介")
-                        val overview = state.overview?.takeIf(String::isNotBlank)
-                        var overflows by remember(overview) { mutableStateOf(false) }
-                        Text(overview ?: "暂无简介", style = PhoneDetailType.body,
-                            color = if (overview == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onBackground,
-                            maxLines = if (expanded) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
-                            onTextLayout = { if (!expanded) overflows = it.hasVisualOverflow })
-                        if (overflows || expanded) PhoneDetailAction(if (expanded) "收起简介" else "展开简介",
-                            if (expanded) Art.drawable.fileway_ic_expand_less else Art.drawable.fileway_ic_expand_more,
-                            { expanded = !expanded })
-                    }
-                }
-                item(key = "credits") {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        PhoneDetailHeading("演职人员", Modifier.padding(horizontal = inset)) {
-                            if (state.credits.entries.isNotEmpty()) PhoneDetailAction("全部", Art.drawable.fileway_ic_arrow_forward,
-                                { onAction(PhoneMediaAction.AllCredits(state.id)) })
-                        }
-                        state.credits.problem?.let {
-                            MediaProblemCard(it, { onAction(PhoneMediaAction.Retry("credits")) }, Modifier.padding(horizontal = inset))
-                        }
-                        if (state.credits.loading && state.credits.entries.isEmpty()) {
-                            PhoneDetailLoading("正在加载演职人员", Modifier.padding(horizontal = inset))
-                        }
-                        if (state.credits.entries.isEmpty() && !state.credits.loading && state.credits.problem == null) {
-                            Text("暂无演职员资料", Modifier.padding(horizontal = inset), style = PhoneDetailType.metadata,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        LazyRow(contentPadding = PaddingValues(horizontal = inset), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            items(state.credits.entries, key = { it.id }) { credit -> CreditColumn(credit, imageLoader) {
-                                onAction(PhoneMediaAction.OpenPerson(credit.personId))
-                            } }
-                        }
                     }
                 }
                 state.technical?.let { technical ->
