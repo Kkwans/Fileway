@@ -118,10 +118,13 @@ unsupported.
   for its originating row.
 - `GET /catalog/items` supports optional `libraryId`, `structureKind`
   (`movie`, `series`, `video`), `matchState`, `sort` (`id`, `newest`,
-  `updated`), `limit` (1–100, default 20) and `cursor`. Unsupported filter
-  parameters are rejected instead of silently returning unfiltered results.
-  `updated` is restricted to series. Categories, search, people, collections
-  and cross-library work groups are not implemented by this slice.
+  `updated`), `limit` (1–100, default 20), `cursor`, `q`, `genre`,
+  `country`, `yearFrom` and `yearTo`. Unsupported filter parameters are
+  rejected instead of silently returning unfiltered results. Genre and
+  country use exact normalized matches against authorized metadata; years
+  are inclusive and bounded to 1800–2199. `updated` is restricted to series.
+  Work search uses `q`; file search, people, collections and cross-library
+  work groups are not implemented by this slice.
 
 Pages return `items`, `pageState`, `hasMore`, an opaque `revision`, and a
 `nextCursor` when there is more work. A `partial` page, including an empty

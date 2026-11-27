@@ -7,11 +7,13 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/mediaprovider"
 	"github.com/Kkwans/nas-file-browser/backend/mediascan"
 	"golang.org/x/sync/errgroup"
+	"golang.org/x/text/unicode/norm"
 )
 
 const (
@@ -543,6 +545,7 @@ type catalogCard struct {
 	Revision                 int64                   `json:"revision"`
 	StructureKind            string                  `json:"structureKind"`
 	ContentCategories        []string                `json:"contentCategories"`
+	Countries                []string                `json:"countries"`
 	MatchState               string                  `json:"matchState"`
 	Title                    string                  `json:"title"`
 	OriginalTitle            *string                 `json:"originalTitle"`
@@ -612,6 +615,27 @@ func catalogActions(library *medialibrary.Library, kind string, playable, mediaD
 	return actions, reasons
 }
 
+func catalogFacetValues(field medialibrary.MetadataField) []string {
+	values := make([]string, 0, 8)
+	seen := make(map[string]struct{}, 8)
+	for _, value := range field.Values {
+		value = strings.TrimSpace(value)
+		if value == "" || len(value) > 128 || strings.IndexFunc(value, unicode.IsControl) >= 0 {
+			continue
+		}
+		key := strings.ToLower(norm.NFKC.String(value))
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		values = append(values, value)
+		if len(values) == 32 {
+			break
+		}
+	}
+	return values
+}
+
 func (v *catalogView) projectCard(ctx context.Context, library *medialibrary.Library, c medialibrary.BrowseCandidate, access catalogAccess, fullCounts bool) (catalogCard, error) {
 	detail, err := v.d.store.MediaLibrary.GetItemDetail(ctx, v.d.user.ID, library.ID, c.ID)
 	if err != nil {
@@ -627,7 +651,7 @@ func (v *catalogView) projectCard(ctx context.Context, library *medialibrary.Lib
 	if err != nil {
 		return catalogCard{}, err
 	}
-	card := catalogCard{Ref: catalogRef{library.ID, c.ID}, Revision: c.Revision, StructureKind: c.Kind, ContentCategories: []string{}, MatchState: "unmatched", Title: filtered.Item.Title, DisplayMode: "unmatched", Availability: catalogAvailability(access.sourceState), MetadataState: access.metadataState, FirstAddedAt: c.FirstAddedAt, SeriesUpdatedAt: c.SeriesUpdatedAt, Size: access.size, Extension: access.extension, structureRevision: c.StructureRevision}
+	card := catalogCard{Ref: catalogRef{library.ID, c.ID}, Revision: c.Revision, StructureKind: c.Kind, ContentCategories: catalogFacetValues(filtered.Fields["genre"]), Countries: catalogFacetValues(filtered.Fields["country"]), MatchState: "unmatched", Title: filtered.Item.Title, DisplayMode: "unmatched", Availability: catalogAvailability(access.sourceState), MetadataState: access.metadataState, FirstAddedAt: c.FirstAddedAt, SeriesUpdatedAt: c.SeriesUpdatedAt, Size: access.size, Extension: access.extension, structureRevision: c.StructureRevision}
 	if access.contextOnly && card.Availability == "available" {
 		card.Availability = "missing"
 	}

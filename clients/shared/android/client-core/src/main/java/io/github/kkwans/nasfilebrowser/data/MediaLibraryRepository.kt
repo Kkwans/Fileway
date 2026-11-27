@@ -927,12 +927,16 @@ private fun scanMetadataEndpoint(libraryId: String, scanId: String): String {
     return "${libraryEndpoint(libraryId)}/scans/$scanId/metadata"
 }
 
-private fun catalogQueryEndpoint(query: MediaCatalogQuery): String = buildString {
+internal fun catalogQueryEndpoint(query: MediaCatalogQuery): String = buildString {
     append("/api/media-library/v1/catalog/items?limit=").append(query.limit).append("&sort=").append(query.sort.wire)
     query.libraryId?.let { append("&libraryId=").append(it) }
     query.structureKind?.let { append("&structureKind=").append(it.wire) }
     query.matchState?.let { append("&matchState=").append(it.wire) }
     query.query?.takeIf { it.isNotBlank() }?.let { append("&q=").append(URLEncoder.encode(it.trim(), "UTF-8")) }
+    query.genre?.takeIf { it.isNotBlank() }?.let { append("&genre=").append(URLEncoder.encode(it.trim(), "UTF-8")) }
+    query.country?.takeIf { it.isNotBlank() }?.let { append("&country=").append(URLEncoder.encode(it.trim(), "UTF-8")) }
+    query.yearFrom?.let { append("&yearFrom=").append(it) }
+    query.yearTo?.let { append("&yearTo=").append(it) }
 }
 
 private fun pageQuery(limit: Int, cursor: String?, maxCursorBytes: Int): String {

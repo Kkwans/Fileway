@@ -83,13 +83,14 @@ type catalogCardPage struct {
 }
 
 type browseRequest struct {
-	LibraryID, Kind, MatchState, Sort, Query string
-	Limit                                    int
-	Hero                                     bool
+	LibraryID, Kind, MatchState, Sort, Query, Genre, Country string
+	YearFrom, YearTo                                         int
+	Limit                                                    int
+	Hero                                                     bool
 }
 
 func browseQuery(req browseRequest) string {
-	return fmt.Sprintf("browse:%q:%q:%q:%q:%q:%d:%t", req.LibraryID, req.Kind, req.MatchState, req.Sort, req.Query, req.Limit, req.Hero)
+	return fmt.Sprintf("browse:%q:%q:%q:%q:%q:%q:%q:%d:%d:%d:%t", req.LibraryID, req.Kind, req.MatchState, req.Sort, req.Query, req.Genre, req.Country, req.YearFrom, req.YearTo, req.Limit, req.Hero)
 }
 
 func (v *catalogView) browse(ctx context.Context, snapshot catalogSnapshot, req browseRequest, token string) (catalogCardPage, error) {
@@ -215,7 +216,7 @@ candidates:
 				if req.Sort == "updated" && card.SeriesUpdatedAt == nil {
 					visible = false
 				}
-				if visible && (!req.Hero || (card.MatchState == "local_confirmed" || card.MatchState == "provider_confirmed") && (card.StructureKind == "movie" || card.StructureKind == "series") && card.Title != "") && (req.Kind == "" || req.Kind == card.StructureKind) && (req.MatchState == "" || req.MatchState == card.MatchState) && catalogSearchMatches(req.Query, card.Title, card.OriginalTitle) {
+				if visible && (!req.Hero || (card.MatchState == "local_confirmed" || card.MatchState == "provider_confirmed") && (card.StructureKind == "movie" || card.StructureKind == "series") && card.Title != "") && (req.Kind == "" || req.Kind == card.StructureKind) && (req.MatchState == "" || req.MatchState == card.MatchState) && catalogSearchMatches(req.Query, card.Title, card.OriginalTitle) && catalogFacetMatches(req, card) {
 					if len(page.Items) == req.Limit {
 						cursor = before
 						page.HasMore = true
@@ -311,7 +312,7 @@ func (v *catalogView) browseUpdated(ctx context.Context, snapshot catalogSnapsho
 				page.PageState = "deferred"
 				return page, nil
 			}
-			if card.SeriesUpdatedAt != nil && (req.MatchState == "" || req.MatchState == card.MatchState) {
+			if card.SeriesUpdatedAt != nil && (req.MatchState == "" || req.MatchState == card.MatchState) && catalogFacetMatches(req, card) {
 				cards = append(cards, card)
 			}
 			after = candidate.ID
@@ -373,6 +374,32 @@ func (v *catalogView) browseUpdated(ctx context.Context, snapshot catalogSnapsho
 	return page, err
 }
 
+func catalogFacetMatches(req browseRequest, card catalogCard) bool {
+	if req.Genre != "" && !catalogFacetContains(card.ContentCategories, req.Genre) {
+		return false
+	}
+	if req.Country != "" && !catalogFacetContains(card.Countries, req.Country) {
+		return false
+	}
+	if req.YearFrom > 0 && (card.Year == nil || *card.Year < req.YearFrom) {
+		return false
+	}
+	if req.YearTo > 0 && (card.Year == nil || *card.Year > req.YearTo) {
+		return false
+	}
+	return true
+}
+
+func catalogFacetContains(values []string, expected string) bool {
+	needle := norm.NFKC.String(strings.ToLower(strings.TrimSpace(expected)))
+	for _, value := range values {
+		if norm.NFKC.String(strings.ToLower(strings.TrimSpace(value))) == needle {
+			return true
+		}
+	}
+	return false
+}
+
 func catalogSearchMatches(query, title string, original *string) bool {
 	needle := norm.NFKC.String(strings.ToLower(strings.TrimSpace(query)))
 	if needle == "" {
@@ -390,8 +417,26 @@ func catalogSearchMatches(query, title string, original *string) bool {
 	return false
 }
 
+func parseBrowseYear(raw string) (int, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil || value < 1800 || value > 2199 {
+		return 0, medialibrary.ErrInvalid
+	}
+	return value, nil
+}
+
 func parseBrowseRequest(r *http.Request) (browseRequest, error) {
-	req := browseRequest{LibraryID: r.URL.Query().Get("libraryId"), Kind: r.URL.Query().Get("structureKind"), MatchState: r.URL.Query().Get("matchState"), Sort: r.URL.Query().Get("sort"), Query: strings.TrimSpace(r.URL.Query().Get("q")), Limit: 20}
+	req := browseRequest{LibraryID: r.URL.Query().Get("libraryId"), Kind: r.URL.Query().Get("structureKind"), MatchState: r.URL.Query().Get("matchState"), Sort: r.URL.Query().Get("sort"), Query: strings.TrimSpace(r.URL.Query().Get("q")), Genre: strings.TrimSpace(r.URL.Query().Get("genre")), Country: strings.TrimSpace(r.URL.Query().Get("country")), Limit: 20}
+	var err error
+	if req.YearFrom, err = parseBrowseYear(r.URL.Query().Get("yearFrom")); err != nil {
+		return req, err
+	}
+	if req.YearTo, err = parseBrowseYear(r.URL.Query().Get("yearTo")); err != nil {
+		return req, err
+	}
 	if req.Sort == "" {
 		req.Sort = "id"
 	}
@@ -403,11 +448,14 @@ func parseBrowseRequest(r *http.Request) (browseRequest, error) {
 		req.Limit = value
 	}
 	if len(req.LibraryID) > 128 || req.Sort != "id" && req.Sort != "newest" && req.Sort != "updated" || req.Kind != "" && req.Kind != "movie" && req.Kind != "series" && req.Kind != "video" || req.MatchState != "" && req.MatchState != "unmatched" && req.MatchState != "local_confirmed" && req.MatchState != "provider_confirmed" && req.MatchState != "needs_review" ||
-		utf8.RuneCountInString(req.Query) > 200 || len(req.Query) > 800 || strings.IndexFunc(req.Query, unicode.IsControl) >= 0 {
+		utf8.RuneCountInString(req.Query) > 200 || len(req.Query) > 800 || strings.IndexFunc(req.Query, unicode.IsControl) >= 0 ||
+		utf8.RuneCountInString(req.Genre) > 100 || len(req.Genre) > 400 || strings.IndexFunc(req.Genre, unicode.IsControl) >= 0 ||
+		utf8.RuneCountInString(req.Country) > 100 || len(req.Country) > 400 || strings.IndexFunc(req.Country, unicode.IsControl) >= 0 ||
+		req.YearFrom > 0 && req.YearTo > 0 && req.YearFrom > req.YearTo {
 		return req, medialibrary.ErrInvalid
 	}
 	for key := range r.URL.Query() {
-		if key != "libraryId" && key != "structureKind" && key != "matchState" && key != "sort" && key != "limit" && key != "cursor" && key != "q" {
+		if key != "libraryId" && key != "structureKind" && key != "matchState" && key != "sort" && key != "limit" && key != "cursor" && key != "q" && key != "genre" && key != "country" && key != "yearFrom" && key != "yearTo" {
 			return req, medialibrary.ErrInvalid
 		}
 	}

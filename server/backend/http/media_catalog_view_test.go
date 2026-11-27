@@ -164,6 +164,28 @@ func TestCatalogCursorAuthenticatesScopeQueryAndExpiry(t *testing.T) {
 	}
 }
 
+func TestCatalogItemsFilterAuthorizedGenreCountryAndYear(t *testing.T) {
+	f := newMediaScanHTTPFixture(t)
+	catalogFixtureWrite(t, f, "match.mkv", "one")
+	catalogFixtureWrite(t, f, "match.nfo", `<movie><title>匹配影片</title><genre>剧情</genre><genre>冒险</genre><country>CN</country><year>2021</year></movie>`)
+	catalogFixtureWrite(t, f, "other.mkv", "two")
+	catalogFixtureWrite(t, f, "other.nfo", `<movie><title>其他影片</title><genre>喜剧</genre><country>US</country><year>2019</year></movie>`)
+	library, source := f.libraryAndSource(t)
+	scanFixtureLibrary(t, f, library, source, "catalog-facet-scan")
+	response := f.call(t, f.owner.ID, http.MethodGet, "/api/media-library/v1/catalog/items?genre="+url.QueryEscape("剧情")+"&country=CN&yearFrom=2020&yearTo=2022", nil)
+	var page catalogCardPage
+	if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &page) != nil || len(page.Items) != 1 || page.Items[0].Title != "匹配影片" {
+		t.Fatalf("facet browse: %d %s", response.Code, response.Body)
+	}
+	if len(page.Items[0].ContentCategories) != 2 || page.Items[0].ContentCategories[0] != "剧情" || len(page.Items[0].Countries) != 1 || page.Items[0].Countries[0] != "CN" {
+		t.Fatalf("facet card metadata: %+v", page.Items[0])
+	}
+	invalid := f.call(t, f.owner.ID, http.MethodGet, "/api/media-library/v1/catalog/items?yearFrom=2022&yearTo=2020", nil)
+	if invalid.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("invalid year range accepted: %d %s", invalid.Code, invalid.Body)
+	}
+}
+
 func TestCatalogHTTPRealOfflineJourneyAndSourceFiltering(t *testing.T) {
 	f := newMediaScanHTTPFixture(t)
 	for name, content := range map[string]string{

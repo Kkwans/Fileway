@@ -66,12 +66,21 @@ data class MediaCatalogQuery(
     val sort: MediaCatalogSort = MediaCatalogSort.ID,
     val limit: Int = 20,
     val query: String? = null,
+    val genre: String? = null,
+    val country: String? = null,
+    val yearFrom: Int? = null,
+    val yearTo: Int? = null,
 ) {
     init {
         libraryId?.let(::requireMediaRouteId)
         require(limit in 1..100 && (sort != MediaCatalogSort.UPDATED || structureKind == null || structureKind == MediaCatalogFilterKind.SERIES))
         require(query == null || query.codePointCount(0, query.length) <= 200 && query.toByteArray(Charsets.UTF_8).size <= 800 && query.none(Char::isISOControl))
         require(query.isNullOrBlank() || sort == MediaCatalogSort.ID)
+        require(genre == null || genre.codePointCount(0, genre.length) <= 100 && genre.toByteArray(Charsets.UTF_8).size <= 400 && genre.none(Char::isISOControl))
+        require(country == null || country.codePointCount(0, country.length) <= 100 && country.toByteArray(Charsets.UTF_8).size <= 400 && country.none(Char::isISOControl))
+        require(yearFrom == null || yearFrom in 1800..2199)
+        require(yearTo == null || yearTo in 1800..2199)
+        require(yearFrom == null || yearTo == null || yearFrom <= yearTo)
     }
 }
 
@@ -122,6 +131,7 @@ data class MediaCatalogCard(
     val size: Long?, val extension: String?, val actions: MediaCatalogActions,
     val backdrop: MediaCatalogArtwork? = null,
     val userState: MediaCatalogUserState? = null,
+    val countries: List<String> = emptyList(),
 ) { override fun toString(): String = "MediaCatalogCard(redacted)" }
 data class MediaCatalogPersonRef(val libraryId: String, val personId: String) {
     init { requireMediaRouteId(libraryId); requireMediaRouteId(personId) }
@@ -422,7 +432,8 @@ internal fun parseCatalogCard(row: JSONObject, scope: MediaSessionScope, deviceS
     return MediaCatalogCard(ref, row.integerValue("revision", 1), kind, row.getJSONArray("contentCategories").catalogStrings(128), state,
         row.textValue("title"), row.optionalTextValue("originalTitle"), row.optionalIntegerValue("year"), mode, artwork, rating, duration,
         counts, availability, metadata, row.integerValue("firstAddedAt"), row.optionalIntegerValue("seriesUpdatedAt"),
-        row.optionalIntegerValue("size"), row.optionalTextValue("extension"), actions, backdrop, userState)
+        row.optionalIntegerValue("size"), row.optionalTextValue("extension"), actions, backdrop, userState,
+        if (row.has("countries")) row.getJSONArray("countries").catalogStrings(32) else emptyList())
 }
 
 private fun rowQueryKey(id: MediaCatalogRowId): String = "/api/media-library/v1/home/rows/${id.wire}"
