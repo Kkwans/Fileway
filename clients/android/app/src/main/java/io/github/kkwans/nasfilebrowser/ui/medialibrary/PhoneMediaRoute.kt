@@ -291,6 +291,7 @@ internal fun PhoneMediaRoute(
                 "continue" -> watch.retry()
                 "catalog" -> route.retryCatalog()
                 "detail" -> route.loadDetail()
+                "playback" -> route.retryPlayback()
                 "seasons" -> route.loadSeasons(reset = true)
                 "episodes" -> route.loadEpisodes(reset = true)
                 "sources" -> route.loadSources(reset = true)
@@ -503,6 +504,7 @@ private fun PhoneMediaRouteState.detailState(scope: String, id: String): PhoneMe
         overview = item?.fields?.get("plot")?.values?.firstOrNull(), canPlay = playable, canSelectSources = playable,
         sourceCount = if (playable) detailSources.size else null,
         sourceSummary = phoneSourceSummary(detailSources) ?: if (loadingSourcesFor(id)) "正在读取片源…" else null,
+        playProblem = sourceProblem(id),
         technical = technical,
         canReviewMatch = card?.actions?.can(MediaCatalogAction.EDIT_METADATA) == true && card.structureKind in setOf(
             MediaItemKind.VIDEO, MediaItemKind.MOVIE, MediaItemKind.SERIES, MediaItemKind.EPISODE),

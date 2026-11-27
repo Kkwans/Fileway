@@ -685,7 +685,13 @@ internal class PhoneMediaRouteState(
         loadSourcesFor(ref, reset = true)
     }
 
+    fun retryPlayback() {
+        val ref = detailRef ?: return
+        loadSourcesFor(ref, reset = true)
+    }
+
     fun sourcesFor(id: String): List<MediaCatalogVariant> = variants.takeIf { variantsRef?.let(::key) == id }.orEmpty()
+    fun sourceProblem(id: String): MediaProblem? = sourcesProblem.takeIf { variantsRef?.let(::key) == id }
     fun loadingSourcesFor(id: String): Boolean = sourcesLoading && variantsRef?.let(::key) == id
     fun hasMoreSourcesFor(id: String): Boolean = variantsRef?.let(::key) == id && sourcesCursor != null
 

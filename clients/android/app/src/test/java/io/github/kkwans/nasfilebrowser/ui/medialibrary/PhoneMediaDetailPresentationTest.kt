@@ -1,10 +1,19 @@
 package io.github.kkwans.nasfilebrowser.ui.medialibrary
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class PhoneMediaDetailPresentationTest {
+    @Test
+    fun playbackBarStaysAvailableWithoutDuplicatingInlineActions() {
+        assertTrue(phoneMediaDetailShowsPlaybackBar(canSelectSources = true, canHandoff = false))
+        assertTrue(phoneMediaDetailShowsPlaybackBar(canSelectSources = false, canHandoff = true))
+        assertFalse(phoneMediaDetailShowsPlaybackBar(canSelectSources = false, canHandoff = false))
+    }
+
     @Test
     fun episodeTitleUsesRealNameOrNumberOnly() {
         assertEquals("第一集 · 叉叉叉叉", phoneMediaEpisodeTitle("第一集", "叉叉叉叉"))

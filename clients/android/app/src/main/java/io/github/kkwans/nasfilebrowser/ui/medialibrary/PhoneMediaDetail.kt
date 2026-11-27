@@ -29,6 +29,9 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import io.github.kkwans.fileway.design.R as Art
 
 /** Insets and account-scoped data belong to the route; only local presentation lives here. */
+internal fun phoneMediaDetailShowsPlaybackBar(canSelectSources: Boolean, canHandoff: Boolean): Boolean =
+    canSelectSources || canHandoff
+
 @Composable
 internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLoader,
     onAction: (PhoneMediaAction) -> Unit, modifier: Modifier = Modifier,
@@ -50,8 +53,10 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
             val collapsed by remember(listState, collapseOffset) { derivedStateOf {
                 listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > collapseOffset
             } }
-            LazyColumn(Modifier.widthIn(max = 640.dp).fillMaxSize(), state = listState,
-                contentPadding = PaddingValues(bottom = 32.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
+            val showPlaybackBar = phoneMediaDetailShowsPlaybackBar(state.canSelectSources, state.canHandoff)
+            Column(Modifier.widthIn(max = 640.dp).fillMaxSize()) {
+            LazyColumn(Modifier.weight(1f), state = listState,
+                contentPadding = PaddingValues(bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(24.dp)) {
                 item(key = "hero") {
                     DetailHero(state, imageLoader, heroHeight, inset, fullTitle, { fullTitle = !fullTitle })
                 }
@@ -66,9 +71,9 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
                         items(state.ratings.filter { it.value.isNotBlank() }, key = { it.id }) { RatingColumn(it) }
                     }
                 }
-                if (state.canSelectSources || state.canHandoff) item(key = "play") {
-                    DetailPlayback(state, onAction, Modifier.padding(horizontal = inset))
-                }
+                state.playProblem?.let { problem -> item(key = "play-problem") {
+                    MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("playback")) }, Modifier.padding(horizontal = inset))
+                } }
                 if (state.canSelectSources) item(key = "sources") {
                     DetailSourceRow(state, onAction, Modifier.padding(horizontal = inset))
                 }
@@ -214,6 +219,17 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
                     }
                 }
             }
+            if (showPlaybackBar) Surface(
+                modifier = Modifier.fillMaxWidth(),
+                color = MaterialTheme.colorScheme.background,
+                tonalElevation = 3.dp,
+            ) {
+                Column {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    DetailPlayback(state, onAction, Modifier.padding(horizontal = inset, vertical = 8.dp), showProblem = false)
+                }
+            }
+            }
             DetailAppBar(state, collapsed, menu, { menu = it }, onAction,
                 Modifier.widthIn(max = 640.dp).fillMaxWidth(), overArtwork = state.backdrop != null && !collapsed)
         }
@@ -286,7 +302,8 @@ private fun DetailMoreMenu(state: PhoneMediaDetailState, menu: Boolean, onMenu: 
 }
 
 @Composable
-private fun DetailPlayback(state: PhoneMediaDetailState, onAction: (PhoneMediaAction) -> Unit, modifier: Modifier) {
+private fun DetailPlayback(state: PhoneMediaDetailState, onAction: (PhoneMediaAction) -> Unit, modifier: Modifier,
+    showProblem: Boolean = true) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val stack = maxWidth < 340.dp || LocalDensity.current.fontScale > 1.3f
@@ -316,7 +333,7 @@ private fun DetailPlayback(state: PhoneMediaDetailState, onAction: (PhoneMediaAc
         }
         if (state.canSelectSources && state.playLabel != "播放") PhoneDetailAction("从头播放", Art.drawable.fileway_ic_restore,
             { onAction(PhoneMediaAction.Play(state.id, fromStart = true)) }, enabled = state.canPlay && !state.busy)
-        state.playProblem?.let { MediaProblemCard(it, { onAction(PhoneMediaAction.Retry("playback")) }) }
+        if (showProblem) state.playProblem?.let { MediaProblemCard(it, { onAction(PhoneMediaAction.Retry("playback")) }) }
         if (!state.canPlay && state.playProblem == null && !state.loading) Text("暂无可播放片源",
             style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
