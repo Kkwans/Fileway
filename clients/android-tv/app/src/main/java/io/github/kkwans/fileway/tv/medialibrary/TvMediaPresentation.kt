@@ -101,6 +101,9 @@ internal fun tvMediaShelfVisible(shelf: TvMediaShelf): Boolean =
 internal fun tvMediaCatalogShelfVisible(shelf: TvMediaShelf, categories: List<TvMediaCategory>): Boolean =
     tvMediaShelfVisible(shelf) || categories.isNotEmpty()
 
+internal fun tvMediaCatalogRows(items: List<TvMediaCard>, columns: Int): List<List<TvMediaCard>> =
+    items.chunked(columns.coerceAtLeast(1))
+
 internal fun <T> syncTvMediaHomeRows(
     current: List<TvMediaHomeRowState<T>>,
     incoming: List<TvMediaHomeRowState<T>>,

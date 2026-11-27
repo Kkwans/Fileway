@@ -11,6 +11,23 @@ import org.junit.Test
 
 class TvMediaHomeRowPolicyTest {
     @Test
+    fun catalogRowsPreserveOrderAndBoundEachLazyItem() {
+        val cards = (1..13).map { TvMediaCard("item_$it", "影片 $it") }
+
+        val rows = tvMediaCatalogRows(cards, columns = 6)
+
+        assertEquals(listOf(6, 6, 1), rows.map { it.size })
+        assertEquals(cards.map { it.id }, rows.flatten().map { it.id })
+    }
+
+    @Test
+    fun catalogRowsNeverUseAnInvalidColumnCount() {
+        val cards = listOf(TvMediaCard("item_1", "影片 1"), TvMediaCard("item_2", "影片 2"))
+
+        assertEquals(listOf(1, 1), tvMediaCatalogRows(cards, columns = 0).map { it.size })
+    }
+
+    @Test
     fun emptyCatalogKeepsCategoryNavigationVisible() {
         val shelf = TvMediaShelf("catalog", "我的片库")
 

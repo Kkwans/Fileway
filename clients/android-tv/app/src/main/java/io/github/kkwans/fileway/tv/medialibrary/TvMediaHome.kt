@@ -20,6 +20,7 @@ import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -62,7 +63,11 @@ fun TvMediaHome(
     val rows = state.rows.mapNotNull { row -> tvMediaHomeRowShelf(row)?.let { row.rowId to it } }
         .filter { (_, shelf) -> tvMediaShelfVisible(shelf) }
     val hasContent = state.featured.isNotEmpty() || state.continuing.isNotEmpty() || rows.isNotEmpty() || shelves.isNotEmpty()
-    Column(modifier.fillMaxSize().background(colors.canvas)) {
+    BoxWithConstraints(modifier.fillMaxSize().background(colors.canvas)) {
+        val catalogWidth = mediaCardWidth(maxWidth, 128.dp, 6)
+        val catalogColumns = ((maxWidth - MediaLayout.pageInset * 2 + MediaLayout.itemGap) /
+            (catalogWidth + MediaLayout.itemGap)).toInt().coerceAtLeast(1)
+        val catalogRows = catalog?.let { tvMediaCatalogRows(it.items, catalogColumns) }.orEmpty()
         LazyColumn(state = scrollState, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(MediaLayout.sectionGap)) {
             if (state.featured.isEmpty()) item(key = "navigation") { navigation() }
@@ -97,10 +102,27 @@ fun TvMediaHome(
                     onRetry = onRetryRow?.let { { it(rowId) } },
                     onMore = onMoreRow?.let { { it(rowId) } })
             }
-            items(shelves, key = { "shelf:${it.id}" }) { shelf ->
-                if (shelf.id == "catalog") MediaCatalogShelf(shelf, state.categories, state.selectedCategory,
-                    imageLoader, onItem, onRetryShelf?.let { { it(shelf.id) } }, onMoreShelf?.let { { it(shelf.id) } }, onCategory)
-                else MediaShelf(shelf, imageLoader, onItem, onRetryShelf)
+            state.shelves.forEach { shelf ->
+                if (shelf.id == "catalog") {
+                    if (showCatalog) {
+                        item(key = "shelf:catalog:header") {
+                            MediaCatalogHeader(shelf, state.categories, state.selectedCategory,
+                                onRetryShelf?.let { { it(shelf.id) } }, onCategory)
+                        }
+                        catalogRows.forEachIndexed { index, row ->
+                            item(key = "shelf:catalog:row:$index") {
+                                MediaCatalogGridRow(row, catalogWidth, imageLoader, onItem)
+                            }
+                        }
+                        if (shelf.hasMore && onMoreShelf != null) item(key = "shelf:catalog:more") {
+                            MediaAction(if (shelf.loading) "正在加载…" else "加载更多影视",
+                                { onMoreShelf(shelf.id) }, Modifier.padding(horizontal = MediaLayout.pageInset),
+                                enabled = !shelf.loading)
+                        }
+                    }
+                } else if (tvMediaShelfVisible(shelf)) item(key = "shelf:${shelf.id}") {
+                    MediaShelf(shelf, imageLoader, onItem, onRetryShelf)
+                }
             }
             if (state.loading && !hasContent) item(key = "loading") { MediaLoadingStatus("正在加载片库…") }
             if (!hasContent && !state.loading && state.error == null) item(key = "empty") {
@@ -117,14 +139,11 @@ fun TvMediaHome(
 }
 
 @Composable
-private fun MediaCatalogShelf(
+private fun MediaCatalogHeader(
     shelf: TvMediaShelf,
     categories: List<TvMediaCategory>,
     selectedCategory: String?,
-    imageLoader: ImageLoader,
-    onItem: (String) -> Unit,
     onRetry: (() -> Unit)?,
-    onMore: (() -> Unit)?,
     onCategory: ((String) -> Unit)?,
 ) {
     val colors = LocalMediaColors.current
@@ -156,19 +175,14 @@ private fun MediaCatalogShelf(
             Text("这个分类还没有可见内容。", Modifier.padding(horizontal = MediaLayout.pageInset),
                 style = MediaType.body, color = colors.secondary)
         }
-        if (shelf.items.isNotEmpty()) BoxWithConstraints(Modifier.fillMaxWidth()) {
-            val width = mediaCardWidth(maxWidth, 128.dp, 6)
-            val columns = ((maxWidth - MediaLayout.pageInset * 2 + MediaLayout.itemGap) / (width + MediaLayout.itemGap))
-                .toInt().coerceAtLeast(1)
-            shelf.items.chunked(columns).forEach { row ->
-                Row(Modifier.fillMaxWidth().padding(horizontal = MediaLayout.pageInset).focusGroup(),
-                    horizontalArrangement = Arrangement.spacedBy(MediaLayout.itemGap)) {
-                    row.forEach { item -> MediaPoster(item, imageLoader, { onItem(item.id) }, width = width) }
-                }
-            }
-        }
-        if (shelf.hasMore && onMore != null) MediaAction(if (shelf.loading) "正在加载…" else "加载更多影视",
-            onMore, Modifier.padding(horizontal = MediaLayout.pageInset), enabled = !shelf.loading)
+    }
+}
+
+@Composable
+private fun MediaCatalogGridRow(items: List<TvMediaCard>, width: Dp, imageLoader: ImageLoader, onItem: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = MediaLayout.pageInset).focusGroup(),
+        horizontalArrangement = Arrangement.spacedBy(MediaLayout.itemGap)) {
+        items.forEach { item -> MediaPoster(item, imageLoader, { onItem(item.id) }, width = width) }
     }
 }
 
