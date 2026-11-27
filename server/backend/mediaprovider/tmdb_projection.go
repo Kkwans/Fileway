@@ -169,6 +169,50 @@ func ProjectTMDB(document Document) (TMDBProjection, error) {
 	return result, nil
 }
 
+type TMDBSeasonMetadata struct {
+	ID           int64
+	SeasonNumber int
+	Title        string
+	Overview     string
+	AirDate      string
+	PosterPath   string
+}
+
+func ProjectTMDBSeasonMetadata(document Document) (TMDBSeasonMetadata, error) {
+	if document.Entity.Provider != "tmdb" || document.Entity.Kind != Season {
+		return TMDBSeasonMetadata{}, &Error{Code: InvalidRequest}
+	}
+	encoded, err := json.Marshal(document.Fields)
+	if err != nil {
+		return TMDBSeasonMetadata{}, &Error{Code: InvalidResponse}
+	}
+	var source struct {
+		ID           *int64 `json:"id"`
+		SeasonNumber *int   `json:"season_number"`
+		Name         string `json:"name"`
+		Overview     string `json:"overview"`
+		AirDate      string `json:"air_date"`
+		PosterPath   string `json:"poster_path"`
+	}
+	if err := json.Unmarshal(encoded, &source); err != nil || source.ID == nil || *source.ID <= 0 || *source.ID != document.Entity.ID ||
+		source.SeasonNumber == nil || *source.SeasonNumber < 0 || *source.SeasonNumber > 999 {
+		return TMDBSeasonMetadata{}, &Error{Code: InvalidResponse}
+	}
+	airDate := strings.TrimSpace(source.AirDate)
+	if airDate != "" {
+		if _, err := time.Parse(time.DateOnly, airDate); err != nil {
+			return TMDBSeasonMetadata{}, &Error{Code: InvalidResponse}
+		}
+	}
+	if source.PosterPath != "" {
+		if _, err := tmdbImageURL(tmdbImageBase, "w300", source.PosterPath); err != nil {
+			return TMDBSeasonMetadata{}, &Error{Code: InvalidResponse}
+		}
+	}
+	return TMDBSeasonMetadata{ID: *source.ID, SeasonNumber: *source.SeasonNumber, Title: strings.TrimSpace(source.Name),
+		Overview: strings.TrimSpace(source.Overview), AirDate: airDate, PosterPath: source.PosterPath}, nil
+}
+
 type TMDBEpisodeMetadata struct {
 	ID             int64
 	SeasonNumber   int

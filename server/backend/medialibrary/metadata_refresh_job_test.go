@@ -256,7 +256,10 @@ func fixtureRefreshSeries(t *testing.T, store *Store, library *Library, connecti
 		t.Fatal(err)
 	}
 	document, err := json.Marshal(ProviderMatchDocument{
-		Item: mediametadata.Item{Kind: mediametadata.TVShow, Fields: map[string][]string{"title": {title}}}, Episodes: episodes,
+		Item: mediametadata.Item{Kind: mediametadata.TVShow, Fields: map[string][]string{"title": {title}}},
+		Seasons: []ProviderSeasonDocument{{SeasonNumber: 1,
+			Item: mediametadata.Item{Kind: mediametadata.Season, Fields: map[string][]string{"title": {"第一季"}}}}},
+		Episodes: episodes,
 	})
 	if err != nil {
 		t.Fatal(err)

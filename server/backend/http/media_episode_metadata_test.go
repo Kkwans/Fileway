@@ -34,19 +34,23 @@ func TestFetchProviderEpisodeDocumentsUsesOnlyLocalEpisodePositions(t *testing.T
 			t.Fatalf("unexpected season route: %s", r.URL.String())
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
-			`{"id":101,"season_number":1,"episodes":[
+			`{"id":101,"season_number":1,"name":"第一季","overview":"季简介","air_date":"2024-03-01","poster_path":"/season.jpg","episodes":[
 				{"id":201,"episode_number":1,"name":"第一集","overview":"简介一","air_date":"2024-03-01","runtime":52,"still_path":"/still1.jpg"},
 				{"id":202,"episode_number":2,"name":"第二集","runtime":50},
 				{"id":203,"episode_number":3,"name":"第三集","runtime":48}
 			]}`))}, nil
 	})}, func(context.Context) (string, error) { return "fixture-token", nil })
-	documents, err := fetchProviderEpisodeDocuments(t.Context(), f.store, f.owner.ID, library.ID, seriesID,
+	seasonDocuments, documents, err := fetchProviderSeasonDocuments(t.Context(), f.store, f.owner.ID, library.ID, seriesID,
 		mediaprovider.EntityRef{Provider: "tmdb", Kind: mediaprovider.Series, ID: 55}, client, "zh-CN")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if calls != 1 || len(documents) != 2 || documents[0].EpisodeNumber != 1 || documents[1].EpisodeNumber != 3 {
 		t.Fatalf("episode documents: %+v calls=%d", documents, calls)
+	}
+	if len(seasonDocuments) != 1 || seasonDocuments[0].SeasonNumber != 1 || seasonDocuments[0].Item.Fields["title"][0] != "第一季" ||
+		seasonDocuments[0].Item.Fields["plot"][0] != "季简介" || seasonDocuments[0].PosterPath != "/season.jpg" {
+		t.Fatalf("season documents: %+v", seasonDocuments)
 	}
 	first := documents[0]
 	if first.SeasonNumber != 1 || first.StillPath != "/still1.jpg" || first.Item.Kind != "episodedetails" ||
@@ -56,7 +60,7 @@ func TestFetchProviderEpisodeDocumentsUsesOnlyLocalEpisodePositions(t *testing.T
 	}
 }
 
-func TestMetadataRefreshJobBackfillsEpisodesForSameLanguageSeries(t *testing.T) {
+func TestMetadataRefreshJobBackfillsSeasonMetadataForSameLanguageSeries(t *testing.T) {
 	var testVault *mediaprovider.CredentialVault
 	f := newMediaScanHTTPFixture(t, func(h *trashHTTPHarness) {
 		var err error
@@ -72,7 +76,7 @@ func TestMetadataRefreshJobBackfillsEpisodesForSameLanguageSeries(t *testing.T) 
 					`{"id":55,"name":"本地剧","first_air_date":"2024-01-01"}`))}, nil
 			case "/3/tv/55/season/1":
 				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
-					`{"id":101,"season_number":1,"episodes":[{"id":201,"episode_number":1,"name":"第一集","runtime":52}]}`))}, nil
+					`{"id":101,"season_number":1,"name":"第一季","overview":"季简介","air_date":"2024-03-01","poster_path":"/season.jpg","episodes":[{"id":201,"episode_number":1,"name":"第一集","runtime":52}]}`))}, nil
 			default:
 				t.Fatalf("unexpected refresh route: %s", r.URL.Path)
 				return nil, nil
@@ -129,6 +133,11 @@ func TestMetadataRefreshJobBackfillsEpisodesForSameLanguageSeries(t *testing.T) 
 	}
 	initial := medialibrary.ProviderMatchDocument{Item: mediametadata.Item{Kind: mediametadata.TVShow, Fields: map[string][]string{
 		"title": {"本地剧"}, "year": {"2024"},
+	}}, Episodes: []medialibrary.ProviderEpisodeDocument{{
+		SeasonNumber: 1, EpisodeNumber: 1,
+		Item: mediametadata.Item{Kind: mediametadata.Episode, Fields: map[string][]string{
+			"title": {"第一集"}, "runtime": {"52"},
+		}},
 	}}}
 	request := medialibrary.ProviderMatchRequest{LibraryID: library.ID, ItemID: seriesID, ConnectionID: connection,
 		Kind: "series", ExternalID: 55, ItemRevision: seriesPage.Items[0].Revision, StructureRevision: structure.Revision}
@@ -164,6 +173,10 @@ func TestMetadataRefreshJobBackfillsEpisodesForSameLanguageSeries(t *testing.T) 
 	detail := fixtureDetail(t, f, f.owner.ID, library.ID, episodes.Items[0].EpisodeID)
 	if detail.Item.Title != "第一集" || detail.Fields["runtime"].Values[0] != "52" {
 		t.Fatalf("backfilled episode detail: %+v", detail)
+	}
+	seasonDetail := fixtureDetail(t, f, f.owner.ID, library.ID, seasons.Items[0].SeasonID)
+	if seasonDetail.Item.Title != "第一季" || seasonDetail.Fields["plot"].Values[0] != "季简介" {
+		t.Fatalf("backfilled season detail: %+v", seasonDetail)
 	}
 }
 
@@ -220,6 +233,12 @@ func TestEpisodeDetailUsesSeriesProviderEpisodeMetadata(t *testing.T) {
 	}
 	document := medialibrary.ProviderMatchDocument{
 		Item: mediametadata.Item{Kind: mediametadata.TVShow, Fields: map[string][]string{"title": {"在线剧"}}},
+		Seasons: []medialibrary.ProviderSeasonDocument{{
+			SeasonNumber: 1,
+			Item: mediametadata.Item{Kind: mediametadata.Season, Fields: map[string][]string{
+				"title": {"第一季"}, "plot": {"季简介"},
+			}},
+		}},
 		Episodes: []medialibrary.ProviderEpisodeDocument{{
 			SeasonNumber: 1, EpisodeNumber: 1,
 			Item: mediametadata.Item{Kind: mediametadata.Episode, Fields: map[string][]string{
@@ -242,5 +261,15 @@ func TestEpisodeDetailUsesSeriesProviderEpisodeMetadata(t *testing.T) {
 	if detail.Item.Title != "第一集" || detail.Fields["runtime"].Source != "online" ||
 		len(detail.Fields["runtime"].Values) != 1 || detail.Fields["runtime"].Values[0] != "52" || detail.OnlineMatch != nil {
 		t.Fatalf("episode provider projection: %+v", detail)
+	}
+	seasonResponse := f.call(t, f.owner.ID, http.MethodGet,
+		"/api/media-library/v1/libraries/"+library.ID+"/items/"+seasons.Items[0].SeasonID, nil)
+	var seasonDetail mediaItemDetail
+	if seasonResponse.Code != http.StatusOK || json.Unmarshal(seasonResponse.Body.Bytes(), &seasonDetail) != nil {
+		t.Fatalf("season detail: %d %s", seasonResponse.Code, seasonResponse.Body)
+	}
+	if seasonDetail.Item.Title != "第一季" || seasonDetail.Fields["plot"].Source != "online" ||
+		len(seasonDetail.Fields["plot"].Values) != 1 || seasonDetail.Fields["plot"].Values[0] != "季简介" {
+		t.Fatalf("season provider projection: %+v", seasonDetail)
 	}
 }

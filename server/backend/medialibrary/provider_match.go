@@ -21,6 +21,12 @@ type ProviderMatchRequest struct {
 	refreshOperationID                          string
 }
 
+type ProviderSeasonDocument struct {
+	SeasonNumber int                `json:"seasonNumber"`
+	Item         mediametadata.Item `json:"item"`
+	PosterPath   string             `json:"posterPath,omitempty"`
+}
+
 type ProviderEpisodeDocument struct {
 	SeasonNumber  int                `json:"seasonNumber"`
 	EpisodeNumber int                `json:"episodeNumber"`
@@ -32,6 +38,7 @@ type ProviderMatchDocument struct {
 	Item         mediametadata.Item        `json:"item"`
 	PosterPath   string                    `json:"posterPath,omitempty"`
 	BackdropPath string                    `json:"backdropPath,omitempty"`
+	Seasons      []ProviderSeasonDocument  `json:"seasons,omitempty"`
 	Episodes     []ProviderEpisodeDocument `json:"episodes,omitempty"`
 }
 
@@ -96,6 +103,9 @@ func (store *Store) ConfirmProviderMatch(ctx context.Context, actor uint, operat
 	if !ok || kind != document.Item.Kind || request.ExternalID <= 0 || request.ItemRevision < 1 ||
 		request.StructureRevision < 1 || fetchedAt <= 0 || (request.ConnectionID != "" && request.ConnectionID != authority.ConnectionID) {
 		return nil, ErrInvalid
+	}
+	if err := validateProviderSeasonDocuments(request.Kind, document.Seasons); err != nil {
+		return nil, err
 	}
 	if err := validateProviderEpisodeDocuments(request.Kind, document.Episodes); err != nil {
 		return nil, err
@@ -235,6 +245,28 @@ document_json=excluded.document_json,fetched_at=excluded.fetched_at,revision=exc
 		}
 		return &ProviderMatchResult{request.LibraryID, request.ItemID, request.Kind, strconv.FormatInt(request.ExternalID, 10), revision + 1}, nil
 	})
+}
+
+func validateProviderSeasonDocuments(kind string, seasons []ProviderSeasonDocument) error {
+	if len(seasons) > 1000 || kind != "series" && len(seasons) != 0 {
+		return ErrInvalid
+	}
+	seen := make(map[int]struct{}, len(seasons))
+	for _, document := range seasons {
+		if document.SeasonNumber < 0 || document.SeasonNumber > 999 || document.Item.Kind != mediametadata.Season {
+			return ErrInvalid
+		}
+		if _, duplicate := seen[document.SeasonNumber]; duplicate {
+			return ErrInvalid
+		}
+		seen[document.SeasonNumber] = struct{}{}
+		for name, values := range document.Item.Fields {
+			if validateMetadataValues(name, values) != nil {
+				return ErrInvalid
+			}
+		}
+	}
+	return nil
 }
 
 func validateProviderEpisodeDocuments(kind string, episodes []ProviderEpisodeDocument) error {

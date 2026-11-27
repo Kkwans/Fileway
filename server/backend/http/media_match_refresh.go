@@ -163,6 +163,10 @@ func mediaMetadataRefreshHandler(preview bool, slots chan struct{}, starts <-cha
 		if match.Document.PosterPath != projection.PosterPath || match.Document.BackdropPath != projection.BackdropPath {
 			changed = append(changed, "artwork")
 		}
+		seasonsChanged := !reflect.DeepEqual(match.Document.Seasons, matchDocument.Seasons)
+		if seasonsChanged {
+			changed = append(changed, "seasons")
+		}
 		episodesChanged := !reflect.DeepEqual(match.Document.Episodes, matchDocument.Episodes)
 		if episodesChanged {
 			changed = append(changed, "episodes")

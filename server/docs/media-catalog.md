@@ -210,7 +210,9 @@ landscape image in `backdrop`. Both are optional; their URLs use the existing
 authenticated artwork endpoint and its source authorization.
 
 - `GET /libraries/{id}/items/{series}/seasons` returns authorized seasons in
-  local order, including season 0 as specials.
+  local order, including season 0 as specials. Authorized season details use
+  the matched provider's localized name, overview and first-air date when
+  available; missing values retain the local season presentation.
 - `GET /libraries/{id}/items/{series}/episodes?seasonId=...` returns an
   authorized, numbered episode page. An optional `orderId` must match the
   returned local order. Both routes accept `limit` and their own opaque
