@@ -66,3 +66,14 @@
 - Reuse valid same-source CI checks; one complete Windows candidate build and a bounded Xiaomi14 acceptance batch, followed only by affected fixes. No publication or unrelated post-delivery testing.
 
 - 2026-10-25 icon-group override: a toolbar/menu/list-action group uses one family throughout. Default ordinary controls to Material Symbols Rounded; opt in complete navigation groups to Lordicon. Do not silently animate a single search/folder glyph among Material neighbors. PRO assets require confirmed license; the user currently has no PRO subscription.
+
+## Release & Preview Signing Contract (MANDATORY — never break upgrade compatibility)
+
+- **Canonical Android signing identity** (`io.github.kkwans.nasfilebrowser`):
+  - **Signer certificate SHA-256**: `e29020f3608ffbc943d7c1ff69d07405975b25a649124ad81dfe2ca6ea096ab2`
+  - **NEVER** publish an APK signed by local `~/.android/debug.keystore` (or any fresh/ephemeral keystore) to GitHub Releases or hand it out for overwrite installation on user devices. Android strictly rejects overwrite installs when the signing certificate SHA-256 differs.
+- **Standard release / preview packaging procedure**:
+  1. Build `:app:assembleRelease` (produces `clients/android/app/build/outputs/apk/release/app-release-unsigned.apk`), or pass `-PfilewayAndroidSigningFile=/absolute/path/to/android-signing.properties` directly to Gradle.
+  2. Sign using `clients/android/scripts/sign-release-apk.py` (on the maintainer workstation, invoke the private local wrapper outside Git at `%LOCALAPPDATA%\NfbClientTools\signing\sign-android-release.ps1`, which signs via the private release keystore without storing secrets in this repository).
+  3. Confirm both `apksigner verify --print-certs` equals `e29020f3608ffbc943d7c1ff69d07405975b25a649124ad81dfe2ca6ea096ab2` and `zipalign -c -P 16 4` exits `0` before uploading to GitHub Releases.
+  4. Never commit `.p12`, `.keystore`, `.jks`, passwords, or private host paths into Git.

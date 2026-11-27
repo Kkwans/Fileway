@@ -60,7 +60,7 @@ python ..\shared\android\build-native.py --ndk "$env:ANDROID_HOME\ndk\28.2.13676
 
 不要把签名身份、账户凭据、数据库或私有媒体放入源码目录。
 
-正式候选由明确源码提交构建，使用原签名并附带验证记录；代码构建、界面验收和硬件媒体能力分别记录。
+正式/预览候选必须由明确源码提交构建 `:app:assembleRelease`，并通过 [scripts/sign-release-apk.py](scripts/sign-release-apk.py) 使用统一正式签名（证书 SHA-256：`e29020f3608ffbc943d7c1ff69d07405975b25a649124ad81dfe2ca6ea096ab2`）签名并完成 16 KiB zipalign 校验后发布，严禁上传本机默认 `debug.keystore` 签名包导致覆盖安装签名冲突。代码构建、界面验收和硬件媒体能力分别记录。
 
 ## 图标与许可
 
