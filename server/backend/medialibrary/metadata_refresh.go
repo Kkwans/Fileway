@@ -4,6 +4,18 @@ import (
 	"context"
 )
 
+const metadataRefreshEpisodeMissing = `(COALESCE(json_array_length(pm.document_json,'$.episodes'),0)=0 OR EXISTS (
+SELECT 1 FROM episode_order eo
+JOIN season_position sp ON sp.library_id=eo.library_id AND sp.order_id=eo.id
+JOIN episode_position ep ON ep.library_id=eo.library_id AND ep.order_id=eo.id AND ep.season_number=sp.season_number
+JOIN library_item season ON season.library_id=sp.library_id AND season.id=sp.season_id AND season.kind='season' AND season.parent_id=eo.series_id
+JOIN library_item episode ON episode.library_id=ep.library_id AND episode.id=ep.episode_id AND episode.kind='episode' AND episode.parent_id=sp.season_id
+WHERE eo.library_id=pm.library_id AND eo.series_id=pm.item_id AND eo.scheme='local'
+AND NOT EXISTS (
+SELECT 1 FROM json_each(pm.document_json,'$.episodes') document
+WHERE CAST(document.value->>'$.seasonNumber' AS INTEGER)=sp.season_number
+AND CAST(document.value->>'$.episodeNumber' AS INTEGER)=ep.episode_number)))`
+
 type MetadataRefreshFieldState struct {
 	Source        string
 	Locked        bool
@@ -45,7 +57,7 @@ func (store *Store) MetadataRefreshLibraryPreview(ctx context.Context, actor uin
 		FieldChangesRequirePreview: true,
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT pm.language,
-	CASE WHEN pm.entity_kind='series' AND COALESCE(json_array_length(pm.document_json,'$.episodes'),0)=0 THEN 1 ELSE 0 END,
+	CASE WHEN pm.entity_kind='series' AND `+metadataRefreshEpisodeMissing+` THEN 1 ELSE 0 END,
 	EXISTS(SELECT 1 FROM item_field f WHERE f.library_id=pm.library_id AND f.item_id=pm.item_id AND f.locked=1),
 	EXISTS(SELECT 1 FROM item_field f WHERE f.library_id=pm.library_id AND f.item_id=pm.item_id AND f.explicit_clear=1),
 	EXISTS(SELECT 1 FROM item_field f WHERE f.library_id=pm.library_id AND f.item_id=pm.item_id AND f.source='nfo')

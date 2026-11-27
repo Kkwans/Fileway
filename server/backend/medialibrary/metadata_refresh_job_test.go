@@ -183,6 +183,96 @@ VALUES(?,?,?,'tmdb','series',55,'zh-CN',?,?,?)`, library.ID, series.ID, connecti
 	}
 }
 
+func TestMetadataRefreshIncludesSeriesWithPartialEpisodeMetadata(t *testing.T) {
+	store := openTestStore(t)
+	ctx := t.Context()
+	library := createLibrary(t, store, 7, "部分分集回填")
+	connection := fixtureProvider(t, store, 7, false, "user", "partial-episode-refresh-connection")
+	policy, err := store.SetLibraryMetadataPolicy(ctx, 7, library.ID, "partial-episode-refresh-policy", 0,
+		LibraryMetadataPolicy{Mode: MetadataOnlineFirst, ConnectionID: connection.ID, Language: "zh-CN", Region: "CN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	partial := fixtureRefreshSeries(t, store, library, connection, "部分分集剧", 55,
+		[]ProviderEpisodeDocument{refreshEpisodeDocument(1)})
+	complete := fixtureRefreshSeries(t, store, library, connection, "完整分集剧", 56,
+		[]ProviderEpisodeDocument{refreshEpisodeDocument(1), refreshEpisodeDocument(2)})
+
+	preview, err := store.MetadataRefreshLibraryPreview(ctx, 7, library.ID, "zh-CN", MetadataOnlineFirst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if preview.MatchedItems != 2 || preview.EpisodeMetadataItems != 1 || preview.AlreadyCurrentItems != 1 ||
+		preview.LanguageMismatchItems != 1 || !preview.CanRefresh {
+		t.Fatalf("partial episode refresh preview: %+v", preview)
+	}
+	job, err := store.EnqueueMetadataRefreshJob(ctx, 7, "partial-episode-refresh-enqueue", library.ID, policy.Revision)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if job.Total != 1 || job.Pending != 1 {
+		t.Fatalf("partial episode refresh job: %+v", job)
+	}
+	var target string
+	if err := store.db.QueryRow(`SELECT item_id FROM metadata_refresh_target WHERE job_id=?`, job.ID).Scan(&target); err != nil || target != partial.ID {
+		t.Fatalf("partial episode target=%s want=%s err=%v", target, partial.ID, err)
+	}
+	var completeTargeted bool
+	if err := store.db.QueryRow(`SELECT EXISTS(SELECT 1 FROM metadata_refresh_target WHERE job_id=? AND item_id=?)`, job.ID, complete.ID).Scan(&completeTargeted); err != nil || completeTargeted {
+		t.Fatalf("complete episode document was targeted: %v", err)
+	}
+}
+
+func fixtureRefreshSeries(t *testing.T, store *Store, library *Library, connection *ProviderConnection,
+	title string, externalID int64, episodes []ProviderEpisodeDocument) *CatalogItem {
+	t.Helper()
+	series, err := store.CreateCatalogItem(t.Context(), 7, library.ID, NewCatalogItem{Kind: "series", Title: title})
+	if err != nil {
+		t.Fatal(err)
+	}
+	season, err := store.CreateCatalogItem(t.Context(), 7, library.ID, NewCatalogItem{Kind: "season", ParentID: series.ID, Title: "第一季"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := store.CreateCatalogItem(t.Context(), 7, library.ID, NewCatalogItem{Kind: "episode", ParentID: season.ID, Title: "第一集"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := store.CreateCatalogItem(t.Context(), 7, library.ID, NewCatalogItem{Kind: "episode", ParentID: season.ID, Title: "第二集"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	orderID := "local_" + series.ID
+	if _, err := store.db.Exec(`INSERT INTO episode_order(id,library_id,series_id,scheme) VALUES(?,?,?,'local')`, orderID, library.ID, series.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`INSERT INTO season_position(library_id,order_id,season_id,season_number) VALUES(?,?,?,1)`, library.ID, orderID, season.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`INSERT INTO episode_position(library_id,order_id,season_number,episode_number,episode_id) VALUES(?,?,1,1,?)`, library.ID, orderID, first.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`INSERT INTO episode_position(library_id,order_id,season_number,episode_number,episode_id) VALUES(?,?,1,2,?)`, library.ID, orderID, second.ID); err != nil {
+		t.Fatal(err)
+	}
+	document, err := json.Marshal(ProviderMatchDocument{
+		Item: mediametadata.Item{Kind: mediametadata.TVShow, Fields: map[string][]string{"title": {title}}}, Episodes: episodes,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.db.Exec(`INSERT INTO item_provider_match(library_id,item_id,connection_id,provider,entity_kind,external_id,language,document_json,fetched_at,revision)
+VALUES(?,?,?,'tmdb','series',?,'zh-CN',?,?,?)`, library.ID, series.ID, connection.ID, externalID, string(document), time.Now().UnixMilli(), series.Revision); err != nil {
+		t.Fatal(err)
+	}
+	return series
+}
+
+func refreshEpisodeDocument(number int) ProviderEpisodeDocument {
+	return ProviderEpisodeDocument{SeasonNumber: 1, EpisodeNumber: number,
+		Item: mediametadata.Item{Kind: mediametadata.Episode, Fields: map[string][]string{"title": {"分集标题"}}}}
+}
+
 func TestMetadataRefreshJobCancelRetryAndGenerationFence(t *testing.T) {
 	store := openTestStore(t)
 	ctx := t.Context()

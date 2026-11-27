@@ -630,7 +630,7 @@ internal fun PhoneMediaPolicySettings(repository: MediaLibraryRepository, librar
                 Text("目标资料：${preview.targetLanguage} · ${preview.region}", style = PhoneMediaType.body)
                 Text("已匹配 ${preview.matchedItems} 条；${preview.languageMismatchItems} 条需要刷新，${preview.alreadyCurrentItems} 条已是目标资料。",
                     style = PhoneMediaType.body)
-                if (preview.episodeMetadataItems > 0) Text("其中 ${preview.episodeMetadataItems} 条剧集需要补全中文分集资料。",
+                if (preview.episodeMetadataItems > 0) Text("其中 ${preview.episodeMetadataItems} 条剧集需要补全分集资料。",
                     style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 if (preview.lockedItems > 0 || preview.explicitClearItems > 0) {
                     Text("${preview.lockedItems} 条含人工锁定，${preview.explicitClearItems} 条含显式清空；这些字段会保留。",

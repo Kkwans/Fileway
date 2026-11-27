@@ -105,7 +105,7 @@ SELECT ?,pm.library_id,pm.item_id,i.revision,st.structure_revision,? || '_' || p
 FROM item_provider_match pm
 JOIN library_item i ON i.library_id=pm.library_id AND i.id=pm.item_id
 JOIN item_structure st ON st.library_id=i.library_id AND st.item_id=i.id AND st.superseded_by IS NULL
-WHERE pm.library_id=? AND (pm.language<>? OR (pm.entity_kind='series' AND COALESCE(json_array_length(pm.document_json,'$.episodes'),0)=0))`,
+WHERE pm.library_id=? AND (pm.language<>? OR (pm.entity_kind='series' AND `+metadataRefreshEpisodeMissing+`))`,
 			id, id, libraryID, policy.Language)
 		if err != nil {
 			return job, err
