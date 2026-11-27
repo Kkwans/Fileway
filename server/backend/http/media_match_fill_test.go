@@ -11,6 +11,7 @@ import (
 
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
 	"github.com/Kkwans/nas-file-browser/backend/mediaprovider"
+	"github.com/Kkwans/nas-file-browser/backend/mediascan"
 	"github.com/Kkwans/nas-file-browser/backend/mediatools"
 )
 
@@ -360,6 +361,141 @@ WHERE source_file_id IN (SELECT v.source_file_id FROM variant v JOIN edition e O
 		}
 	}
 	if outbound != 1 {
+		t.Fatalf("provider request count: %d", outbound)
+	}
+}
+
+func TestMediaMatchFillDryRunReturnsDecisionWithoutPersisting(t *testing.T) {
+	t.Setenv("FILEWAY_MEDIA_AUTO_TITLE_MATCH", "0")
+	f := newMediaScanHTTPFixture(t)
+	catalogFixtureWrite(t, f, "Echo (2020) [tmdb-movie-42].mkv", "owned video")
+	library, source := f.libraryAndSource(t)
+	scanFixtureLibrary(t, f, library, source, "dry-run-fixture-scan")
+	owner := f.owner.ID
+	items, _ := fixtureItems(t, f, owner, library.ID, "")
+	if len(items) != 1 {
+		t.Fatalf("fixture item count: %d", len(items))
+	}
+	conn, err := medialibrary.ProviderConnectionID(owner, "dry-run-fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vault, err := mediaprovider.NewCredentialVault(bytes.Repeat([]byte{14}, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	scope, err := medialibrary.ProviderCredentialContext(conn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, fingerprint, err := vault.Seal(scope, "fixture-dry-run-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.PutProviderConnection(t.Context(), owner, false, conn, "user", "dry-run-fixture", 0,
+		medialibrary.SealedProviderCredential{Ciphertext: sealed, Fingerprint: fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	f.h.storage.MediaProviderVault = vault
+	outbound := 0
+	f.h.storage.TMDBHTTPClient = &http.Client{Transport: matchTestTransport(func(r *http.Request) (*http.Response, error) {
+		outbound++
+		if r.URL.Path != "/3/movie/42" || r.URL.Query().Has("query") || r.Header.Get("Authorization") != "Bearer fixture-dry-run-token" {
+			t.Errorf("unexpected automatic provider request: %s", r.URL)
+		}
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
+			`{"id":42,"title":"Echo","release_date":"2020-09-01","overview":"Dry-run only"}`))}, nil
+	})}
+	configuredPolicy := medialibrary.LibraryMetadataPolicy{Mode: medialibrary.MetadataLocalFirst, ConnectionID: conn}
+	policy, err := f.store.SetLibraryMetadataPolicy(t.Context(), owner, library.ID, "allow-dry-run", 0, configuredPolicy)
+	if err != nil {
+		t.Fatal(err)
+	}
+	base := "/api/media-library/v1/libraries/" + library.ID + "/items/" + items[0].ID
+	identified := f.call(t, owner, http.MethodGet, base+"/identification", nil)
+	var identification mediaIdentificationResponse
+	if identified.Code != http.StatusOK || json.Unmarshal(identified.Body.Bytes(), &identification) != nil {
+		t.Fatalf("identification: %d %s", identified.Code, identified.Body)
+	}
+	input := map[string]any{"operationId": "dry-run-decision", "itemRevision": identification.ItemRevision,
+		"structureRevision": identification.StructureRevision, "dryRun": true}
+	if hidden := f.call(t, f.viewer.ID, http.MethodPost, base+"/match-fill", input); hidden.Code != http.StatusNotFound {
+		t.Fatalf("hidden library dry-run: %d %s", hidden.Code, hidden.Body)
+	}
+	currentLibrary, err := f.store.GetLibrary(t.Context(), owner, library.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.store.GrantMember(t.Context(), owner, library.ID, currentLibrary.Revision, f.viewer.ID, medialibrary.RoleViewer); err != nil {
+		t.Fatal(err)
+	}
+	if denied := f.call(t, f.viewer.ID, http.MethodPost, base+"/match-fill", input); denied.Code != http.StatusNotFound ||
+		!strings.Contains(denied.Body.String(), `"code":"not_found_or_forbidden"`) {
+		t.Fatalf("viewer dry-run: %d %s", denied.Code, denied.Body)
+	}
+	response := f.call(t, owner, http.MethodPost, base+"/match-fill", input)
+	if response.Code != http.StatusOK {
+		t.Fatalf("dry-run fill: %d %s", response.Code, response.Body)
+	}
+	var result fillMatchResult
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.State != "matched" || result.Match != nil || result.Decision == nil {
+		t.Fatalf("dry-run result: %+v", result)
+	}
+	decision := result.Decision
+	if decision.Provider != "tmdb" || decision.Kind != "movie" || decision.ExternalID != "42" ||
+		decision.Title != "Echo" || decision.Year != "2020" || decision.Language != "zh-CN" ||
+		decision.ItemRevision != identification.ItemRevision || decision.StructureRevision != identification.StructureRevision ||
+		decision.PolicyRevision != policy.Revision || decision.LocalRulesRevision != mediascan.LocalRulesRevision ||
+		decision.AutoTitleMatch || len(decision.Evidence) == 0 {
+		t.Fatalf("dry-run decision: %+v", decision)
+	}
+	detail := fixtureDetail(t, f, owner, library.ID, items[0].ID)
+	if detail.OnlineMatch != nil || detail.Item.Revision != identification.ItemRevision {
+		t.Fatalf("dry-run changed catalog: %+v", detail)
+	}
+	var receipts int
+	if err := f.store.WithTx(t.Context(), func(tx *sql.Tx) error {
+		return tx.QueryRowContext(t.Context(), `SELECT count(*) FROM operation_receipt WHERE actor_user_id=? AND operation_id=?`, owner, "dry-run-decision").Scan(&receipts)
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if receipts != 0 {
+		t.Fatalf("dry-run created %d receipts", receipts)
+	}
+	delete(input, "dryRun")
+	persisted := f.call(t, owner, http.MethodPost, base+"/match-fill", input)
+	if persisted.Code != http.StatusOK || !strings.Contains(persisted.Body.String(), `"state":"matched"`) {
+		t.Fatalf("default fill after dry-run: %d %s", persisted.Code, persisted.Body)
+	}
+	if detail := fixtureDetail(t, f, owner, library.ID, items[0].ID); detail.OnlineMatch == nil || detail.Fields["plot"].Values[0] != "Dry-run only" {
+		t.Fatalf("default fill did not persist: %+v", detail)
+	}
+	matched := f.call(t, owner, http.MethodGet, base+"/identification", nil)
+	if matched.Code != http.StatusOK || json.Unmarshal(matched.Body.Bytes(), &identification) != nil {
+		t.Fatalf("matched identification: %d %s", matched.Code, matched.Body)
+	}
+	input["operationId"] = "dry-run-existing-match"
+	input["itemRevision"] = identification.ItemRevision
+	input["dryRun"] = true
+	shadow := f.call(t, owner, http.MethodPost, base+"/match-fill", input)
+	if shadow.Code != http.StatusOK {
+		t.Fatalf("shadow existing match: %d %s", shadow.Code, shadow.Body)
+	}
+	var shadowResult fillMatchResult
+	if err := json.Unmarshal(shadow.Body.Bytes(), &shadowResult); err != nil {
+		t.Fatal(err)
+	}
+	if shadowResult.State != "matched" || shadowResult.Match != nil || shadowResult.Decision == nil ||
+		shadowResult.Decision.ExternalID != "42" || shadowResult.Decision.ItemRevision != identification.ItemRevision {
+		t.Fatalf("shadow existing match result: %+v", shadowResult)
+	}
+	if detail := fixtureDetail(t, f, owner, library.ID, items[0].ID); detail.OnlineMatch == nil || detail.Item.Revision != identification.ItemRevision {
+		t.Fatalf("shadow existing match changed catalog: %+v", detail)
+	}
+	if outbound != 3 {
 		t.Fatalf("provider request count: %d", outbound)
 	}
 }

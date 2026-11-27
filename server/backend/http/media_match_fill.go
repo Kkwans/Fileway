@@ -18,10 +18,35 @@ import (
 	"github.com/gorilla/mux"
 )
 
+type fillMatchDecision struct {
+	DryRun             bool     `json:"dryRun"`
+	Provider           string   `json:"provider"`
+	Kind               string   `json:"kind"`
+	ExternalID         string   `json:"externalId,omitempty"`
+	Title              string   `json:"title,omitempty"`
+	Year               string   `json:"year,omitempty"`
+	Language           string   `json:"language"`
+	Region             string   `json:"region"`
+	Evidence           []string `json:"evidence,omitempty"`
+	InputTitle         string   `json:"inputTitle,omitempty"`
+	InputYear          int      `json:"inputYear,omitempty"`
+	Aliases            []string `json:"aliases,omitempty"`
+	DurationMs         int64    `json:"durationMs,omitempty"`
+	Incomplete         bool     `json:"incomplete"`
+	Ambiguities        []string `json:"ambiguities,omitempty"`
+	ItemRevision       int64    `json:"itemRevision"`
+	StructureRevision  int64    `json:"structureRevision"`
+	PolicyRevision     int64    `json:"policyRevision"`
+	LocalRulesRevision int64    `json:"localRulesRevision"`
+	AutoTitleMatch     bool     `json:"autoTitleMatch"`
+	AdapterVersion     string   `json:"adapterVersion,omitempty"`
+}
+
 type fillMatchResult struct {
-	State  string                            `json:"state"`
-	Reason string                            `json:"reason,omitempty"`
-	Match  *medialibrary.ProviderMatchResult `json:"match,omitempty"`
+	State    string                            `json:"state"`
+	Reason   string                            `json:"reason,omitempty"`
+	Match    *medialibrary.ProviderMatchResult `json:"match,omitempty"`
+	Decision *fillMatchDecision                `json:"decision,omitempty"`
 }
 
 // mediaMatchFillHandler runs the same fill-only rules that the batch worker
@@ -32,6 +57,7 @@ func mediaMatchFillHandler(slots chan struct{}, starts <-chan time.Time) handleF
 			OperationID       string `json:"operationId"`
 			ItemRevision      int64  `json:"itemRevision"`
 			StructureRevision int64  `json:"structureRevision"`
+			DryRun            bool   `json:"dryRun"`
 		}
 		if decodeMediaScanBody(w, r, &body) != nil || !validScanID(body.OperationID) || body.ItemRevision < 1 || body.StructureRevision < 1 {
 			return catalogError(w, medialibrary.ErrInvalid)
@@ -39,6 +65,9 @@ func mediaMatchFillHandler(slots chan struct{}, starts <-chan time.Time) handleF
 		library, err := itemLibrary(r, d)
 		if err != nil {
 			return catalogError(w, err)
+		}
+		if library.Role != medialibrary.RoleOwner && library.Role != medialibrary.RoleEditor {
+			return catalogError(w, medialibrary.ErrForbidden)
 		}
 		if d.store.MediaProviderVault == nil || d.store.TMDBHTTPClient == nil {
 			return writeCatalogError(w, http.StatusServiceUnavailable, "provider_configuration_required", "TMDB 连接尚未配置", true)
@@ -50,7 +79,7 @@ func mediaMatchFillHandler(slots chan struct{}, starts <-chan time.Time) handleF
 			w.Header().Set("Retry-After", "1")
 			return writeCatalogError(w, http.StatusTooManyRequests, "provider_busy", "TMDB 请求较多，请稍后再试", true)
 		}
-		result, err := fillCatalogMatch(r.Context(), d, library, mux.Vars(r)["itemId"], body.OperationID, body.ItemRevision, body.StructureRevision, starts, nil)
+		result, err := fillCatalogMatch(r.Context(), d, library, mux.Vars(r)["itemId"], body.OperationID, body.ItemRevision, body.StructureRevision, starts, nil, body.DryRun)
 		if err != nil {
 			var providerFailure *mediaprovider.Error
 			if errors.As(err, &providerFailure) {
@@ -72,13 +101,20 @@ type metadataFillLease struct {
 	job         medialibrary.MetadataJob
 }
 
-func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Library, itemID, operationID string, itemRevision, structureRevision int64, starts <-chan time.Time, lease *metadataFillLease) (fillMatchResult, error) {
+func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Library, itemID, operationID string, itemRevision, structureRevision int64, starts <-chan time.Time, lease *metadataFillLease, dryRun bool) (fillMatchResult, error) {
 	store := d.store.MediaLibrary
 	policy, err := store.GetLibraryMetadataPolicy(ctx, d.user.ID, library.ID)
 	if err != nil {
 		return fillMatchResult{}, err
 	}
 	if !policy.OnlineEnabled() {
+		if dryRun {
+			return fillMatchResult{State: "local_only", Decision: &fillMatchDecision{
+				DryRun: true, Provider: "tmdb", Language: policy.Language, Region: policy.Region,
+				ItemRevision: itemRevision, StructureRevision: structureRevision, PolicyRevision: policy.Revision,
+				LocalRulesRevision: mediascan.LocalRulesRevision,
+			}}, nil
+		}
 		return fillMatchResult{State: "local_only"}, nil
 	}
 	snapshot, err := beginCatalogSnapshot(ctx, d, library.ID)
@@ -91,23 +127,32 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 	}
 	input := automaticMatchInput(item, mediaAutoTitleMatchEnabled())
 	input.Region = policy.Region
+	var preview *fillMatchDecision
+	if dryRun {
+		preview = newFillMatchDecision(input, *policy, item.ItemRevision, item.StructureRevision)
+	}
 	if reason := automaticMatchSkipReason(input); reason != "" {
+		if preview != nil {
+			return fillMatchResult{State: "skipped", Reason: reason, Decision: preview}, nil
+		}
 		return fillMatchResult{State: "skipped", Reason: reason}, nil
 	}
 	request := medialibrary.ProviderMatchRequest{LibraryID: library.ID, ItemID: itemID, Kind: string(input.Kind),
 		ItemRevision: itemRevision, StructureRevision: structureRevision, Automatic: true}
-	if receipt, found, err := store.ReplayProviderMatch(ctx, d.user.ID, operationID, request); err != nil {
-		return fillMatchResult{}, err
-	} else if found {
-		if err := verifyCatalogSnapshot(ctx, d, snapshot); err != nil {
+	if !dryRun {
+		if receipt, found, err := store.ReplayProviderMatch(ctx, d.user.ID, operationID, request); err != nil {
 			return fillMatchResult{}, err
+		} else if found {
+			if err := verifyCatalogSnapshot(ctx, d, snapshot); err != nil {
+				return fillMatchResult{}, err
+			}
+			return fillMatchResult{State: "matched", Match: receipt}, nil
 		}
-		return fillMatchResult{State: "matched", Match: receipt}, nil
 	}
 	if item.ItemRevision != itemRevision || item.StructureRevision != structureRevision {
 		return fillMatchResult{}, medialibrary.ErrRevisionConflict
 	}
-	if item.MatchState == "provider_confirmed" {
+	if !dryRun && item.MatchState == "provider_confirmed" {
 		return fillMatchResult{State: "already_matched"}, nil
 	}
 	held, err := store.ProviderMatchRequiresManualReview(ctx, d.user.ID, library.ID, itemID)
@@ -115,6 +160,9 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 		return fillMatchResult{}, err
 	}
 	if held {
+		if preview != nil {
+			return fillMatchResult{State: "needs_review", Reason: "manual_review_required", Decision: preview}, nil
+		}
 		return fillMatchResult{State: "needs_review", Reason: "manual_review_required"}, nil
 	}
 	kind, durations, err := store.MetadataDurationsForItem(ctx, d.user.ID, library.ID, itemID)
@@ -122,6 +170,9 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 		return fillMatchResult{}, err
 	}
 	if state, reason := medialibrary.MetadataDurationDecision(kind, durations, *policy); state != "allowed" {
+		if preview != nil {
+			return fillMatchResult{State: state, Reason: reason, Decision: preview}, nil
+		}
 		return fillMatchResult{State: state, Reason: reason}, nil
 	}
 	// A leaf with multiple distinct files can have contradictory filename
@@ -143,6 +194,10 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 	}
 	for _, metadata := range view.metadataChecks {
 		input.Incomplete = input.Incomplete || metadata.State != mediascan.ReferenceAvailable
+	}
+	if preview != nil {
+		preview.Incomplete = input.Incomplete
+		preview.Ambiguities = append([]string(nil), input.Ambiguities...)
 	}
 	fence, sealed, err := store.GetProviderCredentialForUse(ctx, d.user.ID, library.ID, policy.ConnectionID)
 	if err != nil {
@@ -190,6 +245,19 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 	if err := check(ctx); err != nil {
 		return fillMatchResult{}, err
 	}
+	if preview != nil {
+		preview.Evidence = append([]string(nil), decision.Evidence...)
+		preview.AdapterVersion = "tmdb-v1"
+		if decision.State == mediaprovider.AutoMatched {
+			preview.Provider = decision.Document.Entity.Provider
+			preview.Kind = string(decision.Document.Entity.Kind)
+			preview.ExternalID = strconv.FormatInt(decision.Document.Entity.ID, 10)
+			preview.Title = firstProviderField(decision.Projection.Item.Fields, "title")
+			preview.Year = firstProviderField(decision.Projection.Item.Fields, "year")
+			preview.Language = decision.Document.Language
+		}
+		return fillMatchResult{State: string(decision.State), Reason: decision.Reason, Decision: preview}, nil
+	}
 	if decision.State != mediaprovider.AutoMatched {
 		return fillMatchResult{State: string(decision.State), Reason: decision.Reason}, nil
 	}
@@ -216,6 +284,24 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 		return fillMatchResult{}, errProviderResultUnknown
 	}
 	return fillMatchResult{State: "matched", Match: receipt}, nil
+}
+
+func newFillMatchDecision(input mediaprovider.AutomaticMatchInput, policy medialibrary.LibraryMetadataPolicy, itemRevision, structureRevision int64) *fillMatchDecision {
+	return &fillMatchDecision{
+		DryRun: true, Provider: "tmdb", Kind: string(input.Kind), Language: policy.Language, Region: policy.Region,
+		InputTitle: input.Title, InputYear: input.Year, Aliases: append([]string(nil), input.Aliases...), DurationMs: input.DurationMs,
+		Incomplete: input.Incomplete, Ambiguities: append([]string(nil), input.Ambiguities...), ItemRevision: itemRevision,
+		StructureRevision: structureRevision, PolicyRevision: policy.Revision, LocalRulesRevision: mediascan.LocalRulesRevision,
+		AutoTitleMatch: input.AllowTitleMatch,
+	}
+}
+
+func firstProviderField(fields map[string][]string, name string) string {
+	values := fields[name]
+	if len(values) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(values[0])
 }
 
 func mediaAutoTitleMatchEnabled() bool {

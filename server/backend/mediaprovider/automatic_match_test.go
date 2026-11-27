@@ -57,8 +57,8 @@ func TestResolveAutomaticMatchRequiresConvergingExplicitEvidence(t *testing.T) {
 			if err != nil || result.State != tc.want || result.Reason != tc.reason || calls != tc.calls || checks != calls {
 				t.Fatalf("state=%s reason=%s checks=%d calls=%d err=%v", result.State, result.Reason, checks, calls, err)
 			}
-			if tc.want == AutoMatched && (result.Document.Entity.ID != 42 || result.Document.Entity.Kind != tc.input.Kind || len(result.Projection.Item.Fields["title"]) == 0) {
-				t.Fatal("matched result lacks typed detail and normalized metadata")
+			if tc.want == AutoMatched && (result.Document.Entity.ID != 42 || result.Document.Entity.Kind != tc.input.Kind || len(result.Projection.Item.Fields["title"]) == 0 || !slices.Contains(result.Evidence, "typed_identifier_match")) {
+				t.Fatal("matched result lacks typed detail, evidence and normalized metadata")
 			}
 		})
 	}

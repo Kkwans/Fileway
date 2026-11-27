@@ -72,7 +72,7 @@ func newMetadataWorker(store *storage.Storage, server *settings.Server, slots ch
 			case slots <- struct{}{}:
 			}
 			result, err := fillCatalogMatch(ctx, d, library, target.ItemID, job.ID+"_"+target.ItemID,
-				target.ItemRevision, target.StructureRevision, starts, &metadataFillLease{coordinator, job})
+				target.ItemRevision, target.StructureRevision, starts, &metadataFillLease{coordinator, job}, false)
 			<-slots
 			if err != nil {
 				var upstream *mediaprovider.Error

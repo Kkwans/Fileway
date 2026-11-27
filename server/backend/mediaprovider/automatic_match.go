@@ -208,7 +208,7 @@ func (client *TMDBClient) ResolveAutomaticMatch(ctx context.Context, input Autom
 	if year := projection.Item.Fields["year"]; input.Year > 0 && len(year) != 0 && year[0] != strconv.Itoa(input.Year) {
 		return review("year_conflict")
 	}
-	return AutomaticMatch{State: AutoMatched, Document: document, Projection: projection}, nil
+	return AutomaticMatch{State: AutoMatched, Evidence: []string{"typed_identifier_match"}, Document: document, Projection: projection}, nil
 }
 
 func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input AutomaticMatchInput, language string,
