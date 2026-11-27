@@ -154,6 +154,9 @@ func mediaMetadataRefreshHandler(preview bool, slots chan struct{}, starts <-cha
 			return catalogError(w, err)
 		}
 		changed := changedMetadataFields(match.Document.Item.Fields, projection.Item.Fields)
+		if match.Audit.Language != policy.Language {
+			changed = append(changed, "language")
+		}
 		if !reflect.DeepEqual(match.Document.Item.Credits, projection.Item.Credits) {
 			changed = append(changed, "credits")
 		}

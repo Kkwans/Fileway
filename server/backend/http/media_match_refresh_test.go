@@ -8,8 +8,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Kkwans/nas-file-browser/backend/medialibrary"
+	"github.com/Kkwans/nas-file-browser/backend/mediametadata"
 	"github.com/Kkwans/nas-file-browser/backend/mediaprovider"
 )
 
@@ -201,5 +203,128 @@ func TestMediaMetadataRefreshPreviewApplyAndUndo(t *testing.T) {
 	offline := f.call(t, owner, http.MethodPost, "/api/media-library/v1/libraries/"+library.ID+"/metadata-refresh-preview", map[string]any{})
 	if offline.Code != http.StatusUnprocessableEntity || calls != offlineCalls {
 		t.Fatalf("offline library preview: %d %s calls=%d/%d", offline.Code, offline.Body, calls, offlineCalls)
+	}
+}
+
+func TestMetadataRefreshRepairsEmptyLanguageWhenDocumentIsUnchanged(t *testing.T) {
+	var testVault *mediaprovider.CredentialVault
+	f := newMediaScanHTTPFixture(t, func(h *trashHTTPHarness) {
+		var err error
+		testVault, err = mediaprovider.NewCredentialVault(bytes.Repeat([]byte{13}, 32))
+		if err != nil {
+			t.Fatal(err)
+		}
+		h.storage.MediaProviderVault = testVault
+		h.storage.TMDBHTTPClient = &http.Client{Transport: matchTestTransport(func(r *http.Request) (*http.Response, error) {
+			if r.URL.Path != "/3/movie/55" || r.URL.Query().Get("language") != "zh-CN" {
+				t.Fatalf("unexpected refresh route: %s", r.URL.String())
+			}
+			return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
+				`{"id":55,"title":"中文电影","overview":"中文简介","release_date":"2020-01-01"}`))}, nil
+		})}
+	})
+	catalogFixtureWrite(t, f, "film.mkv", "video")
+	library, source := f.libraryAndSource(t)
+	scanFixtureLibrary(t, f, library, source, "empty-language-refresh-fixture")
+	owner := f.owner.ID
+	items, _ := fixtureItems(t, f, owner, library.ID, "")
+	if len(items) != 1 {
+		t.Fatalf("fixture items: %+v", items)
+	}
+	itemID := items[0].ID
+	structure, err := f.store.GetItemStructure(t.Context(), owner, library.ID, itemID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	connection, err := medialibrary.ProviderConnectionID(owner, "empty-language-refresh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	vault := testVault
+	scope, err := medialibrary.ProviderCredentialContext(connection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sealed, fingerprint, err := vault.Seal(scope, "empty-language-refresh-token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.store.PutProviderConnection(t.Context(), owner, false, connection, "user", "empty-language-refresh", 0,
+		medialibrary.SealedProviderCredential{Ciphertext: sealed, Fingerprint: fingerprint}); err != nil {
+		t.Fatal(err)
+	}
+	f.h.storage.MediaProviderVault = vault
+	policy, err := f.store.SetLibraryMetadataPolicy(t.Context(), owner, library.ID, "empty-language-policy", 0,
+		medialibrary.LibraryMetadataPolicy{Mode: medialibrary.MetadataOnlineFirst, ConnectionID: connection, Language: "zh-CN", Region: "CN"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	authority, err := f.store.CheckProviderUse(t.Context(), owner, library.ID, connection)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document := medialibrary.ProviderMatchDocument{Item: mediametadata.Item{Kind: mediametadata.Movie, Fields: map[string][]string{
+		"title": {"中文电影"}, "plot": {"中文简介"}, "year": {"2020"},
+	}}}
+	request := medialibrary.ProviderMatchRequest{LibraryID: library.ID, ItemID: itemID, ConnectionID: connection,
+		Kind: "movie", ExternalID: 55, ItemRevision: items[0].Revision, StructureRevision: structure.Revision}
+	if _, err = f.store.ConfirmProviderMatch(t.Context(), owner, "empty-language-initial", request, *authority, "", time.Now().UnixMilli(), document,
+		medialibrary.ProviderMatchAudit{Source: "automatic", Region: "CN", AdapterVersion: "tmdb-v1"}); err != nil {
+		t.Fatal(err)
+	}
+	base := "/api/media-library/v1/libraries/" + library.ID
+	enqueue := f.call(t, owner, http.MethodPost, base+"/metadata-refresh-jobs", map[string]any{
+		"operationId": "empty-language-enqueue", "mode": "refresh_unlocked", "expectedPolicyRevision": policy.Revision,
+	})
+	var job metadataRefreshJobResponse
+	if enqueue.Code != http.StatusAccepted || json.Unmarshal(enqueue.Body.Bytes(), &job) != nil || job.Total != 1 {
+		t.Fatalf("enqueue: %d %s", enqueue.Code, enqueue.Body)
+	}
+	deadline := time.Now().Add(12 * time.Second)
+	for {
+		response := f.call(t, owner, http.MethodGet, base+"/metadata-refresh-jobs/"+job.JobID, nil)
+		if response.Code != http.StatusOK || json.Unmarshal(response.Body.Bytes(), &job) != nil {
+			t.Fatal(response.Code, response.Body)
+		}
+		if job.Status != "queued" && job.Status != "running" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("refresh did not finish: %+v", job)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if job.Status != "completed" || job.Refreshed != 1 || job.AlreadyCurrent != 0 {
+		t.Fatalf("empty language refresh job: %+v", job)
+	}
+	detail := fixtureDetail(t, f, owner, library.ID, itemID)
+	if detail.OnlineMatch == nil || detail.OnlineMatch.Language != "zh-CN" {
+		t.Fatalf("refreshed language: %+v", detail.OnlineMatch)
+	}
+
+	items, _ = fixtureItems(t, f, owner, library.ID, "")
+	structure, err = f.store.GetItemStructure(t.Context(), owner, library.ID, itemID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	request.ItemRevision = items[0].Revision
+	request.StructureRevision = structure.Revision
+	if _, err = f.store.ConfirmProviderMatch(t.Context(), owner, "empty-language-single-initial", request, *authority, "", time.Now().UnixMilli(), document,
+		medialibrary.ProviderMatchAudit{Source: "automatic", Region: "CN", AdapterVersion: "tmdb-v1"}); err != nil {
+		t.Fatal(err)
+	}
+	identityResponse := f.call(t, owner, http.MethodGet, base+"/items/"+itemID+"/identification", nil)
+	var identity mediaIdentificationResponse
+	if identityResponse.Code != http.StatusOK || json.Unmarshal(identityResponse.Body.Bytes(), &identity) != nil {
+		t.Fatalf("identity: %d %s", identityResponse.Code, identityResponse.Body)
+	}
+	refreshed := f.call(t, owner, http.MethodPost, base+"/items/"+itemID+"/metadata-refresh", map[string]any{
+		"operationId": "empty-language-single-refresh", "itemRevision": identity.ItemRevision, "structureRevision": identity.StructureRevision,
+	})
+	if refreshed.Code != http.StatusOK {
+		t.Fatalf("single refresh: %d %s", refreshed.Code, refreshed.Body)
+	}
+	if detail = fixtureDetail(t, f, owner, library.ID, itemID); detail.OnlineMatch == nil || detail.OnlineMatch.Language != "zh-CN" {
+		t.Fatalf("single refreshed language: %+v", detail.OnlineMatch)
 	}
 }

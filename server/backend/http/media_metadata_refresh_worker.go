@@ -167,6 +167,9 @@ func newMetadataRefreshWorker(store *storage.Storage, server *settings.Server, s
 				return
 			}
 			changed := changedMetadataFields(match.Document.Item.Fields, projection.Item.Fields)
+			if match.Audit.Language != job.Language {
+				changed = append(changed, "language")
+			}
 			if !reflect.DeepEqual(match.Document.Item.Credits, projection.Item.Credits) {
 				changed = append(changed, "credits")
 			}
