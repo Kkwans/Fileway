@@ -11,6 +11,14 @@ import org.junit.Test
 
 class TvMediaHomeRowPolicyTest {
     @Test
+    fun emptyCatalogKeepsCategoryNavigationVisible() {
+        val shelf = TvMediaShelf("catalog", "我的片库")
+
+        assertTrue(tvMediaCatalogShelfVisible(shelf, listOf(TvMediaCategory("movie", "电影"))))
+        assertFalse(tvMediaCatalogShelfVisible(shelf, emptyList()))
+    }
+
+    @Test
     fun serverRowsKeepTheirOrderAndUseReadableTitles() {
         val rows = listOf(
             homeRow(MediaCatalogRowId.RECENTLY_ADDED),

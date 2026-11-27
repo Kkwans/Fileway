@@ -29,8 +29,24 @@ class TvMediaScrollTestActivity : ComponentActivity() {
                 CompositionLocalProvider(LocalTvMediaFocusBinding provides TvMediaFocusBinding("fixture", "poster", { _, _ -> }, {})) {
                     var mode by remember { mutableStateOf(TvMediaSearchMode.WORKS) }
                     var more by remember { mutableStateOf(false) }
+                    var category by remember { mutableStateOf("movie") }
                     TvMediaTheme {
-                        if (screen == "works") {
+                        if (screen == "home") {
+                            TvMediaHome(
+                                state = TvMediaHomeState(
+                                    scopeKey = "empty-category-fixture",
+                                    shelves = listOf(TvMediaShelf("catalog", "我的片库",
+                                        items = if (category == "movie") cards.take(6) else emptyList())),
+                                    categories = listOf(TvMediaCategory("movie", "电影"), TvMediaCategory("series", "剧集")),
+                                    selectedCategory = category,
+                                ),
+                                imageLoader = loader,
+                                onItem = {},
+                                onContinue = {},
+                                onCategory = { category = it },
+                                navigation = {},
+                            )
+                        } else if (screen == "works") {
                             TvMediaWorksPage(
                                 header = { Text("测试作品页") },
                                 cards = cards,

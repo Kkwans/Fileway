@@ -54,7 +54,11 @@ fun TvMediaHome(
     navigation: @Composable () -> Unit = {},
 ) {
     val colors = LocalMediaColors.current
-    val shelves = state.shelves.filter(::tvMediaShelfVisible)
+    val catalog = state.shelves.firstOrNull { it.id == "catalog" }
+    val showCatalog = catalog != null && tvMediaCatalogShelfVisible(catalog, state.categories)
+    val shelves = state.shelves.mapNotNull { shelf ->
+        if (shelf.id == "catalog") shelf.takeIf { showCatalog } else shelf.takeIf(::tvMediaShelfVisible)
+    }
     val rows = state.rows.mapNotNull { row -> tvMediaHomeRowShelf(row)?.let { row.rowId to it } }
         .filter { (_, shelf) -> tvMediaShelfVisible(shelf) }
     val hasContent = state.featured.isNotEmpty() || state.continuing.isNotEmpty() || rows.isNotEmpty() || shelves.isNotEmpty()
