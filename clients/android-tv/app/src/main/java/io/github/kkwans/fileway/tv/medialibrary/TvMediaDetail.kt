@@ -75,11 +75,11 @@ fun TvMediaDetail(
         if (jumpWasOpen && !jumpOpen) withFrameNanos { jumpFocus.requestFocus() }
         jumpWasOpen = jumpOpen
     }
-    LazyColumn(state = scrollState, modifier = modifier.fillMaxSize().background(colors.canvas),
-        contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(MediaLayout.sectionGap)) {
-        item(key = "hero:${state.item.id}") {
-            Box(Modifier.fillMaxWidth()) {
-                MediaHeroCanvas(state.item, imageLoader, Modifier.matchParentSize())
+    Box(modifier.fillMaxSize().background(colors.canvas)) {
+        MediaHeroCanvas(state.item, imageLoader, Modifier.matchParentSize())
+        LazyColumn(state = scrollState, modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(MediaLayout.sectionGap)) {
+            item(key = "hero:${state.item.id}") {
                 Column(Modifier.fillMaxWidth().padding(top = 28.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     MediaQuietAction("影视", onBack, Modifier.padding(horizontal = MediaLayout.pageInset)
                         .tvMediaReturnFocus(state.item.id, "detail-back"), icon = Art.drawable.fileway_ic_arrow_back)
@@ -160,7 +160,6 @@ fun TvMediaDetail(
                     if (state.loading) MediaLoadingStatus("正在更新影片资料…", compact = true)
                 }
             }
-        }
         if (state.seasons.isNotEmpty() || state.episodes.isNotEmpty() || state.episodesLoading || state.episodesError != null) item(key = "episodes") {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = MediaLayout.pageInset),
@@ -241,6 +240,7 @@ fun TvMediaDetail(
                     ),
                 )
             }
+        }
         }
     }
     if (jumpOpen && onJumpEpisode != null) TvEpisodeJumpDialog(

@@ -28,6 +28,18 @@ data class TvMediaRating(
     val countLabel: String? = null,
 )
 
+internal fun tvMediaRatingCountLabel(source: TvMediaRatingSource, count: Long?, precision: String?): String? {
+    count ?: return null
+    val unit = when (source) {
+        TvMediaRatingSource.DOUBAN -> "人评价"
+        TvMediaRatingSource.IMDB, TvMediaRatingSource.TMDB -> "票"
+        TvMediaRatingSource.ROTTEN_TOMATOES_CRITICS -> "位影评人"
+        TvMediaRatingSource.ROTTEN_TOMATOES_AUDIENCE -> "位观众"
+    }
+    val lowerBound = if (precision == "lower_bound") "+" else ""
+    return "${String.format(java.util.Locale.ROOT, "%,d", count)}$lowerBound $unit"
+}
+
 data class TvMediaCard(
     val id: String,
     val title: String,

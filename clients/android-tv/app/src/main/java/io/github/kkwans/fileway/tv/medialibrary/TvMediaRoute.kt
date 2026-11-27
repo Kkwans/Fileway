@@ -386,7 +386,8 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                     val detail = result?.detail
                     val ratings = detail?.ratings?.items.orEmpty().mapNotNull { observation ->
                         val value = observation.rating
-                        value.value?.let { score -> tvRating(value.provider ?: value.rawSource, value.metric, score, value.scale) }
+                        value.value?.let { score -> tvRating(value.provider ?: value.rawSource, value.metric, score, value.scale,
+                            value.count, value.countPrecision) }
                     }
                     val reference = if (libraryId != null) repository.catalogRef(libraryId, itemId) else null
                     val playable = card?.actions?.can(MediaCatalogAction.PLAY) == true
@@ -587,10 +588,11 @@ private fun tvAvailability(value: MediaCatalogAvailability): String? = when (val
 
 private fun tvRating(value: MediaCatalogRating?): TvMediaRating? {
     value ?: return null
-    return tvRating(value.provider, value.metric, value.value, value.scale)
+    return tvRating(value.provider, value.metric, value.value, value.scale, value.count, value.countPrecision)
 }
 
-private fun tvRating(provider: String, metric: MediaRatingMetric, value: Double, scale: Double?): TvMediaRating? {
+private fun tvRating(provider: String, metric: MediaRatingMetric, value: Double, scale: Double?,
+    count: Long? = null, countPrecision: String? = null): TvMediaRating? {
     val source = when (provider.lowercase(Locale.ROOT)) {
         "douban" -> TvMediaRatingSource.DOUBAN
         "imdb" -> TvMediaRatingSource.IMDB
@@ -606,7 +608,7 @@ private fun tvRating(provider: String, metric: MediaRatingMetric, value: Double,
     val label = if (metric in setOf(MediaRatingMetric.CRITIC_APPROVAL, MediaRatingMetric.AUDIENCE_APPROVAL) && scale != null && scale > 0)
         "${kotlin.math.round(value / scale * 100).toInt()}%"
     else listOfNotNull(number(value), scale?.let(::number)).joinToString(" / ")
-    return TvMediaRating(source, label)
+    return TvMediaRating(source, label, tvMediaRatingCountLabel(source, count, countPrecision))
 }
 
 private fun tvSize(bytes: Long): String = if (bytes < 1024) "$bytes B" else if (bytes < 1024 * 1024)
