@@ -7,6 +7,11 @@ import io.github.kkwans.nasfilebrowser.data.*
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 
+internal data class PhoneMediaFailedSearch(val query: String, val page: Int)
+
+internal fun phoneMediaMatchRetrySearch(error: MediaProblem?, failed: PhoneMediaFailedSearch?): PhoneMediaFailedSearch? =
+    failed?.takeIf { error?.title == "查询失败" }
+
 @Composable
 internal fun PhoneMediaMatchRoute(repository: MediaLibraryRepository, ref: MediaCatalogRef, imageLoader: ImageLoader,
     onBack: () -> Unit, onMatched: () -> Unit) {
@@ -24,6 +29,7 @@ internal fun PhoneMediaMatchRoute(repository: MediaLibraryRepository, ref: Media
         var seriesPreview by remember { mutableStateOf<MediaSeriesMappingPreview?>(null) }
         var refreshPreview by remember { mutableStateOf<MediaMetadataRefreshPreview?>(null) }
         var nextPage by remember { mutableStateOf<Int?>(null) }
+        var failedSearch by remember { mutableStateOf<PhoneMediaFailedSearch?>(null) }
         var error by remember { mutableStateOf<MediaProblem?>(null) }
         var busy by remember { mutableStateOf(false) }
         var loading by remember { mutableStateOf(false) }
@@ -33,7 +39,7 @@ internal fun PhoneMediaMatchRoute(repository: MediaLibraryRepository, ref: Media
         var refresh by remember { mutableIntStateOf(0) }
         LaunchedEffect(refresh) {
             searchGeneration++; searchJob?.cancel()
-            loading = true; error = null; candidates = emptyList(); selected = null; seriesPreview = null; refreshPreview = null; searchedQuery = ""
+            loading = true; error = null; failedSearch = null; candidates = emptyList(); selected = null; seriesPreview = null; refreshPreview = null; searchedQuery = ""
             try {
                 pending = repository.pendingMatchConfirmation(ref)
                 when (val result = repository.identification(ref)) {
@@ -61,6 +67,7 @@ internal fun PhoneMediaMatchRoute(repository: MediaLibraryRepository, ref: Media
             }
             searchJob?.cancel()
             val requestGeneration = ++searchGeneration
+            failedSearch = null
             if (page == 1) { candidates = emptyList(); selected = null; nextPage = null; seriesPreview = null }
             searchedQuery = value
             val kind = if (item.structureKind == MediaItemKind.SERIES || seriesMode) MediaProviderMatchKind.SERIES else MediaProviderMatchKind.MOVIE
@@ -74,7 +81,10 @@ internal fun PhoneMediaMatchRoute(repository: MediaLibraryRepository, ref: Media
                                 nextPage = if (result.value.hasMore) result.value.page + 1 else null
                             }
                         }
-                        is MediaReadResult.Failure -> if (requestGeneration == searchGeneration) error = MediaProblem("查询失败", providerProblem(result.error), "重试")
+                        is MediaReadResult.Failure -> if (requestGeneration == searchGeneration) {
+                            failedSearch = PhoneMediaFailedSearch(value, page)
+                            error = MediaProblem("查询失败", providerProblem(result.error), "重试")
+                        }
                     }
                 } finally { if (requestGeneration == searchGeneration) loading = false }
             }
@@ -190,8 +200,8 @@ internal fun PhoneMediaMatchRoute(repository: MediaLibraryRepository, ref: Media
             imageLoader, onAction = { action ->
                 when (action) {
                     PhoneMediaAction.Back -> if (!busy) onBack()
-                    is PhoneMediaAction.MatchQuery -> { searchGeneration++; searchJob?.cancel(); loading = false; query = action.query; searchedQuery = ""; selected = null; candidates = emptyList(); nextPage = null; seriesPreview = null }
-                    is PhoneMediaAction.MatchSeriesMode -> { searchGeneration++; searchJob?.cancel(); loading = false; seriesMode = action.series; searchedQuery = ""; selected = null; candidates = emptyList(); nextPage = null; seriesPreview = null; error = null }
+                    is PhoneMediaAction.MatchQuery -> { searchGeneration++; searchJob?.cancel(); loading = false; failedSearch = null; query = action.query; searchedQuery = ""; selected = null; candidates = emptyList(); nextPage = null; seriesPreview = null }
+                    is PhoneMediaAction.MatchSeriesMode -> { searchGeneration++; searchJob?.cancel(); loading = false; failedSearch = null; seriesMode = action.series; searchedQuery = ""; selected = null; candidates = emptyList(); nextPage = null; seriesPreview = null; error = null }
                     is PhoneMediaAction.MatchSeason -> { seasonNumber = action.value; seriesPreview = null }
                     is PhoneMediaAction.MatchEpisodes -> { episodeNumbers = action.value; seriesPreview = null }
                     PhoneMediaAction.PreviewSeriesMapping -> previewSeries()
@@ -203,7 +213,11 @@ internal fun PhoneMediaMatchRoute(repository: MediaLibraryRepository, ref: Media
                     PhoneMediaAction.PreviewMetadataRefresh -> previewRefresh()
                     PhoneMediaAction.ApplyMetadataRefresh -> applyRefresh()
                     is PhoneMediaAction.LoadMore -> nextPage?.let { search(searchedQuery, it) }
-                    is PhoneMediaAction.Retry -> if (pending != null) submit() else refresh++
+                    is PhoneMediaAction.Retry -> when {
+                        pending != null -> submit()
+                        phoneMediaMatchRetrySearch(error, failedSearch) != null -> phoneMediaMatchRetrySearch(error, failedSearch)?.let { search(it.query, it.page) }
+                        else -> refresh++
+                    }
                     is PhoneMediaAction.ReloadMatch -> refresh++
                     else -> Unit
                 }
