@@ -96,9 +96,6 @@ func mediaMetadataRefreshHandler(preview bool, slots chan struct{}, starts <-cha
 			if item.ItemRevision != body.ItemRevision || item.StructureRevision != body.StructureRevision {
 				return catalogError(w, medialibrary.ErrRevisionConflict)
 			}
-			if match.Kind != "series" && match.Audit.Language == policy.Language {
-				return renderJSON(w, r, map[string]string{"state": "already_current", "language": policy.Language})
-			}
 		}
 		if d.store.MediaProviderVault == nil || d.store.TMDBHTTPClient == nil {
 			return writeCatalogError(w, http.StatusServiceUnavailable, "provider_configuration_required", "TMDB 连接尚未配置", true)
