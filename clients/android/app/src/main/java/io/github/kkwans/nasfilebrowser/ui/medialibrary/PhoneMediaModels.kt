@@ -115,6 +115,8 @@ internal sealed interface PhoneMediaAction {
     data object Sort : PhoneMediaAction
     data class OpenItem(val id: String) : PhoneMediaAction
     data class Category(val id: String) : PhoneMediaAction
+    data object ViewAllCatalog : PhoneMediaAction
+    data object ViewAllSeries : PhoneMediaAction
     data class Retry(val section: String) : PhoneMediaAction
     data class LoadMore(val section: String) : PhoneMediaAction
     data class SetCarouselAutoAdvance(val enabled: Boolean) : PhoneMediaAction

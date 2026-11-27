@@ -139,6 +139,9 @@ internal fun PhoneMediaRoute(
         else if (parentItem != null && parentLibrary != null) {
             item = parentItem; library = parentLibrary; season = parentSeason
             parentItem = null; parentLibrary = null; parentSeason = null
+        } else if (mediaTab !in setOf("home", "settings")) {
+            mediaTab = "home"
+            route.chooseQuery(null, "all")
         } else { item = null; library = null; season = null }
     }
 
@@ -229,7 +232,18 @@ internal fun PhoneMediaRoute(
                     season = null
                 }
             }
-            is PhoneMediaAction.Category -> { filter = intent.id; route.chooseFilter(intent.id) }
+            is PhoneMediaAction.Category -> {
+                filter = intent.id; selectedLibrary = null; mediaTab = "categories"
+                route.chooseQuery(null, intent.id)
+            }
+            PhoneMediaAction.ViewAllCatalog -> {
+                filter = "all"; selectedLibrary = null; mediaTab = "libraries"
+                route.chooseQuery(null, "all")
+            }
+            PhoneMediaAction.ViewAllSeries -> {
+                filter = "series"; selectedLibrary = null; mediaTab = "categories"
+                route.chooseQuery(null, "series")
+            }
             is PhoneMediaAction.SetCarouselAutoAdvance -> autoAdvance = intent.enabled
             is PhoneMediaAction.SelectSeason -> route.selectSeason(intent.id)
             is PhoneMediaAction.Play -> if (intent.kind == MediaTargetKind.CONTINUE) {
@@ -387,6 +401,9 @@ internal fun PhoneMediaRoute(
                     MediaCategory("series", "剧集"), MediaCategory("video", "未分类"),
                 ) else emptyList(),
                 selectedCategory = route.filter,
+                catalogTitle = when (route.filter) {
+                    "movie" -> "电影"; "series" -> "剧集"; "video" -> "未分类视频"; else -> "全部影视"
+                },
                 canManage = home?.actions?.can(MediaCatalogAction.CREATE_LIBRARY) == true,
                 canSearch = home?.capabilities?.get("search") == true,
                 canSearchCollections = home?.capabilities?.get("collections") == true,
@@ -401,7 +418,7 @@ internal fun PhoneMediaRoute(
                     else -> null
                 },
             ), imageLoader, action, safe, grid, page, home?.libraries.orEmpty(), route.libraryFilter,
-                onLibrary = { selectedLibrary = it; route.chooseLibrary(it) }, onBack = onExit)
+                onLibrary = { selectedLibrary = it; route.chooseLibrary(it) }, onBack = ::back)
               }
               PhoneMediaNavigation(mediaTab) { target ->
                   mediaTab = target

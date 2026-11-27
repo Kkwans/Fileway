@@ -10,6 +10,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.*
@@ -162,9 +163,48 @@ internal fun phoneMediaGridSpec(width: Dp): PhoneMediaGridSpec {
     }
 }
 
+@Composable internal fun MediaBackdrop(item: MediaPoster, loader: ImageLoader, modifier: Modifier = Modifier,
+    progress: Float? = null) {
+    val colors = MaterialTheme.colorScheme
+    val shape = MaterialTheme.shapes.medium
+    Box(modifier.fillMaxWidth().aspectRatio(16f / 9f).clip(shape).background(Brush.linearGradient(listOf(
+        colors.surfaceContainerHighest, colors.surfaceContainer, colors.surfaceContainerLow)))) {
+        if (item.backdrop != null) {
+            MediaImage(item.backdrop, loader, Modifier.fillMaxSize())
+        } else {
+            item.poster?.let { MediaImage(it, loader, Modifier.align(Alignment.CenterEnd)
+                .fillMaxHeight().aspectRatio(2f / 3f).padding(12.dp)) }
+            if (item.poster == null) Box(Modifier.align(Alignment.CenterEnd).padding(18.dp).size(48.dp)
+                .background(colors.surface.copy(alpha = .52f), CircleShape), contentAlignment = Alignment.Center) {
+                FilewayIcon(R.drawable.ic_video, null, Modifier.size(24.dp), tint = colors.onSurfaceVariant.copy(alpha = .58f))
+            }
+        }
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(
+            Color.Transparent, Color.Transparent, Color.Black.copy(alpha = .84f)))))
+        item.primaryRating?.let { rating ->
+            Surface(Modifier.align(Alignment.TopEnd).padding(10.dp),
+                color = colors.surface.copy(alpha = .94f), shape = MaterialTheme.shapes.small) {
+                Text(rating.value, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = PhoneMediaType.badge)
+            }
+        }
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 16.dp)) {
+            Text(item.title, color = Color.White, style = PhoneMediaType.itemTitle,
+                maxLines = 2, overflow = TextOverflow.Ellipsis)
+            mediaPosterSubtitle(item)?.let { subtitle ->
+                Text(subtitle, color = Color.White.copy(alpha = .78f), style = PhoneMediaType.secondary,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        MediaProgress(progress, Modifier.align(Alignment.BottomStart))
+    }
+}
+
 @Composable internal fun MediaIconAction(icon: Int, label: String, onClick: () -> Unit, enabled: Boolean = true) {
     FilewayIconButton(onClick, Modifier.size(48.dp), enabled = enabled) { FilewayIcon(icon, label) }
 }
+
+internal fun mediaPosterSubtitle(item: MediaPoster): String? =
+    item.subtitle.takeIf { it.isNotBlank() && it != item.title }
 
 @Composable internal fun MediaPosterCard(item: MediaPoster, loader: ImageLoader, onClick: () -> Unit) {
     Card(onClick = onClick, shape = MaterialTheme.shapes.medium,
@@ -182,8 +222,10 @@ internal fun phoneMediaGridSpec(width: Dp): PhoneMediaGridSpec {
         }
         Text(item.title, Modifier.padding(top = 8.dp).fillMaxWidth(), style = PhoneMediaType.itemTitle,
             maxLines = 2, overflow = TextOverflow.Ellipsis)
-        if (item.subtitle.isNotBlank()) Text(item.subtitle, style = PhoneMediaType.secondary,
-            color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        mediaPosterSubtitle(item)?.let { subtitle ->
+            Text(subtitle, style = PhoneMediaType.secondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        }
         item.availability?.let { Text(it, style = PhoneMediaType.badge,
             color = MaterialTheme.colorScheme.error, maxLines = 2, overflow = TextOverflow.Ellipsis) }
     }
