@@ -34,6 +34,14 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySpace
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import io.github.kkwans.fileway.design.R as Art
 
+internal fun phoneMediaSearchShowsEmpty(
+    searched: Boolean,
+    empty: Boolean,
+    busy: Boolean,
+    hasProblem: Boolean,
+    hasMore: Boolean,
+): Boolean = searched && empty && !busy && !hasProblem && !hasMore
+
 @Composable
 internal fun PhoneMediaSearch(query: String, searched: Boolean, mode: MediaSearchMode,
     entries: List<MediaPoster>, loading: Boolean, problem: MediaProblem?, hasMore: Boolean,
@@ -122,7 +130,7 @@ internal fun PhoneMediaSearch(query: String, searched: Boolean, mode: MediaSearc
                     issue?.let { item(key = "problem", span = { GridItemSpan(maxLineSpan) }) {
                         MediaProblemCard(it, { onAction(PhoneMediaAction.Retry("search")) })
                     } }
-                    if (searched && empty && !busy && issue == null) item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
+                    if (phoneMediaSearchShowsEmpty(searched, empty, busy, issue != null, more)) item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
                         FilewayEmptyState(Art.drawable.fileway_ic_search, when (mode) {
                             MediaSearchMode.WORKS -> "没有找到相关影视"
                             MediaSearchMode.PEOPLE -> "没有找到相关人物"
@@ -134,6 +142,11 @@ internal fun PhoneMediaSearch(query: String, searched: Boolean, mode: MediaSearc
                             MediaSearchMode.FILES -> "试试使用文件名中的一部分。"
                             MediaSearchMode.COLLECTIONS -> "试试使用合集名称中的一部分。"
                         })
+                    }
+                    if (searched && empty && !busy && issue == null && more) item(key = "partial", span = { GridItemSpan(maxLineSpan) }) {
+                        Text("仍在查找，可继续加载更多结果", style = PhoneMediaType.secondary,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = FilewaySpace.content))
                     }
                     when (mode) {
                         MediaSearchMode.WORKS -> items(entries, key = { "search/${it.id}" }) { entry ->
