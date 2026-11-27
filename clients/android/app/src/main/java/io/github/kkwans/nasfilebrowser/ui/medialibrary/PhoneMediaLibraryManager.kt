@@ -562,7 +562,14 @@ import kotlin.coroutines.coroutineContext
                         }
                         items(libraries, key = { it.id }) { library ->
                             MediaLibraryRow(library, enabled = !busy,
-                                onOpen = { selectedId = library.id; selected = null; screen = "library"; notice = null },
+                                onOpen = {
+                                    when (mediaLibraryOpenDestination(library.role)) {
+                                        MediaLibraryOpenDestination.MANAGE -> {
+                                            selectedId = library.id; selected = null; screen = "library"; notice = null
+                                        }
+                                        MediaLibraryOpenDestination.BROWSE -> onBrowse(library.id)
+                                    }
+                                },
                                 onHistory = {
                                     selectedId = library.id; selected = null; historyScanId = null
                                     historyReviewOpen = false; screen = "history"; notice = null
@@ -964,6 +971,11 @@ private fun mediaLibraryKindLabel(kind: MediaLibraryKind): String = when (kind) 
     MediaLibraryKind.MIXED -> "混合"
     MediaLibraryKind.UNKNOWN -> "类型未知"
 }
+
+internal enum class MediaLibraryOpenDestination { MANAGE, BROWSE }
+
+internal fun mediaLibraryOpenDestination(role: MediaLibraryRole): MediaLibraryOpenDestination =
+    if (role == MediaLibraryRole.OWNER) MediaLibraryOpenDestination.MANAGE else MediaLibraryOpenDestination.BROWSE
 
 internal fun mediaLibraryRowSubtitle(library: MediaLibrarySummary): String =
     "${mediaLibraryKindLabel(library.contentKind)} · ${if (library.role == MediaLibraryRole.OWNER) "管理目录与资料" else "共享媒体库"}"

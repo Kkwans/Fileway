@@ -18,6 +18,17 @@ class MediaLibraryRowPresentationTest {
     }
 
     @Test
+    fun ownerOpensManagement() {
+        assertEquals(MediaLibraryOpenDestination.MANAGE, mediaLibraryOpenDestination(MediaLibraryRole.OWNER))
+    }
+
+    @Test
+    fun editorAndViewerOpenBrowseInsteadOfBlankDetails() {
+        assertEquals(MediaLibraryOpenDestination.BROWSE, mediaLibraryOpenDestination(MediaLibraryRole.EDITOR))
+        assertEquals(MediaLibraryOpenDestination.BROWSE, mediaLibraryOpenDestination(MediaLibraryRole.VIEWER))
+    }
+
+    @Test
     fun unknownKindDoesNotInventType() {
         assertEquals("类型未知 · 共享媒体库", mediaLibraryRowSubtitle(library(MediaLibraryKind.UNKNOWN, MediaLibraryRole.VIEWER)))
     }
