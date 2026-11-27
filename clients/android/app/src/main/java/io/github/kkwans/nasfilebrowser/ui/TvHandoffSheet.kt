@@ -48,6 +48,18 @@ internal val LocalOpenTvControl=staticCompositionLocalOf<()->Unit>{{}}
     }
 }
 
+@Composable internal fun PlayerTvHandoffIcon(model:ClientModel,file:ResourceRef,sourceScope:String,enabled:Boolean=true,tint:Color=LocalContentColor.current) {
+    if (!model.isCatalogContent(file)) {
+        TvHandoffIcon(file, sourceScope, enabled, tint)
+        return
+    }
+    val ref = model.currentCatalogRef()
+    val send = LocalMediaTvHandoff.current
+    if (ref != null && send != null) FilewayIconButton(onClick={send(ref,file.name)},enabled=enabled) {
+        FilewayIcon(Art.drawable.fileway_ic_cast,"在 TV 播放",tint=tint)
+    }
+}
+
 @Composable internal fun TvHandoffSheet(control:TvControlModel,visible:Boolean,onRemote:()->Unit) {
     val ui by control.handoff.state.collectAsStateWithLifecycle()
     val value=ui?:return
