@@ -362,6 +362,7 @@ queries:
 	numberedTitle := false
 	seriesFallback := false
 	translatedTitleFallback := false
+	alternativeTitleFallback := false
 	if input.Year <= 0 {
 		ranked = RankCandidates(MatchHint{Kind: input.Kind, Title: title}, documents)
 		exact := exactTitleCandidates(ranked, queries)
@@ -385,6 +386,15 @@ queries:
 	}
 	if len(eligible) == 0 {
 		exact := exactTitleCandidates(ranked, queries)
+		if len(exact) == 0 && input.Kind == Movie {
+			exact = numberedTitleCandidates(ranked, queries)
+			numberedTitle = len(exact) != 0
+		}
+		if len(exact) == 0 && input.Year > 0 && input.Kind == Movie && input.DurationMs > 0 && searchComplete && len(ranked) != 0 {
+			exact = append(exact, ranked[:min(len(ranked), maxAutomaticTitleQueries)]...)
+			alternativeTitleFallback = true
+			fetchParts = append(fetchParts, AlternativeTitles)
+		}
 		if len(exact) == 0 {
 			return review("title_year_conflict")
 		}
@@ -514,7 +524,7 @@ queries:
 	for _, query := range queries {
 		direct, alternative := documentQueryTitleMatch(query, document)
 		matches := direct || alternative
-		if input.Year <= 0 && !matches {
+		if !matches && numberedTitle {
 			matches = numberedTitleMatches(query, textField(document, titleField)) || numberedTitleMatches(query, textField(document, originalField))
 		}
 		if matches {
@@ -529,6 +539,9 @@ queries:
 		}
 		if input.Year <= 0 && translatedTitleFallback {
 			return review("year_required")
+		}
+		if alternativeTitleFallback {
+			return review("title_year_conflict")
 		}
 		if input.Year <= 0 {
 			return review("title_conflict")
@@ -588,6 +601,8 @@ queries:
 		} else {
 			evidence = append(evidence, "exact_title_without_year")
 		}
+	} else if numberedTitle {
+		evidence = append(evidence, "numbered_title_match")
 	}
 	if unfilteredSearch {
 		evidence = append(evidence, "unfiltered_title_search")

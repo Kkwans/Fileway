@@ -639,6 +639,69 @@ func TestResolveAutomaticMatchAllowsUniqueExactTitleWithoutYearOnlyWithRuntimeAn
 	}
 }
 
+func TestResolveAutomaticMatchAllowsNumberedSequelSubtitleWithYear(t *testing.T) {
+	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/3/search/movie":
+			if request.URL.Query().Get("query") != "博物馆奇妙夜2" || request.URL.Query().Get("primary_release_year") != "2009" {
+				t.Fatalf("unexpected sequel lookup %s", request.URL)
+			}
+			return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":18360,"title":"博物馆奇妙夜2：史密森尼之战","release_date":"2009-05-20"}]}`), nil
+		case "/3/movie/18360":
+			return response(200, `{"id":18360,"title":"博物馆奇妙夜2：史密森尼之战","release_date":"2009-05-20","runtime":105}`), nil
+		default:
+			t.Fatalf("unexpected outbound request %s", request.URL.Path)
+			return nil, nil
+		}
+	})
+	result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: "博物馆奇妙夜2", Year: 2009, DurationMs: 105 * 60_000, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+	if err != nil || result.State != AutoMatched || result.Document.Entity.ID != 18360 || !slices.Contains(result.Evidence, "numbered_title_match") {
+		t.Fatalf("numbered sequel with year failed: state=%s reason=%s evidence=%v err=%v", result.State, result.Reason, result.Evidence, err)
+	}
+}
+
+func TestResolveAutomaticMatchMatchesTranslatedTitleWithYearUsingAlternativeTitles(t *testing.T) {
+	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/3/search/movie":
+			if request.URL.Query().Get("query") != "蜘蛛侠：英雄无归" || request.URL.Query().Get("primary_release_year") != "2021" {
+				t.Fatalf("unexpected translated lookup %s", request.URL)
+			}
+			return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":634649,"title":"Spider-Man: No Way Home","original_title":"Spider-Man: No Way Home","release_date":"2021-12-17"}]}`), nil
+		case "/3/movie/634649":
+			if !strings.Contains(request.URL.Query().Get("append_to_response"), "alternative_titles") {
+				t.Fatalf("alternative titles were not requested: %s", request.URL)
+			}
+			return response(200, `{"id":634649,"title":"Spider-Man: No Way Home","original_title":"Spider-Man: No Way Home","release_date":"2021-12-17","runtime":156,"alternative_titles":{"titles":[{"title":"蜘蛛侠：英雄无归","type":""}]}}`), nil
+		default:
+			t.Fatalf("unexpected outbound request %s", request.URL.Path)
+			return nil, nil
+		}
+	})
+	result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: "蜘蛛侠：英雄无归", Year: 2021, DurationMs: 156 * 60_000, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+	if err != nil || result.State != AutoMatched || result.Document.Entity.ID != 634649 || !slices.Contains(result.Evidence, "alternative_title_match") {
+		t.Fatalf("translated title with year failed: state=%s reason=%s evidence=%v err=%v", result.State, result.Reason, result.Evidence, err)
+	}
+}
+
+func TestResolveAutomaticMatchRejectsUnrelatedSameYearCandidate(t *testing.T) {
+	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/3/search/movie":
+			return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":42,"title":"另一个故事","release_date":"2021-01-01"}]}`), nil
+		case "/3/movie/42":
+			return response(200, `{"id":42,"title":"另一个故事","release_date":"2021-01-01","runtime":120,"alternative_titles":{"titles":[{"title":"无关别名"}]}}`), nil
+		default:
+			t.Fatalf("unexpected outbound request %s", request.URL.Path)
+			return nil, nil
+		}
+	})
+	result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: "蜘蛛侠：英雄无归", Year: 2021, DurationMs: 156 * 60_000, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+	if err != nil || result.State != AutoNeedsReview || result.Reason != "title_year_conflict" {
+		t.Fatalf("unrelated same-year candidate accepted: state=%s reason=%s err=%v", result.State, result.Reason, err)
+	}
+}
+
 func TestResolveAutomaticMatchAllowsNumberedSequelSubtitleWithoutYearOnlyWithRuntime(t *testing.T) {
 	for _, tc := range []struct {
 		name, query, candidate string

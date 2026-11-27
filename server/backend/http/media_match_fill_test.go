@@ -167,6 +167,13 @@ func TestAutomaticMatchInputSkipsEpisodesWithoutParent(t *testing.T) {
 	}
 }
 
+func TestAutomaticMatchInputSkipsStructuralEpisodesWithoutFilenameHint(t *testing.T) {
+	item := mediaIdentificationResponse{StructureKind: "episode", File: &mediaIdentificationFile{ParsedTitle: "秘密森林2", TypeHint: "unknown"}}
+	if reason := automaticMatchSkipReason(automaticMatchInput(item, true)); reason != "episode_requires_parent" {
+		t.Fatalf("structural episode skip reason = %q", reason)
+	}
+}
+
 func TestAutomaticMatchInputIgnoresGenericMediaDirectoryAlias(t *testing.T) {
 	for _, directory := range []string{"Movie", "Movies", "Film", "影视", "电影", "视频", "TV", "剧集"} {
 		item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{ParsedTitle: "蜘蛛侠：英雄无归", DirectoryTitle: directory}}

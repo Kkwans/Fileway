@@ -328,7 +328,7 @@ func mediaAutoTitleMatchEnabled() bool {
 }
 
 func automaticMatchSkipReason(input mediaprovider.AutomaticMatchInput) string {
-	if slices.Contains(input.Ambiguities, "episode_requires_parent") {
+	if input.Kind == mediaprovider.Episode || slices.Contains(input.Ambiguities, "episode_requires_parent") {
 		return "episode_requires_parent"
 	}
 	return ""
