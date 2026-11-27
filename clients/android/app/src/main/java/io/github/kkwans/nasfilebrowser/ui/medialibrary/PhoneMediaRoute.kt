@@ -313,7 +313,8 @@ internal fun PhoneMediaRoute(
         if (settings != null) {
             Column(subpage) {
                 if (settings == "provider") PhoneMediaProviderSettings(repository, ::closeSettings)
-                else PhoneMediaSettings(::closeSettings, { settings = null; createLibrary = false; managing = true }, { settings = "provider" })
+                else PhoneMediaSettings(::closeSettings, { settings = null; createLibrary = false; managing = true }, { settings = "provider" },
+                    route.home?.libraries?.size ?: 0, route.home?.state)
             }
         } else if (reviewLibraryId != null && reviewItemId != null) {
             val ref = repository.catalogRef(requireNotNull(reviewLibraryId), requireNotNull(reviewItemId))
@@ -376,7 +377,8 @@ internal fun PhoneMediaRoute(
               Box(Modifier.weight(1f)) {
                if (mediaTab == "settings") {
                 Column(safe) {
-                    PhoneMediaSettings(onExit, { createLibrary = false; managing = true }, { settings = "provider" })
+                    PhoneMediaSettings(onExit, { createLibrary = false; managing = true }, { settings = "provider" },
+                        home?.libraries?.size ?: 0, home?.state)
                 }
                } else if (route.checking) {
                 Column(safe) {

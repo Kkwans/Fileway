@@ -33,16 +33,73 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
+internal enum class MediaSettingsStatusKind { READY, BUSY, WARNING, EMPTY }
+
+internal data class MediaSettingsStatus(val title: String, val message: String, val kind: MediaSettingsStatusKind)
+
+internal fun mediaSettingsStatus(libraryCount: Int, state: MediaCatalogHomeState?): MediaSettingsStatus = when {
+    state == null -> MediaSettingsStatus("正在读取影视状态", "请稍候。", MediaSettingsStatusKind.BUSY)
+    libraryCount <= 0 || state == MediaCatalogHomeState.NO_LIBRARIES -> MediaSettingsStatus(
+        "尚未创建媒体库", "创建后即可扫描并浏览影视。", MediaSettingsStatusKind.EMPTY)
+    state == MediaCatalogHomeState.SCANNING -> MediaSettingsStatus(
+        "正在扫描", "已发现的内容会逐步显示。", MediaSettingsStatusKind.BUSY)
+    state == MediaCatalogHomeState.READY -> MediaSettingsStatus(
+        "影视目录已就绪", "$libraryCount 个媒体库可浏览。", MediaSettingsStatusKind.READY)
+    state == MediaCatalogHomeState.EMPTY_LIBRARY -> MediaSettingsStatus(
+        "等待首次扫描", "媒体库已创建，扫描后即可浏览。", MediaSettingsStatusKind.EMPTY)
+    state == MediaCatalogHomeState.PARTIAL -> MediaSettingsStatus(
+        "部分内容仍在准备", "可以先浏览已加载的内容。", MediaSettingsStatusKind.BUSY)
+    state == MediaCatalogHomeState.SOURCE_OFFLINE -> MediaSettingsStatus(
+        "来源暂时离线", "已收录资料仍可浏览。", MediaSettingsStatusKind.WARNING)
+    state == MediaCatalogHomeState.RESTRICTED -> MediaSettingsStatus(
+        "媒体内容不可见", "请检查媒体库共享权限。", MediaSettingsStatusKind.WARNING)
+    state == MediaCatalogHomeState.SERVICE_UNAVAILABLE -> MediaSettingsStatus(
+        "影视目录暂不可用", "请稍后重试。", MediaSettingsStatusKind.WARNING)
+    else -> MediaSettingsStatus("正在读取影视状态", "请稍候。", MediaSettingsStatusKind.BUSY)
+}
+
 @Composable internal fun MediaSettingsGroup(title: String, subtitle: String? = null,
     content: @Composable ColumnScope.() -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-        Text(title, Modifier.padding(start = 4.dp).semantics { heading() }, style = PhoneMediaType.itemTitle,
-            fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onBackground)
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, Modifier.padding(start = 4.dp).semantics { heading() }, style = PhoneMediaType.sectionTitle,
+            color = MaterialTheme.colorScheme.onBackground)
         if (!subtitle.isNullOrBlank()) Text(subtitle, Modifier.padding(start = 4.dp),
             style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Surface(Modifier.fillMaxWidth().semantics { contentDescription = "${title}设置分组" },
             shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
             Column(content = content)
+        }
+    }
+}
+
+@Composable private fun MediaSettingsStatusCard(status: MediaSettingsStatus) {
+    val colors = MaterialTheme.colorScheme
+    val container = when (status.kind) {
+        MediaSettingsStatusKind.BUSY -> colors.primaryContainer
+        MediaSettingsStatusKind.WARNING -> colors.errorContainer
+        else -> colors.surfaceContainerLow
+    }
+    val content = when (status.kind) {
+        MediaSettingsStatusKind.BUSY -> colors.onPrimaryContainer
+        MediaSettingsStatusKind.WARNING -> colors.onErrorContainer
+        else -> colors.onSurface
+    }
+    Surface(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {
+        contentDescription = "${status.title}，${status.message}"
+    }, shape = MaterialTheme.shapes.medium, color = container) {
+        Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            Box(Modifier.size(42.dp).background(content.copy(alpha = .1f), MaterialTheme.shapes.small),
+                contentAlignment = Alignment.Center) {
+                if (status.kind == MediaSettingsStatusKind.BUSY) CircularProgressIndicator(
+                    Modifier.size(20.dp), strokeWidth = 2.dp, color = content)
+                else FilewayIcon(if (status.kind == MediaSettingsStatusKind.WARNING) R.drawable.ic_info else R.drawable.ic_library,
+                    null, Modifier.size(22.dp), tint = content)
+            }
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                Text(status.title, style = PhoneMediaType.itemTitle, color = content)
+                Text(status.message, style = PhoneMediaType.secondary, color = content)
+            }
         }
     }
 }
@@ -87,12 +144,14 @@ import kotlinx.coroutines.launch
 }
 
 @Composable
-internal fun PhoneMediaSettings(onBack: () -> Unit, onLibraries: () -> Unit, onProvider: () -> Unit) {
+internal fun PhoneMediaSettings(onBack: () -> Unit, onLibraries: () -> Unit, onProvider: () -> Unit,
+    libraryCount: Int = 0, homeState: MediaCatalogHomeState? = null) {
+    val status = remember(libraryCount, homeState) { mediaSettingsStatus(libraryCount, homeState) }
     MediaSettingsPage("影视设置", onBack) {
-        Text("管理媒体库与 TMDB 资料。扫描在服务器后台执行，源文件保持只读。",
-            style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        MediaSettingsGroup("媒体库") {
-            MediaSettingsAction("管理媒体库", "添加目录、扫描与查看识别结果",
+        MediaSettingsStatusCard(status)
+        MediaSettingsGroup("媒体库与扫描") {
+            MediaSettingsAction("媒体库管理", if (libraryCount > 0)
+                "$libraryCount 个媒体库 · 扫描记录与待确认结果" else "创建媒体库并选择影视目录",
                 R.drawable.ic_library, action = onLibraries)
         }
         MediaSettingsGroup("资料源") {
