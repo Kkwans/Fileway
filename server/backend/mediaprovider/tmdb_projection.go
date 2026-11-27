@@ -192,14 +192,14 @@ func ProjectTMDBSeasonEpisodes(document Document) ([]TMDBEpisodeMetadata, error)
 		ID           *int64 `json:"id"`
 		SeasonNumber *int   `json:"season_number"`
 		Episodes     []struct {
-			ID             *int64 `json:"id"`
-			EpisodeNumber  int    `json:"episode_number"`
-			Name           string `json:"name"`
-			OriginalName   string `json:"original_name"`
-			Overview       string `json:"overview"`
-			AirDate        string `json:"air_date"`
-			EpisodeRuntime int    `json:"episode_runtime"`
-			StillPath      string `json:"still_path"`
+			ID            *int64 `json:"id"`
+			EpisodeNumber int    `json:"episode_number"`
+			Name          string `json:"name"`
+			OriginalName  string `json:"original_name"`
+			Overview      string `json:"overview"`
+			AirDate       string `json:"air_date"`
+			Runtime       int    `json:"runtime"`
+			StillPath     string `json:"still_path"`
 		} `json:"episodes"`
 	}
 	if err := json.Unmarshal(encoded, &source); err != nil || source.ID == nil || *source.ID <= 0 || *source.ID != document.Entity.ID ||
@@ -210,7 +210,7 @@ func ProjectTMDBSeasonEpisodes(document Document) ([]TMDBEpisodeMetadata, error)
 	ids := make(map[int64]struct{}, len(source.Episodes))
 	numbers := make(map[int]struct{}, len(source.Episodes))
 	for _, episode := range source.Episodes {
-		if episode.ID == nil || *episode.ID <= 0 || episode.EpisodeNumber < 0 || episode.EpisodeNumber > 9999 || episode.EpisodeRuntime < 0 || episode.EpisodeRuntime > 24*60 {
+		if episode.ID == nil || *episode.ID <= 0 || episode.EpisodeNumber < 0 || episode.EpisodeNumber > 9999 || episode.Runtime < 0 || episode.Runtime > 24*60 {
 			return nil, &Error{Code: InvalidResponse}
 		}
 		if _, duplicate := ids[*episode.ID]; duplicate {
@@ -234,7 +234,7 @@ func ProjectTMDBSeasonEpisodes(document Document) ([]TMDBEpisodeMetadata, error)
 		result = append(result, TMDBEpisodeMetadata{
 			ID: *episode.ID, SeasonNumber: *source.SeasonNumber, Number: episode.EpisodeNumber, Title: strings.TrimSpace(episode.Name),
 			OriginalTitle: strings.TrimSpace(episode.OriginalName), Overview: strings.TrimSpace(episode.Overview), AirDate: airDate,
-			RuntimeMinutes: episode.EpisodeRuntime, StillPath: episode.StillPath,
+			RuntimeMinutes: episode.Runtime, StillPath: episode.StillPath,
 		})
 	}
 	return result, nil

@@ -151,8 +151,8 @@ func TestProjectTMDBSeasonEpisodes(t *testing.T) {
 	document := projectionDocument(t, Season, `{
 		"id": 101, "season_number": 1, "name": "第一季",
 		"episodes": [
-			{"id": 201, "episode_number": 1, "name": "你好", "overview": "第一集", "air_date": "2024-03-01", "episode_runtime": 52, "still_path": "/still1.jpg"},
-			{"id": 202, "episode_number": 2, "name": "再见", "episode_runtime": 0}
+			{"id": 201, "episode_number": 1, "name": "你好", "overview": "第一集", "air_date": "2024-03-01", "runtime": 52, "still_path": "/still1.jpg"},
+			{"id": 202, "episode_number": 2, "name": "再见", "runtime": 0}
 		]
 	}`)
 	episodes, err := ProjectTMDBSeasonEpisodes(document)

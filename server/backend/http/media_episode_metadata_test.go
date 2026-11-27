@@ -35,9 +35,9 @@ func TestFetchProviderEpisodeDocumentsUsesOnlyLocalEpisodePositions(t *testing.T
 		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
 			`{"id":101,"season_number":1,"episodes":[
-				{"id":201,"episode_number":1,"name":"第一集","overview":"简介一","air_date":"2024-03-01","episode_runtime":52,"still_path":"/still1.jpg"},
-				{"id":202,"episode_number":2,"name":"第二集","episode_runtime":50},
-				{"id":203,"episode_number":3,"name":"第三集","episode_runtime":48}
+				{"id":201,"episode_number":1,"name":"第一集","overview":"简介一","air_date":"2024-03-01","runtime":52,"still_path":"/still1.jpg"},
+				{"id":202,"episode_number":2,"name":"第二集","runtime":50},
+				{"id":203,"episode_number":3,"name":"第三集","runtime":48}
 			]}`))}, nil
 	})}, func(context.Context) (string, error) { return "fixture-token", nil })
 	documents, err := fetchProviderEpisodeDocuments(t.Context(), f.store, f.owner.ID, library.ID, seriesID,
@@ -72,7 +72,7 @@ func TestMetadataRefreshJobBackfillsEpisodesForSameLanguageSeries(t *testing.T) 
 					`{"id":55,"name":"本地剧","first_air_date":"2024-01-01"}`))}, nil
 			case "/3/tv/55/season/1":
 				return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
-					`{"id":101,"season_number":1,"episodes":[{"id":201,"episode_number":1,"name":"第一集","episode_runtime":52}]}`))}, nil
+					`{"id":101,"season_number":1,"episodes":[{"id":201,"episode_number":1,"name":"第一集","runtime":52}]}`))}, nil
 			default:
 				t.Fatalf("unexpected refresh route: %s", r.URL.Path)
 				return nil, nil
