@@ -25,6 +25,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.tv.material3.Text
 import coil3.ImageLoader
+import io.github.kkwans.nasfilebrowser.data.MediaCatalogRowId
 import kotlinx.coroutines.delay
 import io.github.kkwans.fileway.design.R as Art
 
@@ -43,6 +44,8 @@ fun TvMediaHome(
     onRetry: (() -> Unit)? = null,
     onRetryShelf: ((String) -> Unit)? = null,
     onMoreShelf: ((String) -> Unit)? = null,
+    onRetryRow: ((MediaCatalogRowId) -> Unit)? = null,
+    onMoreRow: ((MediaCatalogRowId) -> Unit)? = null,
     onCategory: ((String) -> Unit)? = null,
     onManageLibrary: (() -> Unit)? = null,
     autoRotate: Boolean = true,
@@ -51,8 +54,10 @@ fun TvMediaHome(
     navigation: @Composable () -> Unit = {},
 ) {
     val colors = LocalMediaColors.current
-    val shelves = state.shelves.filter { it.items.isNotEmpty() || it.loading || it.error != null }
-    val hasContent = state.featured.isNotEmpty() || state.continuing.isNotEmpty() || shelves.isNotEmpty()
+    val shelves = state.shelves.filter(::tvMediaShelfVisible)
+    val rows = state.rows.mapNotNull { row -> tvMediaHomeRowShelf(row)?.let { row.rowId to it } }
+        .filter { (_, shelf) -> tvMediaShelfVisible(shelf) }
+    val hasContent = state.featured.isNotEmpty() || state.continuing.isNotEmpty() || rows.isNotEmpty() || shelves.isNotEmpty()
     Column(modifier.fillMaxSize().background(colors.canvas)) {
         LazyColumn(state = scrollState, modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(MediaLayout.sectionGap)) {
@@ -82,6 +87,11 @@ fun TvMediaHome(
                     }
                     if (state.continueLoading && state.continuing.isEmpty()) MediaLoadingStatus("正在读取观看进度…", compact = true)
                 }
+            }
+            items(rows, key = { "row:${it.first}" }) { (rowId, shelf) ->
+                MediaShelf(shelf, imageLoader, onItem,
+                    onRetry = onRetryRow?.let { { it(rowId) } },
+                    onMore = onMoreRow?.let { { it(rowId) } })
             }
             items(shelves, key = { "shelf:${it.id}" }) { shelf ->
                 if (shelf.id == "catalog") MediaCatalogShelf(shelf, state.categories, state.selectedCategory,

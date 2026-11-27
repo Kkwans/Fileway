@@ -102,7 +102,8 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
         val libraryId = library
         val itemId = item
         val homeFocusIds = (route.home?.hero?.items.orEmpty().map { tvMediaKey(it.ref) } +
-            watching.items.map { it.id } + route.catalog.map { tvMediaKey(it.ref) }).distinct()
+            watching.items.map { it.id } + route.homeRows.flatMap { it.items }.map { tvMediaKey(it.ref) } +
+            route.catalog.map { tvMediaKey(it.ref) }).distinct()
         fun restore(id: String?, origin: String?) { restoreId = id; restoreOrigin = origin }
         fun restoreHome(id: String?, origin: String?) {
             val target = resolveTvMediaFocusTarget(id, origin, homeFocusIds, homeAnchorIndex)
@@ -311,6 +312,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             })
                     } else {
                     val featured = route.home?.hero?.items.orEmpty()
+                    val rowCards = route.homeRows.flatMap { it.items }
                     val entries = route.catalog.map { tvCard(it, art) }
                     val homeError = route.homeError ?: when (route.home?.state) {
                         MediaCatalogHomeState.SOURCE_OFFLINE -> "来源暂时离线，仍可查看已收录的资料。"
@@ -328,6 +330,9 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                                     progress = it.progress, removing = watching.removing == it.id)
                             },
                             continueLoading = watching.loading, continueError = watching.error, continueHasMore = watching.hasMore,
+                            rows = route.homeRows.map { row -> TvMediaHomeRowState(row.rowId,
+                                items = row.items.map { tvCard(it, art) }, cursor = row.cursor, hasMore = row.hasMore,
+                                loading = row.loading, error = row.error, retryAppend = row.retryAppend) },
                             shelves = if (route.supported && route.home?.state != MediaCatalogHomeState.NO_LIBRARIES)
                                 listOf(TvMediaShelf("catalog", "我的片库", entries, route.catalogLoading, route.catalogError,
                                     hasMore = route.catalogCursor != null)) else emptyList(),
@@ -339,7 +344,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             emptyTitle = if (route.home?.state == MediaCatalogHomeState.NO_LIBRARIES) "还没有媒体库" else "片库还没有内容",
                             emptyMessage = "请在手机端添加来源并完成扫描。"),
                             imageLoader, onItem = { id ->
-                                (route.catalog + featured).firstOrNull { tvMediaKey(it.ref) == id }?.let {
+                                (rowCards + route.catalog + featured).firstOrNull { tvMediaKey(it.ref) == id }?.let {
                                     library = it.ref.libraryId; item = it.ref.itemId; season = null
                                 }
                             }, onContinue = { id -> watching.items.firstOrNull { it.id == id }?.let { playContinue(it, false) } },
@@ -347,7 +352,9 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             onRetryContinue = watch::retry, onMoreContinue = { watch.load(reset = false) }, onPlay = { id ->
                                 (route.catalog + featured).firstOrNull { tvMediaKey(it.ref) == id }?.let { play(it.ref) }
                             }, onRetry = route::refreshHome, onRetryShelf = { route.retryCatalog() },
-                            onMoreShelf = { route.loadCatalog(false) }, onCategory = { value ->
+                            onMoreShelf = { route.loadCatalog(false) },
+                            onRetryRow = route::retryHomeRow, onMoreRow = { route.loadHomeRow(it, false) },
+                            onCategory = { value ->
                                 val target = resolveTvCatalogCategoryFocusTarget(value,
                                     listOf("all", "movie", "series", "video"))
                                 restore(target.id, target.origin)

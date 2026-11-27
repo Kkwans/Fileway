@@ -240,12 +240,13 @@ internal fun MediaPoster(item: TvMediaCard, imageLoader: ImageLoader, onClick: (
 internal fun MediaShelf(
     shelf: TvMediaShelf, imageLoader: ImageLoader, onItem: (String) -> Unit,
     onRetry: ((String) -> Unit)? = null,
+    onMore: (() -> Unit)? = null,
 ) {
-    if (shelf.items.isEmpty() && !shelf.loading && shelf.error == null) return
+    if (!tvMediaShelfVisible(shelf)) return
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         MediaSectionTitle(shelf.title)
         if (shelf.error != null) MediaStatus(shelf.error, onRetry = onRetry?.let { { it(shelf.id) } }, compact = true)
-        if (shelf.items.isEmpty() && shelf.loading) MediaLoadingStatus("正在加载…", compact = true)
+        if (shelf.loading && !shelf.hasMore) MediaLoadingStatus(if (shelf.items.isEmpty()) "正在加载…" else "正在加载更多…", compact = true)
         if (shelf.items.isNotEmpty()) BoxWithConstraints(Modifier.fillMaxWidth()) {
             val width = mediaCardWidth(maxWidth, 128.dp, 6)
             LazyRow(contentPadding = MediaLayout.rowPadding,
@@ -253,6 +254,8 @@ internal fun MediaShelf(
                 items(shelf.items, key = { it.id }) { item -> MediaPoster(item, imageLoader, { onItem(item.id) }, width = width) }
             }
         }
+        if (shelf.hasMore && onMore != null) MediaAction(if (shelf.loading) "正在加载…" else "加载更多",
+            onMore, Modifier.padding(horizontal = MediaLayout.pageInset), enabled = !shelf.loading)
     }
 }
 

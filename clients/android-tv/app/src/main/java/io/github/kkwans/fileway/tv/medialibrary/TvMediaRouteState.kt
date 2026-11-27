@@ -22,6 +22,7 @@ internal class TvMediaRouteState(
     var homeRefreshing by mutableStateOf(false); private set
     var supported by mutableStateOf(false); private set
     var home by mutableStateOf<MediaCatalogHome?>(null); private set
+    var homeRows by mutableStateOf<List<TvMediaHomeRowState<MediaCatalogCard>>>(emptyList()); private set
     var homeError by mutableStateOf<String?>(null); private set
     var filter by mutableStateOf("all"); private set
     var catalog by mutableStateOf<List<MediaCatalogCard>>(emptyList()); private set
@@ -91,6 +92,7 @@ internal class TvMediaRouteState(
     private var detailCursor: MediaCatalogCursor? = null
     private var desiredSeason: String? = null
     private var homeJob: Job? = null
+    private val homeRowJobs = mutableMapOf<MediaCatalogRowId, Job>()
     private var capabilityKnown = false
     private var retryCatalogPage = false
     private var catalogJob: Job? = null
@@ -112,7 +114,7 @@ internal class TvMediaRouteState(
     private var userStateJob: Job? = null
     private var variantsRef: MediaCatalogRef? = null
 
-    fun close() { listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, collectionsJob, collectionWorksJob, personWorksJob, detailJob, technicalJob, creditsJob, seasonsJob, episodesJob, sourcesJob, sourceRecoveryJob, userStateJob).forEach { it?.cancel() } }
+    fun close() { (listOf(homeJob, catalogJob, searchJob, peopleJob, filesJob, collectionsJob, collectionWorksJob, personWorksJob, detailJob, technicalJob, creditsJob, seasonsJob, episodesJob, sourcesJob, sourceRecoveryJob, userStateJob) + homeRowJobs.values).forEach { it?.cancel() } }
 
     fun start(savedFilter: String) {
         filter = savedFilter.takeIf { it in setOf("all", "movie", "series", "video") } ?: "all"
@@ -121,6 +123,8 @@ internal class TvMediaRouteState(
 
     fun refreshHome() {
         homeJob?.cancel(); catalogJob?.cancel()
+        homeRowJobs.values.forEach { it.cancel() }; homeRowJobs.clear()
+        homeRows = homeRows.map { it.copy(loading = false) }
         checking = home == null; homeError = null; catalogLoading = false; homeRefreshing = true
         homeJob = scope.launch {
             try {
@@ -131,13 +135,15 @@ internal class TvMediaRouteState(
                 loadCatalog(true)
                 when (val result = repository.home()) {
                     is MediaReadResult.Success -> if (result.scope == repository.scope) {
-                        home = result.value; checking = false; supported = true
+                        home = result.value
+                        syncHomeRows(result.value.rows)
+                        checking = false; supported = true
                     }
                     is MediaReadResult.Failure -> if (result.scope == repository.scope) {
                         if (result.error.invalidatesTvData()) {
                             catalogJob?.cancel(); catalogLoading = false
                             supported = false; closeDetail()
-                            home = null; catalog = emptyList(); catalogCursor = null
+                            home = null; homeRows = emptyList(); catalog = emptyList(); catalogCursor = null
                             searchResults = emptyList(); searchCursor = null
                             people = emptyList(); peopleCursor = null; files = emptyList(); filesCursor = null
                             collections = emptyList(); collectionsCursor = null; collectionRef = null; collectionWorks = emptyList(); collectionWorksCursor = null
@@ -150,6 +156,55 @@ internal class TvMediaRouteState(
             catch (_: Exception) { checking = false; homeError = "无法读取服务器能力，请检查连接后重试。" }
             finally { homeRefreshing = false }
         }
+    }
+
+    private fun syncHomeRows(rows: List<MediaCatalogHomeRow>) {
+        val synced = syncTvMediaHomeRows(homeRows, rows.mapNotNull(::tvMediaHomeRowState))
+        homeRowJobs.keys.retainAll(synced.map { it.rowId }.toSet())
+        homeRows = synced
+    }
+
+    fun retryHomeRow(rowId: MediaCatalogRowId) {
+        homeRows.firstOrNull { it.rowId == rowId }?.let { loadHomeRow(rowId, it.retryAppend) }
+    }
+
+    fun loadHomeRow(rowId: MediaCatalogRowId, append: Boolean) {
+        if (!supported) return
+        val current = homeRows.firstOrNull { it.rowId == rowId } ?: return
+        if (current.loading || (append && current.cursor == null)) return
+        homeRowJobs[rowId]?.cancel()
+        val cursor = if (append) current.cursor else null
+        updateHomeRow(rowId) { it.copy(loading = true, error = null, retryAppend = false) }
+        homeRowJobs[rowId] = scope.launch {
+            when (val result = repository.homeRow(rowId, cursor)) {
+                is MediaReadResult.Success -> if (result.scope == repository.scope) {
+                    val incoming = tvMediaHomeRowState(result.value) ?: return@launch
+                    updateHomeRow(rowId) { latest ->
+                        if (append && incoming.items.isEmpty() && incoming.error != null) {
+                            latest.copy(loading = false, error = incoming.error, retryAppend = true)
+                        } else if (!append && incoming.items.isEmpty() && incoming.error != null && latest.items.isNotEmpty()) {
+                            latest.copy(cursor = incoming.cursor, hasMore = incoming.hasMore,
+                                loading = false, error = incoming.error, retryAppend = false)
+                        } else mergeTvMediaHomeRow(latest, incoming, append) { tvMediaKey(it.ref) }
+                    }
+                }
+                is MediaReadResult.Failure -> if (result.scope == repository.scope) {
+                    if (result.error.invalidatesTvData()) {
+                        if (result.error.kind in setOf(MediaFailureKind.CURSOR_STALE, MediaFailureKind.CURSOR_EXPIRED, MediaFailureKind.CONFLICT)) {
+                            updateHomeRow(rowId) { it.copy(cursor = null, hasMore = false, loading = false,
+                                error = tvMediaFailure(result.error), retryAppend = false) }
+                        } else homeRows = homeRows.filterNot { it.rowId == rowId }
+                    } else updateHomeRow(rowId) { it.copy(loading = false,
+                        error = tvMediaFailure(result.error), retryAppend = append) }
+                }
+            }
+            coroutineContext.ensureActive()
+            updateHomeRow(rowId) { it.copy(loading = false) }
+        }
+    }
+
+    private fun updateHomeRow(rowId: MediaCatalogRowId, transform: (TvMediaHomeRowState<MediaCatalogCard>) -> TvMediaHomeRowState<MediaCatalogCard>) {
+        homeRows = homeRows.map { if (it.rowId == rowId) transform(it) else it }
     }
 
     fun selectFilter(value: String) {

@@ -1,6 +1,11 @@
 package io.github.kkwans.fileway.tv.medialibrary
 
 import coil3.request.ImageRequest
+import io.github.kkwans.nasfilebrowser.data.MediaCatalogCursor
+import io.github.kkwans.nasfilebrowser.data.MediaCatalogCard
+import io.github.kkwans.nasfilebrowser.data.MediaCatalogHomeRow
+import io.github.kkwans.nasfilebrowser.data.MediaCatalogPageState
+import io.github.kkwans.nasfilebrowser.data.MediaCatalogRowId
 import io.github.kkwans.nasfilebrowser.data.MediaItemKind
 import io.github.kkwans.nasfilebrowser.data.MediaTechnicalObservation
 
@@ -67,6 +72,77 @@ data class TvMediaShelf(
 
 data class TvMediaCategory(val id: String, val label: String)
 
+data class TvMediaHomeRowState<T>(
+    val rowId: MediaCatalogRowId,
+    val items: List<T> = emptyList(),
+    val cursor: MediaCatalogCursor? = null,
+    val hasMore: Boolean = false,
+    val loading: Boolean = false,
+    val error: String? = null,
+    val retryAppend: Boolean = false,
+)
+
+internal fun tvMediaShelfVisible(shelf: TvMediaShelf): Boolean =
+    shelf.items.isNotEmpty() || shelf.loading || shelf.error != null || shelf.hasMore
+
+internal fun <T> syncTvMediaHomeRows(
+    current: List<TvMediaHomeRowState<T>>,
+    incoming: List<TvMediaHomeRowState<T>>,
+): List<TvMediaHomeRowState<T>> {
+    val previous = current.associateBy { it.rowId }
+    return incoming.map { next ->
+        val old = previous[next.rowId]
+        if (old != null && next.items.isEmpty() && (next.error != null || next.hasMore)) {
+            old.copy(cursor = next.cursor, hasMore = next.hasMore, loading = false,
+                error = next.error, retryAppend = false)
+        } else next
+    }
+}
+
+internal fun <T> mergeTvMediaHomeRow(
+    current: TvMediaHomeRowState<T>,
+    incoming: TvMediaHomeRowState<T>,
+    append: Boolean,
+    key: (T) -> String,
+): TvMediaHomeRowState<T> {
+    require(current.rowId == incoming.rowId)
+    val items = if (append) current.items + incoming.items else incoming.items
+    return incoming.copy(items = items.distinctBy(key), loading = false, retryAppend = false)
+}
+
+private fun tvMediaHomeRowIdentity(id: MediaCatalogRowId): Pair<String, String>? = when (id) {
+    MediaCatalogRowId.RECENTLY_ADDED -> "recently-added" to "最近入库"
+    MediaCatalogRowId.RECENTLY_UPDATED_SERIES -> "recently-updated-series" to "最近更新剧集"
+    else -> null
+}
+
+internal fun tvMediaHomeShelf(row: MediaCatalogHomeRow, items: List<TvMediaCard>): TvMediaShelf? {
+    val (id, title) = tvMediaHomeRowIdentity(row.id) ?: return null
+    return TvMediaShelf(
+        id = id,
+        title = title,
+        items = items,
+        loading = false,
+        error = when (row.state) {
+            MediaCatalogPageState.READY -> null
+            MediaCatalogPageState.PARTIAL -> if (row.hasMore) null else "列表尚未完成，请稍后重试。"
+            MediaCatalogPageState.PREPARING, MediaCatalogPageState.DEFERRED -> "列表尚在准备，请稍后重试。"
+            MediaCatalogPageState.UNSUPPORTED, MediaCatalogPageState.ERROR -> "列表暂不可用，请稍后重试。"
+        },
+        hasMore = row.hasMore,
+    )
+}
+
+internal fun tvMediaHomeRowState(row: MediaCatalogHomeRow): TvMediaHomeRowState<MediaCatalogCard>? {
+    val shelf = tvMediaHomeShelf(row, emptyList()) ?: return null
+    return TvMediaHomeRowState(row.id, row.items, row.nextCursor, row.hasMore, shelf.loading, shelf.error)
+}
+
+internal fun tvMediaHomeRowShelf(state: TvMediaHomeRowState<TvMediaCard>): TvMediaShelf? {
+    val (id, title) = tvMediaHomeRowIdentity(state.rowId) ?: return null
+    return TvMediaShelf(id, title, state.items, state.loading, state.error, state.hasMore)
+}
+
 data class TvMediaHomeState(
     /** Change on instance/account change; clears only this screen's local UI state. */
     val scopeKey: String,
@@ -78,6 +154,7 @@ data class TvMediaHomeState(
     val continueLoading: Boolean = false,
     val continueError: String? = null,
     val continueHasMore: Boolean = false,
+    val rows: List<TvMediaHomeRowState<TvMediaCard>> = emptyList(),
     val shelves: List<TvMediaShelf> = emptyList(),
     val categories: List<TvMediaCategory> = emptyList(),
     val selectedCategory: String? = null,
