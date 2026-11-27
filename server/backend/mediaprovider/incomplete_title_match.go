@@ -182,6 +182,18 @@ func (client *TMDBClient) resolveIncompleteMovieTitle(ctx context.Context, input
 			Evidence: []string{"incomplete_title_shape", "year_match"}}, difference: runtimeDifferenceMs(input.DurationMs, runtime)})
 	}
 	if len(candidates) > 1 {
+		slices.SortStableFunc(candidates, func(a, b runtimeCandidate) int {
+			if order := cmp.Compare(a.difference, b.difference); order != 0 {
+				return order
+			}
+			if a.match.Document.Entity.Provider != b.match.Document.Entity.Provider {
+				return strings.Compare(a.match.Document.Entity.Provider, b.match.Document.Entity.Provider)
+			}
+			if a.match.Document.Entity.Kind != b.match.Document.Entity.Kind {
+				return strings.Compare(string(a.match.Document.Entity.Kind), string(b.match.Document.Entity.Kind))
+			}
+			return cmp.Compare(a.match.Document.Entity.ID, b.match.Document.Entity.ID)
+		})
 		best := candidates[0]
 		tied := false
 		for _, candidate := range candidates[1:] {
@@ -193,7 +205,11 @@ func (client *TMDBClient) resolveIncompleteMovieTitle(ctx context.Context, input
 			}
 		}
 		if tied {
-			return AutomaticMatch{State: AutoNeedsReview, Reason: "ambiguous_candidates"}, true, nil
+			matches := make([]MatchCandidate, 0, len(candidates))
+			for _, candidate := range candidates {
+				matches = append(matches, candidateFromDocument(candidate.match.Document, candidate.match.Projection, candidate.match.Evidence))
+			}
+			return AutomaticMatch{State: AutoNeedsReview, Reason: "ambiguous_candidates", Candidates: matches}, true, nil
 		}
 		candidates = []runtimeCandidate{best}
 	}
@@ -206,6 +222,7 @@ func (client *TMDBClient) resolveIncompleteMovieTitle(ctx context.Context, input
 			result.Evidence = append(result.Evidence, "runtime_difference")
 		}
 		result.Evidence = append(result.Evidence, "unique_candidate")
+		result.Candidates = []MatchCandidate{candidateFromDocument(result.Document, result.Projection, result.Evidence)}
 		return result, true, nil
 	}
 	if yearConflict {

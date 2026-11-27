@@ -60,6 +60,9 @@ func TestResolveAutomaticMatchRequiresConvergingExplicitEvidence(t *testing.T) {
 			if tc.want == AutoMatched && (result.Document.Entity.ID != 42 || result.Document.Entity.Kind != tc.input.Kind || len(result.Projection.Item.Fields["title"]) == 0 || !slices.Contains(result.Evidence, "typed_identifier_match")) {
 				t.Fatal("matched result lacks typed detail, evidence and normalized metadata")
 			}
+			if tc.want == AutoMatched && (len(result.Candidates) != 1 || result.Candidates[0].Entity != result.Document.Entity) {
+				t.Fatalf("typed match candidates: %+v", result.Candidates)
+			}
 		})
 	}
 }
@@ -147,6 +150,12 @@ func TestResolveAutomaticMatchTitleEvidenceIsConservative(t *testing.T) {
 			}
 			if tc.want == AutoMatched && (result.Document.Entity.ID != 42 || len(result.Evidence) == 0) {
 				t.Fatalf("title match lacks typed evidence: %+v", result)
+			}
+			if tc.want == AutoMatched && (len(result.Candidates) == 0 || result.Candidates[0].Entity != result.Document.Entity) {
+				t.Fatalf("title match candidates: %+v", result.Candidates)
+			}
+			if tc.reason == "ambiguous_candidates" && len(result.Candidates) != 2 {
+				t.Fatalf("ambiguous candidates missing: %+v", result.Candidates)
 			}
 		})
 	}
@@ -450,6 +459,9 @@ func TestResolveAutomaticMatchRecoversMissingHanCharactersWithYearAndRuntime(t *
 					!slices.Contains(result.Evidence, "unique_candidate") {
 					t.Fatalf("recovery evidence missing: %+v", result)
 				}
+				if len(result.Candidates) != 1 || result.Candidates[0].Entity != result.Document.Entity {
+					t.Fatalf("recovery candidates missing: %+v", result.Candidates)
+				}
 			}
 		})
 	}
@@ -492,6 +504,13 @@ func TestResolveAutomaticMatchRecoveryRequiresUniqueRuntimeCompatibleCandidate(t
 			}
 			if tc.want == AutoMatched && result.Document.Entity.ID != 43 {
 				t.Fatalf("wrong runtime-compatible candidate: %+v", result.Document.Entity)
+			}
+			if tc.want == AutoMatched && (len(result.Candidates) != 1 || result.Candidates[0].Entity != result.Document.Entity) {
+				t.Fatalf("runtime-selected candidates missing: %+v", result.Candidates)
+			}
+			if tc.reason == "ambiguous_candidates" && (len(result.Candidates) != 2 ||
+				result.Candidates[0].Entity.ID != 42 || result.Candidates[1].Entity.ID != 43) {
+				t.Fatalf("ambiguous recovery candidates missing or unordered: %+v", result.Candidates)
 			}
 		})
 	}

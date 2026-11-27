@@ -449,7 +449,9 @@ func TestMediaMatchFillDryRunReturnsDecisionWithoutPersisting(t *testing.T) {
 		decision.Title != "Echo" || decision.Year != "2020" || decision.Language != "zh-CN" ||
 		decision.ItemRevision != identification.ItemRevision || decision.StructureRevision != identification.StructureRevision ||
 		decision.PolicyRevision != policy.Revision || decision.LocalRulesRevision != mediascan.LocalRulesRevision ||
-		decision.AutoTitleMatch || len(decision.Evidence) == 0 {
+		decision.AutoTitleMatch || len(decision.Evidence) == 0 || len(decision.Candidates) != 1 ||
+		decision.Candidates[0].Provider != "tmdb" || decision.Candidates[0].Kind != "movie" ||
+		decision.Candidates[0].ExternalID != "42" {
 		t.Fatalf("dry-run decision: %+v", decision)
 	}
 	detail := fixtureDetail(t, f, owner, library.ID, items[0].ID)

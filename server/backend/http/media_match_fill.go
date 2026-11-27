@@ -18,28 +18,39 @@ import (
 	"github.com/gorilla/mux"
 )
 
+type fillMatchCandidate struct {
+	Provider      string   `json:"provider"`
+	Kind          string   `json:"kind"`
+	ExternalID    string   `json:"externalId"`
+	Title         string   `json:"title,omitempty"`
+	OriginalTitle string   `json:"originalTitle,omitempty"`
+	Year          int      `json:"year,omitempty"`
+	Evidence      []string `json:"evidence,omitempty"`
+}
+
 type fillMatchDecision struct {
-	DryRun             bool     `json:"dryRun"`
-	Provider           string   `json:"provider"`
-	Kind               string   `json:"kind"`
-	ExternalID         string   `json:"externalId,omitempty"`
-	Title              string   `json:"title,omitempty"`
-	Year               string   `json:"year,omitempty"`
-	Language           string   `json:"language"`
-	Region             string   `json:"region"`
-	Evidence           []string `json:"evidence,omitempty"`
-	InputTitle         string   `json:"inputTitle,omitempty"`
-	InputYear          int      `json:"inputYear,omitempty"`
-	Aliases            []string `json:"aliases,omitempty"`
-	DurationMs         int64    `json:"durationMs,omitempty"`
-	Incomplete         bool     `json:"incomplete"`
-	Ambiguities        []string `json:"ambiguities,omitempty"`
-	ItemRevision       int64    `json:"itemRevision"`
-	StructureRevision  int64    `json:"structureRevision"`
-	PolicyRevision     int64    `json:"policyRevision"`
-	LocalRulesRevision int64    `json:"localRulesRevision"`
-	AutoTitleMatch     bool     `json:"autoTitleMatch"`
-	AdapterVersion     string   `json:"adapterVersion,omitempty"`
+	DryRun             bool                 `json:"dryRun"`
+	Provider           string               `json:"provider"`
+	Kind               string               `json:"kind"`
+	ExternalID         string               `json:"externalId,omitempty"`
+	Title              string               `json:"title,omitempty"`
+	Year               string               `json:"year,omitempty"`
+	Language           string               `json:"language"`
+	Region             string               `json:"region"`
+	Evidence           []string             `json:"evidence,omitempty"`
+	Candidates         []fillMatchCandidate `json:"candidates,omitempty"`
+	InputTitle         string               `json:"inputTitle,omitempty"`
+	InputYear          int                  `json:"inputYear,omitempty"`
+	Aliases            []string             `json:"aliases,omitempty"`
+	DurationMs         int64                `json:"durationMs,omitempty"`
+	Incomplete         bool                 `json:"incomplete"`
+	Ambiguities        []string             `json:"ambiguities,omitempty"`
+	ItemRevision       int64                `json:"itemRevision"`
+	StructureRevision  int64                `json:"structureRevision"`
+	PolicyRevision     int64                `json:"policyRevision"`
+	LocalRulesRevision int64                `json:"localRulesRevision"`
+	AutoTitleMatch     bool                 `json:"autoTitleMatch"`
+	AdapterVersion     string               `json:"adapterVersion,omitempty"`
 }
 
 type fillMatchResult struct {
@@ -247,6 +258,14 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 	}
 	if preview != nil {
 		preview.Evidence = append([]string(nil), decision.Evidence...)
+		preview.Candidates = make([]fillMatchCandidate, 0, len(decision.Candidates))
+		for _, candidate := range decision.Candidates {
+			preview.Candidates = append(preview.Candidates, fillMatchCandidate{
+				Provider: candidate.Entity.Provider, Kind: string(candidate.Entity.Kind),
+				ExternalID: strconv.FormatInt(candidate.Entity.ID, 10), Title: candidate.Title,
+				OriginalTitle: candidate.OriginalTitle, Year: candidate.Year, Evidence: append([]string(nil), candidate.Evidence...),
+			})
+		}
 		preview.AdapterVersion = "tmdb-v1"
 		if decision.State == mediaprovider.AutoMatched {
 			preview.Provider = decision.Document.Entity.Provider

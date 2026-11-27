@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	maxAutomaticTitleQueries = 6
-	maxAutomaticTitlePages   = 3
+	maxAutomaticTitleQueries    = 6
+	maxAutomaticTitlePages      = 3
+	maxAutomaticMatchCandidates = 20
 )
 
 // WorkIdentifier is a declaration from an authorized input. An empty Kind
@@ -51,6 +52,7 @@ type AutomaticMatch struct {
 	State      AutomaticMatchState
 	Reason     string
 	Evidence   []string
+	Candidates []MatchCandidate
 	Document   Document
 	Projection TMDBProjection
 }
@@ -208,15 +210,38 @@ func (client *TMDBClient) ResolveAutomaticMatch(ctx context.Context, input Autom
 	if year := projection.Item.Fields["year"]; input.Year > 0 && len(year) != 0 && year[0] != strconv.Itoa(input.Year) {
 		return review("year_conflict")
 	}
-	return AutomaticMatch{State: AutoMatched, Evidence: []string{"typed_identifier_match"}, Document: document, Projection: projection}, nil
+	return AutomaticMatch{State: AutoMatched, Evidence: []string{"typed_identifier_match"},
+		Candidates: []MatchCandidate{candidateFromDocument(document, projection, []string{"typed_identifier_match"})},
+		Document:   document, Projection: projection}, nil
 }
 
 func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input AutomaticMatchInput, language string,
-	authorize func(context.Context) error) (AutomaticMatch, error) {
+	authorize func(context.Context) error) (result AutomaticMatch, err error) {
+	title := strings.TrimSpace(input.Title)
+	var documents []Document
+	defer func() {
+		if err != nil {
+			return
+		}
+		candidates := RankCandidates(MatchHint{Kind: input.Kind, Title: title, Year: input.Year}, documents)
+		if result.State == AutoMatched && result.Document.Entity.ID > 0 {
+			selected := candidateFromDocument(result.Document, result.Projection, result.Evidence)
+			filtered := candidates[:0]
+			for _, candidate := range candidates {
+				if candidate.Entity != selected.Entity {
+					filtered = append(filtered, candidate)
+				}
+			}
+			candidates = append([]MatchCandidate{selected}, filtered...)
+		}
+		if len(candidates) > maxAutomaticMatchCandidates {
+			candidates = candidates[:maxAutomaticMatchCandidates]
+		}
+		result.Candidates = candidates
+	}()
 	review := func(reason string) (AutomaticMatch, error) {
 		return AutomaticMatch{State: AutoNeedsReview, Reason: reason}, nil
 	}
-	title := strings.TrimSpace(input.Title)
 	if title == "" {
 		return review("title_required")
 	}
@@ -241,7 +266,6 @@ func (client *TMDBClient) resolveTitleMatch(ctx context.Context, input Automatic
 			break
 		}
 	}
-	var documents []Document
 	var ranked []MatchCandidate
 	var yearCandidates, directCandidates, adultYearCandidates []MatchCandidate
 	eligible := make([]MatchCandidate, 0)
@@ -579,6 +603,27 @@ queries:
 	}
 	evidence = append(evidence, "unique_candidate")
 	return AutomaticMatch{State: AutoMatched, Evidence: evidence, Document: document, Projection: projection}, nil
+}
+
+func candidateFromDocument(document Document, projection TMDBProjection, evidence []string) MatchCandidate {
+	titleField, originalField := "title", "original_title"
+	if document.Entity.Kind == Series {
+		titleField, originalField = "name", "original_name"
+	}
+	year := 0
+	if values := projection.Item.Fields["year"]; len(values) != 0 {
+		year, _ = strconv.Atoi(values[0])
+	}
+	return MatchCandidate{Entity: document.Entity, Title: firstMatchField(projection.Item.Fields, titleField),
+		OriginalTitle: firstMatchField(projection.Item.Fields, originalField), Year: year, Evidence: append([]string(nil), evidence...)}
+}
+
+func firstMatchField(fields map[string][]string, name string) string {
+	values := fields[name]
+	if len(values) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(values[0])
 }
 
 func documentMatchesAnyQuery(document Document, queries []string) (bool, bool) {
