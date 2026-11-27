@@ -415,6 +415,9 @@ internal fun PhoneMediaCredits(title: String, credits: List<MediaCredit>, loadin
 
 internal fun phoneMediaEpisodeImage(artwork: MediaArtwork?, backdrop: MediaArtwork?): MediaArtwork? = artwork ?: backdrop
 
+internal fun phoneMediaEpisodeTitle(numberLabel: String, title: String): String =
+    if (title.isBlank()) numberLabel else "$numberLabel · $title"
+
 @Composable
 private fun EpisodeRow(episode: MediaEpisode, loader: ImageLoader, onAction: (PhoneMediaAction) -> Unit, busy: Boolean, inset: Dp) {
     var menu by remember(episode.id) { mutableStateOf(false) }
@@ -432,7 +435,7 @@ private fun EpisodeRow(episode: MediaEpisode, loader: ImageLoader, onAction: (Ph
             val information: @Composable (Modifier) -> Unit = { infoModifier ->
                 Row(infoModifier, verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text("${episode.numberLabel} · ${episode.title}", style = PhoneDetailType.item,
+                        Text(phoneMediaEpisodeTitle(episode.numberLabel, episode.title), style = PhoneDetailType.item,
                             maxLines = 3, overflow = TextOverflow.Ellipsis)
                         Text(episode.unavailableReason ?: episode.subtitle, style = PhoneDetailType.metadata,
                             color = if (episode.unavailableReason != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
