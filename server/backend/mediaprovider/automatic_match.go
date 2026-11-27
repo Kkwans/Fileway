@@ -146,7 +146,7 @@ func (client *TMDBClient) ResolveAutomaticMatch(ctx context.Context, input Autom
 		if result.State == AutoMatched && len(input.Parts) > 0 {
 			result.Evidence = append(result.Evidence, "multipart_identity_match")
 		}
-		if result.State == AutoNoMatch || result.Reason == "title_year_conflict" {
+		if result.State == AutoNoMatch || result.Reason == "title_year_conflict" || result.Reason == "runtime_unknown" {
 			if len(input.Parts) != 0 {
 				return result, nil
 			}

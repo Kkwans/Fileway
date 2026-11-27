@@ -988,6 +988,36 @@ func TestResolveAutomaticMatchRecoversSingleVisibleHanCharacterWithRuntime(t *te
 	}
 }
 
+func TestResolveAutomaticMatchRecoversIncompleteTitleAfterRuntimeUnknown(t *testing.T) {
+	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/3/search/movie":
+			query := request.URL.Query().Get("query")
+			if query == "推n" {
+				return response(200, `{"page":1,"total_pages":1,"total_results":2,"results":[{"id":1,"title":"无关电影甲","release_date":"2014-01-01"},{"id":2,"title":"无关电影乙","release_date":"2014-02-01"}]}`), nil
+			}
+			if query != "推" || request.URL.Query().Get("primary_release_year") != "2014" {
+				t.Fatalf("unexpected recovery query %s", request.URL)
+			}
+			return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":256106,"title":"推拿","release_date":"2014-11-28"}]}`), nil
+		case "/3/movie/1":
+			return response(200, `{"id":1,"title":"无关电影甲","release_date":"2014-01-01","runtime":90}`), nil
+		case "/3/movie/2":
+			return response(200, `{"id":2,"title":"无关电影乙","release_date":"2014-02-01","runtime":100}`), nil
+		case "/3/movie/256106":
+			return response(200, `{"id":256106,"title":"推拿","release_date":"2014-11-28","runtime":114}`), nil
+		default:
+			t.Fatalf("unexpected outbound request %s", request.URL)
+			return nil, nil
+		}
+	})
+	result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: "推n", Year: 2014, DurationMs: 6_890_528, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+	if err != nil || result.State != AutoMatched || result.Document.Entity.ID != 256106 ||
+		!slices.Contains(result.Evidence, "incomplete_title_shape") || !slices.Contains(result.Evidence, "closest_runtime") {
+		t.Fatalf("runtime-unknown recovery failed: state=%s reason=%s result=%+v err=%v", result.State, result.Reason, result, err)
+	}
+}
+
 func TestResolveAutomaticMatchRetriesAdultSearchOnlyAfterNoDirectCandidate(t *testing.T) {
 	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
 		switch request.URL.Path {
