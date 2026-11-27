@@ -871,6 +871,8 @@ internal fun tvMediaKey(value: MediaCatalogRef): String = "${value.libraryId}/${
 
 internal fun tvMediaDetailFocusId(libraryId: String?, itemId: String?): String? =
     if (libraryId != null && itemId != null) "$libraryId/$itemId" else null
+
+internal fun tvMediaDetailUserStateBusy(busy: Boolean, pending: Boolean): Boolean = busy || pending
 internal fun tvVariantKey(value: MediaCatalogVariant): String = "${value.editionId}/${value.variantId}/${value.bindingId}"
 
 private fun MediaFailure.invalidatesTvData(): Boolean = kind in setOf(

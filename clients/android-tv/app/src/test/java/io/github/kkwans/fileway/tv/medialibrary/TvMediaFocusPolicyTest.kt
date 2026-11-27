@@ -1,10 +1,19 @@
 package io.github.kkwans.fileway.tv.medialibrary
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TvMediaFocusPolicyTest {
+    @Test
+    fun pendingUserStateKeepsDetailControlsBusy() {
+        assertTrue(tvMediaDetailUserStateBusy(busy = false, pending = true))
+        assertFalse(tvMediaDetailUserStateBusy(busy = false, pending = false))
+        assertTrue(tvMediaDetailUserStateBusy(busy = true, pending = false))
+    }
+
     @Test
     fun detailReturnUsesQualifiedLibraryAndItemKey() {
         assertEquals("lib_1/item_1", tvMediaDetailFocusId("lib_1", "item_1"))

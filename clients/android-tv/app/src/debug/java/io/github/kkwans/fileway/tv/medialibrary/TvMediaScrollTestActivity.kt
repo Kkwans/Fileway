@@ -46,6 +46,21 @@ class TvMediaScrollTestActivity : ComponentActivity() {
                                 onCategory = { category = it },
                                 navigation = {},
                             )
+                        } else if (screen == "detail-busy") {
+                            TvMediaDetail(
+                                state = TvMediaDetailState(
+                                    scopeKey = "busy-detail-fixture",
+                                    item = TvMediaCard("lib_1/item_1", "测试影视"),
+                                    userStateBusy = true,
+                                    episodes = listOf(TvMediaEpisode("episode_1", "测试分集", "第 1 集")),
+                                    episodesLoading = true,
+                                ),
+                                imageLoader = loader,
+                                onBack = {},
+                                onToggleFavorite = {},
+                                onToggleWatched = {},
+                                onMoreEpisodes = {},
+                            )
                         } else if (screen == "works") {
                             TvMediaWorksPage(
                                 header = { Text("测试作品页") },
