@@ -155,6 +155,7 @@ internal fun PhoneMediaRoute(
         else if (reviewItemId != null) back()
         else if (managing) managing = false
         else if (detailId != null || reviewing || route.sourceRef != null) back()
+        else if (phoneMediaShowsBack(phoneMediaPageForTab(mediaTab))) back()
         else onExit()
     }
     val action: (PhoneMediaAction) -> Unit = { intent ->
@@ -383,7 +384,7 @@ internal fun PhoneMediaRoute(
         } else {
             val home = route.home
             val hasLibrary = route.catalog.isNotEmpty() || home != null && home.state != MediaCatalogHomeState.NO_LIBRARIES
-            val page = when (mediaTab) { "libraries" -> PhoneMediaPage.LIBRARIES; "categories" -> PhoneMediaPage.CATEGORIES; else -> PhoneMediaPage.HOME }
+            val page = phoneMediaPageForTab(mediaTab)
             val grid = when (page) { PhoneMediaPage.HOME -> homeGrid; PhoneMediaPage.LIBRARIES -> libraryGrid; PhoneMediaPage.CATEGORIES -> categoryGrid }
             Column(Modifier.fillMaxSize()) {
               Box(Modifier.weight(1f)) {

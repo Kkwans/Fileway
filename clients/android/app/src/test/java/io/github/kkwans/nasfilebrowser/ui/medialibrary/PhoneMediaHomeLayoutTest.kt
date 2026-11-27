@@ -14,6 +14,17 @@ class PhoneMediaHomeLayoutTest {
     }
 
     @Test
+    fun systemBackUsesTheSamePageHierarchyAsTopBack() {
+        assertEquals(PhoneMediaPage.HOME, phoneMediaPageForTab("home"))
+        assertEquals(PhoneMediaPage.LIBRARIES, phoneMediaPageForTab("libraries"))
+        assertEquals(PhoneMediaPage.CATEGORIES, phoneMediaPageForTab("categories"))
+        assertEquals(PhoneMediaPage.HOME, phoneMediaPageForTab("settings"))
+        assertTrue(phoneMediaShowsBack(phoneMediaPageForTab("libraries")))
+        assertTrue(phoneMediaShowsBack(phoneMediaPageForTab("categories")))
+        assertFalse(phoneMediaShowsBack(phoneMediaPageForTab("home")))
+    }
+
+    @Test
     fun homeShowsOnlyRecentPreview() {
         val entries = (1..10).map(::poster)
         assertEquals((1..6).map(::poster), phoneMediaCatalogForPage(entries, PhoneMediaPage.HOME))

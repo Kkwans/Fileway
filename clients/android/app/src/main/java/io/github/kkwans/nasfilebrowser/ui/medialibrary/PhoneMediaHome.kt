@@ -43,6 +43,12 @@ private const val PHONE_HOME_PREVIEW_ROWS = 3
 
 internal fun phoneMediaShowsBack(page: PhoneMediaPage): Boolean = page != PhoneMediaPage.HOME
 
+internal fun phoneMediaPageForTab(tab: String): PhoneMediaPage = when (tab) {
+    "libraries" -> PhoneMediaPage.LIBRARIES
+    "categories" -> PhoneMediaPage.CATEGORIES
+    else -> PhoneMediaPage.HOME
+}
+
 internal fun phoneMediaCatalogForPage(entries: List<MediaPoster>, page: PhoneMediaPage, columns: Int = 2): List<MediaPoster> =
     if (page == PhoneMediaPage.HOME) entries.take(columns * PHONE_HOME_PREVIEW_ROWS) else entries
 
