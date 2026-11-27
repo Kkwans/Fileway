@@ -679,6 +679,7 @@ internal class PhoneMediaRouteState(
 
     fun sourcesFor(id: String): List<MediaCatalogVariant> = variants.takeIf { variantsRef?.let(::key) == id }.orEmpty()
     fun loadingSourcesFor(id: String): Boolean = sourcesLoading && variantsRef?.let(::key) == id
+    fun hasMoreSourcesFor(id: String): Boolean = variantsRef?.let(::key) == id && sourcesCursor != null
 
     fun openSources(ref: MediaCatalogRef) {
         sourcesJob?.cancel()

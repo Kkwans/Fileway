@@ -22,6 +22,19 @@ internal data class PhoneMediaSourceSelection(val itemId: String, val selectedId
         selectedId?.takeIf { it == sourceId && itemId == expectedItemId && expectedRevision == revision }
 }
 
+internal data class PhoneMediaPlaybackSource(val id: String, val available: Boolean, val isDefault: Boolean)
+
+internal fun phoneMediaDirectPlaySource(
+    sources: List<PhoneMediaPlaybackSource>,
+    currentSourceId: String?,
+    hasMore: Boolean = false,
+): String? {
+    val available = sources.filter { it.available }
+    currentSourceId?.let { id -> available.firstOrNull { it.id == id }?.id }?.let { return it }
+    available.singleOrNull { it.isDefault }?.let { return it.id }
+    return if (!hasMore) available.singleOrNull()?.id else null
+}
+
 /** Modal owns its insets and focus domain. Selection changes the source only; the host decides
  * whether to resolve/play after acknowledging the selection. Transcoding is a separate action. */
 @OptIn(ExperimentalMaterial3Api::class)

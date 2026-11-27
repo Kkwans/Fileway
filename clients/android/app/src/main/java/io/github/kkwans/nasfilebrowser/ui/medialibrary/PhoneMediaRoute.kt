@@ -159,10 +159,18 @@ internal fun PhoneMediaRoute(
     }
     val action: (PhoneMediaAction) -> Unit = { intent ->
         val detailRef = if (libraryId != null && detailId != null) repository.catalogRef(libraryId, detailId) else null
-        fun source(id: String, fromStart: Boolean = false) {
+        fun source(id: String, fromStart: Boolean = false, playDirect: Boolean = false) {
             val ref = if (detailRef != null && key(detailRef) == id) detailRef
             else route.episodes.firstOrNull { key(it.ref) == id }?.ref
             if (ref != null) {
+                if (playDirect) {
+                    val sources = route.sourcesFor(id).map { PhoneMediaPlaybackSource(variantKey(it), it.available, it.isDefault) }
+                    val directId = phoneMediaDirectPlaySource(sources, currentSourceId(), route.hasMoreSourcesFor(id))
+                    directId?.let(route::variant)?.let {
+                        onPlayback(it, fromStart, null)
+                        return
+                    }
+                }
                 startFromBeginning = fromStart
                 sourceSelection = PhoneMediaSourceSelection(key(ref))
                 route.openSources(ref)
@@ -250,7 +258,7 @@ internal fun PhoneMediaRoute(
                 watching.items.firstOrNull { it.id == intent.id && watching.removing != it.id }?.let {
                     onPlayback(it.variant, intent.fromStart, it)
                 }
-            } else source(intent.id, intent.fromStart)
+            } else source(intent.id, intent.fromStart, playDirect = true)
             is PhoneMediaAction.RemoveContinue -> watching.items.firstOrNull { it.id == intent.id }?.let(watch::remove)
             is PhoneMediaAction.Favorite -> route.changeUserState(intent.id, intent.expectedRevision, favorite = intent.value)
             is PhoneMediaAction.Watched -> route.changeUserState(intent.id, intent.expectedRevision, watched = intent.value)
