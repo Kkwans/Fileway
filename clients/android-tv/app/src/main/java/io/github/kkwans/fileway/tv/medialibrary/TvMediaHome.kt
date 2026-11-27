@@ -120,8 +120,12 @@ private fun MediaCatalogShelf(
             contentPadding = MediaLayout.rowPadding, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             items(categories, key = { it.id }) { category ->
                 val active = category.id == selectedCategory
+                val focus = LocalTvMediaFocusBinding.current
                 Column {
-                    MediaSurface({ onCategory(category.id) }, Modifier.heightIn(min = 48.dp), selected = active,
+                    MediaSurface({
+                        focus?.onOpen?.invoke(category.id, "category")
+                        onCategory(category.id)
+                    }, Modifier.heightIn(min = 48.dp).tvMediaReturnFocus(category.id, "category"), selected = active,
                         container = Color.Transparent, selectionContainer = false,
                         contentColor = if (active) colors.accent else colors.secondary) {
                         Text(category.label, Modifier.padding(horizontal = 12.dp, vertical = 12.dp),

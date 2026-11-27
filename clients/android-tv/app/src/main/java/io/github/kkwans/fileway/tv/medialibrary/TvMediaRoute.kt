@@ -347,7 +347,12 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             onRetryContinue = watch::retry, onMoreContinue = { watch.load(reset = false) }, onPlay = { id ->
                                 (route.catalog + featured).firstOrNull { tvMediaKey(it.ref) == id }?.let { play(it.ref) }
                             }, onRetry = route::refreshHome, onRetryShelf = { route.retryCatalog() },
-                            onMoreShelf = { route.loadCatalog(false) }, onCategory = { filter = it; route.selectFilter(it) },
+                            onMoreShelf = { route.loadCatalog(false) }, onCategory = { value ->
+                                val target = resolveTvCatalogCategoryFocusTarget(value,
+                                    listOf("all", "movie", "series", "video"))
+                                restore(target.id, target.origin)
+                                filter = value; route.selectFilter(value)
+                            },
                             autoRotate = false, interactionPaused = !interactive, scrollState = homeScroll,
                             navigation = {
                                 val navigation = listOf(TvMediaNavigationItem("media", "影视"), TvMediaNavigationItem("files", "文件")) +

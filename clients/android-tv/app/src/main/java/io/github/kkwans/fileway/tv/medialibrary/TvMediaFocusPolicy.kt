@@ -15,6 +15,16 @@ internal fun resolveTvCatalogSearchFocusTarget(
     TvMediaFocusTarget("search-field", "search")
 }
 
+internal fun resolveTvCatalogCategoryFocusTarget(
+    requestedId: String?,
+    availableIds: List<String>,
+): TvMediaFocusTarget {
+    val ids = availableIds.distinct()
+    if (ids.isEmpty()) return TvMediaFocusTarget("files", "navigation")
+    val id = requestedId?.takeIf { it in ids } ?: ids.firstOrNull { it == "all" } ?: ids.first()
+    return TvMediaFocusTarget(id, "category")
+}
+
 internal fun resolveTvMediaFocusTarget(
     requestedId: String?,
     requestedOrigin: String?,

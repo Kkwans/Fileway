@@ -154,7 +154,7 @@ internal class TvMediaRouteState(
 
     fun selectFilter(value: String) {
         if (value !in setOf("all", "movie", "series", "video") || value == filter) return
-        filter = value; loadCatalog(true, discardCurrent = true)
+        filter = value; loadCatalog(true)
         if (searchedQuery.isNotBlank()) when (searchMode) {
             TvMediaSearchMode.WORKS -> loadSearch(true, discardCurrent = true)
             TvMediaSearchMode.PEOPLE -> loadPeople(true, discardCurrent = true)

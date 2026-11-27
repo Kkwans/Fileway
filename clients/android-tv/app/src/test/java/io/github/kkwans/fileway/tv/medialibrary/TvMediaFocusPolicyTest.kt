@@ -76,4 +76,22 @@ class TvMediaFocusPolicyTest {
     fun newSearchWithoutReturnTargetFocusesField() {
         assertEquals(TvMediaFocusTarget("search-field", "search"), resolveTvSearchEntryFocusTarget(null))
     }
+
+    @Test
+    fun categoryRefreshKeepsFocusOnSelectedCategory() {
+        assertEquals(TvMediaFocusTarget("movie", "category"), resolveTvCatalogCategoryFocusTarget(
+            "movie", listOf("all", "movie", "series", "video")))
+    }
+
+    @Test
+    fun removedCategoryFallsBackToAll() {
+        assertEquals(TvMediaFocusTarget("all", "category"), resolveTvCatalogCategoryFocusTarget(
+            "removed", listOf("all", "movie", "series", "video")))
+    }
+
+    @Test
+    fun emptyCategoryListFallsBackToNavigation() {
+        assertEquals(TvMediaFocusTarget("files", "navigation"), resolveTvCatalogCategoryFocusTarget(
+            "movie", emptyList()))
+    }
 }
