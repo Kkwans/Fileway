@@ -32,6 +32,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.ImageLoader
 import io.github.kkwans.nasfilebrowser.R
+import io.github.kkwans.nasfilebrowser.data.MediaCatalogSort
 import io.github.kkwans.nasfilebrowser.data.MediaLibrarySummary
 import io.github.kkwans.nasfilebrowser.ui.FilewayIcon
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayEmptyState
@@ -64,6 +65,29 @@ internal fun phoneMediaLibraryCatalogTitle(
 internal fun phoneMediaCatalogForPage(entries: List<MediaPoster>, page: PhoneMediaPage, columns: Int = 2): List<MediaPoster> =
     if (page == PhoneMediaPage.HOME) entries.take(columns * PHONE_HOME_PREVIEW_ROWS) else entries
 
+internal fun phoneMediaCatalogColumns(base: Int, density: PhoneMediaDensity): Int =
+    if (density == PhoneMediaDensity.COMPACT) (base + 1).coerceAtMost(6) else base
+
+internal fun phoneMediaHomeShowsFeatured(showFeatured: Boolean, hasEntries: Boolean): Boolean = showFeatured && hasEntries
+
+internal fun phoneMediaHomeSectionOrder(): List<String> = listOf("continue", "catalog", "updated", "featured")
+
+internal fun phoneMediaCatalogSortOptions(filter: String): List<MediaCatalogSort> =
+    if (filter == "series") listOf(MediaCatalogSort.NEWEST, MediaCatalogSort.ID, MediaCatalogSort.UPDATED)
+    else listOf(MediaCatalogSort.NEWEST, MediaCatalogSort.ID)
+
+internal fun phoneMediaCatalogSortLabel(sort: MediaCatalogSort): String = when (sort) {
+    MediaCatalogSort.NEWEST -> "最新加入"
+    MediaCatalogSort.ID -> "目录顺序"
+    MediaCatalogSort.UPDATED -> "最近更新"
+}
+
+internal fun phoneMediaCatalogHeading(sort: MediaCatalogSort): String = when (sort) {
+    MediaCatalogSort.NEWEST -> "最近加入"
+    MediaCatalogSort.ID -> "全部影视"
+    MediaCatalogSort.UPDATED -> "最近更新"
+}
+
 /** The media workspace owns its system-bar insets and navigation. */
 @Composable internal fun PhoneMediaHome(state: PhoneMediaHomeState, imageLoader: ImageLoader,
     onAction: (PhoneMediaAction) -> Unit, modifier: Modifier = Modifier,
@@ -74,9 +98,10 @@ internal fun phoneMediaCatalogForPage(entries: List<MediaPoster>, page: PhoneMed
         var continueMenuOpen by remember { mutableStateOf(false) }
         BoxWithConstraints(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             val grid = phoneMediaGridSpec(maxWidth)
-            val previewLimit = grid.columns * PHONE_HOME_PREVIEW_ROWS
-            val catalog = phoneMediaCatalogForPage(state.catalog.entries, page, grid.columns)
-            LazyVerticalGrid(columns = GridCells.Fixed(grid.columns), state = gridState,
+            val columns = phoneMediaCatalogColumns(grid.columns, state.density)
+            val previewLimit = columns * PHONE_HOME_PREVIEW_ROWS
+            val catalog = phoneMediaCatalogForPage(state.catalog.entries, page, columns)
+            LazyVerticalGrid(columns = GridCells.Fixed(columns), state = gridState,
                 contentPadding = PaddingValues(start = grid.pageInset, end = grid.pageInset, top = 8.dp, bottom = 24.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                 item(key = "heading", span = { GridItemSpan(maxLineSpan) }) {
@@ -89,6 +114,12 @@ internal fun phoneMediaCatalogForPage(entries: List<MediaPoster>, page: PhoneMed
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                         if (phoneMediaHomeUsesCompactHeader(page) && state.canSearch) {
                             MediaSearchPill({ onAction(PhoneMediaAction.Search) })
+                        }
+                        if (page == PhoneMediaPage.HOME && (state.featured.entries.isNotEmpty() || state.featured.loading || state.featured.problem != null)) {
+                            MediaIconAction(
+                                if (state.showFeatured) Art.drawable.fileway_ic_visibility else Art.drawable.fileway_ic_visibility_off,
+                                if (state.showFeatured) "隐藏精选推荐" else "显示精选推荐",
+                                { onAction(PhoneMediaAction.SetShowFeatured(!state.showFeatured)) })
                         }
                         if (page == PhoneMediaPage.LIBRARIES && state.canManage) {
                             MediaIconAction(R.drawable.ic_settings, "管理媒体库", { onAction(PhoneMediaAction.ManageLibraries) })
@@ -109,19 +140,6 @@ internal fun phoneMediaCatalogForPage(entries: List<MediaPoster>, page: PhoneMed
                         if (state.canManage) "创建媒体库" else null,
                         if (state.canManage) ({ onAction(PhoneMediaAction.CreateLibrary) }) else null)
                 }
-                if (page == PhoneMediaPage.HOME && state.featured.entries.isNotEmpty()) {
-                    item(key = "featured", span = { GridItemSpan(maxLineSpan) }) {
-                        FeaturedCarousel(state, imageLoader, gridState.isScrollInProgress || continueMenuOpen, onAction)
-                    }
-                }
-                if (page == PhoneMediaPage.HOME) state.featured.problem?.let { problem ->
-                    item(key = "featured-error", span = { GridItemSpan(maxLineSpan) }) {
-                        MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("featured")) })
-                    }
-                }
-                if (page == PhoneMediaPage.HOME && state.featured.loading && state.featured.entries.isEmpty()) {
-                    item(key = "featured-loading", span = { GridItemSpan(maxLineSpan) }) { MediaLoading("正在加载新入库影视") }
-                }
                 if (page == PhoneMediaPage.HOME && (state.continuing.entries.isNotEmpty() || state.continuing.loading || state.continuing.problem != null || state.continuing.hasMore)) {
                     item(key = "continue", span = { GridItemSpan(maxLineSpan) }) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -137,57 +155,16 @@ internal fun phoneMediaCatalogForPage(entries: List<MediaPoster>, page: PhoneMed
                         }
                     }
                 }
-                if (page == PhoneMediaPage.HOME && state.updatedSeries.entries.isNotEmpty()) {
-                    item(key = "updated-series", span = { GridItemSpan(maxLineSpan) }) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            MediaHeading("最近更新剧集", actionLabel = "全部剧集") { onAction(PhoneMediaAction.ViewAllSeries) }
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(end = 8.dp)) {
-                                items(state.updatedSeries.entries, key = { it.id }) { entry ->
-                                    Box(Modifier.width(264.dp)) {
-                                        Card(onClick = { onAction(PhoneMediaAction.OpenItem(entry.id)) },
-                                            shape = MaterialTheme.shapes.medium) {
-                                            MediaBackdrop(entry, imageLoader, Modifier.fillMaxWidth())
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                if (page == PhoneMediaPage.LIBRARIES && libraries.isNotEmpty()) {
-                    item(key = "libraries", span = { GridItemSpan(maxLineSpan) }) {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            item { FilterChip(selected = selectedLibrary == null, onClick = { onLibrary(null) },
-                                label = { Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                    Text("全部媒体库", maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text("全部类型", style = PhoneMediaType.badge)
-                                } }, modifier = Modifier.heightIn(min = 48.dp)) }
-                            items(libraries, key = { it.id }) { library ->
-                                FilterChip(selected = selectedLibrary == library.id, onClick = { onLibrary(library.id) },
-                                    label = { Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                                        Text(library.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                        Text(mediaLibraryKindLabel(library.contentKind), style = PhoneMediaType.badge)
-                                    } }, modifier = Modifier.heightIn(min = 48.dp))
-                            }
-                        }
-                    }
-                }
-                if (page != PhoneMediaPage.LIBRARIES && state.categories.isNotEmpty()) {
-                    item(key = "categories", span = { GridItemSpan(maxLineSpan) }) {
-                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            items(state.categories, key = { it.id }) { category ->
-                                FilterChip(selected = state.selectedCategory == category.id,
-                                    onClick = { onAction(PhoneMediaAction.Category(category.id)) },
-                                    label = { Text(category.label) }, modifier = Modifier.heightIn(min = 48.dp))
-                            }
-                        }
+                if (state.libraryExists && (page == PhoneMediaPage.LIBRARIES || state.categories.isNotEmpty())) {
+                    item(key = "browse-toolbar", span = { GridItemSpan(maxLineSpan) }) {
+                        MediaBrowseToolbar(state, page, libraries, selectedLibrary, onLibrary, onAction)
                     }
                 }
                 if (state.libraryExists) item(key = "catalog-heading", span = { GridItemSpan(maxLineSpan) }) {
                     val viewAll = page == PhoneMediaPage.HOME &&
                         (state.catalog.entries.size > previewLimit || state.catalog.hasMore)
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        MediaHeading(if (page == PhoneMediaPage.HOME) "最近加入" else
+                        MediaHeading(if (page == PhoneMediaPage.HOME) phoneMediaCatalogHeading(state.catalogSort) else
                             phoneMediaLibraryCatalogTitle(page, selectedLibrary, libraries, state.catalogTitle),
                             actionLabel = if (viewAll) "查看全部" else null,
                             onAction = if (viewAll) ({ onAction(PhoneMediaAction.ViewAllCatalog) }) else null)
@@ -215,7 +192,95 @@ internal fun phoneMediaCatalogForPage(entries: List<MediaPoster>, page: PhoneMed
                 if (page != PhoneMediaPage.HOME) item(key = "catalog-paging", span = { GridItemSpan(maxLineSpan) }) {
                     MediaPaging("catalog", state.catalog.loading, state.catalog.hasMore, onAction)
                 }
+                if (page == PhoneMediaPage.HOME && state.updatedSeries.entries.isNotEmpty()) {
+                    item(key = "updated-series", span = { GridItemSpan(maxLineSpan) }) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            MediaHeading("最近更新剧集", actionLabel = "全部剧集") { onAction(PhoneMediaAction.ViewAllSeries) }
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp), contentPadding = PaddingValues(end = 8.dp)) {
+                                items(state.updatedSeries.entries, key = { it.id }) { entry ->
+                                    Box(Modifier.width(264.dp)) {
+                                        Card(onClick = { onAction(PhoneMediaAction.OpenItem(entry.id)) },
+                                            shape = MaterialTheme.shapes.medium) {
+                                            MediaBackdrop(entry, imageLoader, Modifier.fillMaxWidth())
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                if (page == PhoneMediaPage.HOME && phoneMediaHomeShowsFeatured(state.showFeatured, state.featured.entries.isNotEmpty())) {
+                    item(key = "featured", span = { GridItemSpan(maxLineSpan) }) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            MediaHeading("精选推荐")
+                            FeaturedCarousel(state, imageLoader, gridState.isScrollInProgress || continueMenuOpen, onAction)
+                        }
+                    }
+                }
+                if (page == PhoneMediaPage.HOME && state.showFeatured) state.featured.problem?.let { problem ->
+                    item(key = "featured-error", span = { GridItemSpan(maxLineSpan) }) {
+                        MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("featured")) })
+                    }
+                }
+                if (page == PhoneMediaPage.HOME && state.showFeatured && state.featured.loading && state.featured.entries.isEmpty()) {
+                    item(key = "featured-loading", span = { GridItemSpan(maxLineSpan) }) { MediaLoading("正在加载精选推荐") }
+                }
             }
+        }
+    }
+}
+
+@Composable private fun MediaBrowseToolbar(
+    state: PhoneMediaHomeState,
+    page: PhoneMediaPage,
+    libraries: List<io.github.kkwans.nasfilebrowser.data.MediaLibrarySummary>,
+    selectedLibrary: String?,
+    onLibrary: (String?) -> Unit,
+    onAction: (PhoneMediaAction) -> Unit,
+) {
+    var sortMenu by remember { mutableStateOf(false) }
+    val sortOptions = phoneMediaCatalogSortOptions(state.selectedCategory ?: "all")
+    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (page == PhoneMediaPage.LIBRARIES) {
+            item {
+                FilterChip(selected = selectedLibrary == null, onClick = { onLibrary(null) },
+                    label = { Text("全部媒体库", maxLines = 1) }, modifier = Modifier.heightIn(min = 48.dp))
+            }
+            items(libraries, key = { "library/${it.id}" }) { library ->
+                FilterChip(selected = selectedLibrary == library.id, onClick = { onLibrary(library.id) },
+                    label = {
+                        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text(library.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(mediaLibraryKindLabel(library.contentKind), style = PhoneMediaType.badge)
+                        }
+                    }, modifier = Modifier.heightIn(min = 48.dp))
+            }
+        } else {
+            items(state.categories, key = { "category/${it.id}" }) { category ->
+                FilterChip(selected = state.selectedCategory == category.id,
+                    onClick = { onAction(PhoneMediaAction.Category(category.id)) },
+                    label = { Text(category.label) }, modifier = Modifier.heightIn(min = 48.dp))
+            }
+        }
+        item {
+            Box {
+                FilterChip(selected = false, onClick = { sortMenu = true },
+                    label = { Text(phoneMediaCatalogSortLabel(state.catalogSort), maxLines = 1) },
+                    modifier = Modifier.heightIn(min = 48.dp))
+                DropdownMenu(expanded = sortMenu, onDismissRequest = { sortMenu = false }) {
+                    sortOptions.forEach { sort ->
+                        DropdownMenuItem(text = { Text(phoneMediaCatalogSortLabel(sort)) },
+                            onClick = { sortMenu = false; onAction(PhoneMediaAction.Sort(sort)) })
+                    }
+                }
+            }
+        }
+        item {
+            MediaIconAction(
+                if (state.density == PhoneMediaDensity.COMPACT) Art.drawable.fileway_ic_layout_cover else Art.drawable.fileway_ic_layout_compact,
+                if (state.density == PhoneMediaDensity.COMPACT) "切换为舒适海报" else "切换为紧凑海报",
+                { onAction(PhoneMediaAction.SetDensity(if (state.density == PhoneMediaDensity.COMPACT)
+                    PhoneMediaDensity.COMFORTABLE else PhoneMediaDensity.COMPACT)) })
         }
     }
 }

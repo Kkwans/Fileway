@@ -78,6 +78,8 @@ internal fun PhoneMediaRoute(
     var reviewLibraryId by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var reviewItemId by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var autoAdvance by rememberSaveable(session.owner) { mutableStateOf(true) }
+    var showFeatured by rememberSaveable(session.owner) { mutableStateOf(true) }
+    var density by rememberSaveable(session.owner) { mutableStateOf(PhoneMediaDensity.COMFORTABLE) }
     var mediaTab by rememberSaveable(session.owner) { mutableStateOf("home") }
     var searching by rememberSaveable(session.owner) { mutableStateOf(false) }
     var personPage by remember(route) { mutableStateOf<MediaCatalogPersonRef?>(null) }
@@ -254,6 +256,9 @@ internal fun PhoneMediaRoute(
                 route.chooseQuery(null, "series")
             }
             is PhoneMediaAction.SetCarouselAutoAdvance -> autoAdvance = intent.enabled
+            is PhoneMediaAction.SetShowFeatured -> showFeatured = intent.show
+            is PhoneMediaAction.SetDensity -> density = intent.density
+            is PhoneMediaAction.Sort -> route.chooseSort(intent.sort)
             is PhoneMediaAction.SelectSeason -> route.selectSeason(intent.id)
             is PhoneMediaAction.Play -> if (intent.kind == MediaTargetKind.CONTINUE) {
                 watching.items.firstOrNull { it.id == intent.id && watching.removing != it.id }?.let {
@@ -423,6 +428,9 @@ internal fun PhoneMediaRoute(
                 canSearch = home?.capabilities?.get("search") == true,
                 canSearchCollections = home?.capabilities?.get("collections") == true,
                 carouselAutoAdvance = autoAdvance,
+                showFeatured = showFeatured,
+                catalogSort = route.catalogSort,
+                density = density,
                 filterSummary = if (route.filter != "all") "已筛选" else null,
                 problem = route.homeProblem ?: when (home?.state) {
                     MediaCatalogHomeState.SCANNING -> MediaProblem("正在扫描媒体库", "已发现的内容会逐步显示。")

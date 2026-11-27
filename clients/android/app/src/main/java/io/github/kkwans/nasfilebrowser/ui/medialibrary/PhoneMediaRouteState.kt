@@ -66,6 +66,7 @@ internal class PhoneMediaRouteState(
     var creditsProblem by mutableStateOf<MediaProblem?>(null); private set
     var filter by mutableStateOf("all"); private set
     var libraryFilter by mutableStateOf<String?>(null); private set
+    var catalogSort by mutableStateOf(MediaCatalogSort.NEWEST); private set
     var detail by mutableStateOf<MediaCatalogDetail.Complete?>(null); private set
     var technical by mutableStateOf<MediaTechnicalObservation?>(null); private set
     var detailLoading by mutableStateOf(false); private set
@@ -170,11 +171,18 @@ internal class PhoneMediaRouteState(
         chooseQuery(id, filter)
     }
 
+    fun chooseSort(value: MediaCatalogSort) {
+        if (value !in phoneMediaCatalogSortOptions(filter) || value == catalogSort) return
+        catalogSort = value
+        loadCatalog(reset = true, discardCurrent = true)
+    }
+
     fun chooseQuery(id: String?, kind: String) {
         if (kind !in setOf("all", "movie", "series", "video")) return
         if (libraryFilter == id && filter == kind) return
         libraryFilter = id
         filter = kind
+        if (catalogSort !in phoneMediaCatalogSortOptions(kind)) catalogSort = MediaCatalogSort.NEWEST
         loadCatalog(reset = true, discardCurrent = true)
         if (searchedQuery.isNotBlank()) when (searchMode) {
             MediaSearchMode.WORKS -> loadSearch(reset = true, discardCurrent = true)
@@ -459,7 +467,7 @@ internal class PhoneMediaRouteState(
         val query = MediaCatalogQuery(libraryId = libraryFilter, structureKind = when (filter) {
             "movie" -> MediaCatalogFilterKind.MOVIE; "series" -> MediaCatalogFilterKind.SERIES
             "video" -> MediaCatalogFilterKind.VIDEO; else -> null
-        }, sort = MediaCatalogSort.NEWEST, limit = 24)
+        }, sort = catalogSort, limit = 24)
         catalogJob = scope.launch {
             when (val result = repository.catalog(query, continuation)) {
                 is MediaReadResult.Success -> if (result.scope == repository.scope) {

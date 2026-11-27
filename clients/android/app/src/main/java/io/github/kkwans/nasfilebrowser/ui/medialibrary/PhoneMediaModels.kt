@@ -2,6 +2,7 @@ package io.github.kkwans.nasfilebrowser.ui.medialibrary
 
 import coil3.request.ImageRequest
 import io.github.kkwans.nasfilebrowser.data.MediaCatalogArtwork
+import io.github.kkwans.nasfilebrowser.data.MediaCatalogSort
 import io.github.kkwans.nasfilebrowser.data.MediaMetadataRefreshPreview
 import io.github.kkwans.nasfilebrowser.data.MediaTechnicalObservation
 
@@ -24,13 +25,16 @@ internal data class MediaContinue(val id: String, val item: MediaPoster, val pro
     val progress: Float? = null, val playable: Boolean = true, val removing: Boolean = false,
     val canStartOver: Boolean = true, val canRemove: Boolean = true)
 internal data class MediaCategory(val id: String, val label: String)
+internal enum class PhoneMediaDensity { COMFORTABLE, COMPACT }
 internal data class PhoneMediaHomeState(val scopeKey: String, val featured: MediaSection<MediaPoster> = MediaSection(),
     val continuing: MediaSection<MediaContinue> = MediaSection(), val catalog: MediaSection<MediaPoster> = MediaSection(),
     val updatedSeries: MediaSection<MediaPoster> = MediaSection(),
     val categories: List<MediaCategory> = emptyList(), val selectedCategory: String? = null,
     val catalogTitle: String = "全部影视", val filterSummary: String? = null, val libraryExists: Boolean = true,
     val canManage: Boolean = false, val canSearch: Boolean = false, val canSearchCollections: Boolean = false,
-    val carouselAutoAdvance: Boolean = true, val interactionBlocked: Boolean = false,
+    val carouselAutoAdvance: Boolean = true, val showFeatured: Boolean = true,
+    val catalogSort: MediaCatalogSort = MediaCatalogSort.NEWEST, val density: PhoneMediaDensity = PhoneMediaDensity.COMFORTABLE,
+    val interactionBlocked: Boolean = false,
     val problem: MediaProblem? = null)
 
 internal data class MediaCredit(val id: String, val name: String, val role: String,
@@ -112,7 +116,9 @@ internal sealed interface PhoneMediaAction {
     data object ManageLibraries : PhoneMediaAction
     data object CreateLibrary : PhoneMediaAction
     data object Filters : PhoneMediaAction
-    data object Sort : PhoneMediaAction
+    data class Sort(val sort: MediaCatalogSort) : PhoneMediaAction
+    data class SetDensity(val density: PhoneMediaDensity) : PhoneMediaAction
+    data class SetShowFeatured(val show: Boolean) : PhoneMediaAction
     data class OpenItem(val id: String) : PhoneMediaAction
     data class Category(val id: String) : PhoneMediaAction
     data object ViewAllCatalog : PhoneMediaAction
