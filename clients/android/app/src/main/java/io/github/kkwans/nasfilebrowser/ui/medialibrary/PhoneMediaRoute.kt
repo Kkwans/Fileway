@@ -519,7 +519,10 @@ private fun PhoneMediaRouteState.detailState(scope: String, id: String): PhoneMe
         selectedSeason = selectedSeason,
         episodes = MediaSection(episodes.map { episode ->
             MediaEpisode(key(episode.ref), "第 ${episode.episodeNumber} 集", episode.card.title,
-                episode.playback?.label.orEmpty(), playable = episode.card.actions.can(MediaCatalogAction.PLAY),
+                episode.playback?.label.orEmpty(),
+                image = phoneMediaEpisodeImage(episode.card.artwork?.let { MediaArtwork(catalog = it) },
+                    episode.card.backdrop?.let { MediaArtwork(catalog = it) }),
+                playable = episode.card.actions.can(MediaCatalogAction.PLAY),
                 unavailableReason = availability(episode.card))
         }, episodesLoading, episodesProblem, episodesCursor != null),
         episodeSummary = card?.episodes?.collected?.let { "已收录 $it 集" },

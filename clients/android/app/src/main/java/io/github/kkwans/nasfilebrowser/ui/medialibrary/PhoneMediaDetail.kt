@@ -413,6 +413,8 @@ internal fun PhoneMediaCredits(title: String, credits: List<MediaCredit>, loadin
     }
 }
 
+internal fun phoneMediaEpisodeImage(artwork: MediaArtwork?, backdrop: MediaArtwork?): MediaArtwork? = artwork ?: backdrop
+
 @Composable
 private fun EpisodeRow(episode: MediaEpisode, loader: ImageLoader, onAction: (PhoneMediaAction) -> Unit, busy: Boolean, inset: Dp) {
     var menu by remember(episode.id) { mutableStateOf(false) }
