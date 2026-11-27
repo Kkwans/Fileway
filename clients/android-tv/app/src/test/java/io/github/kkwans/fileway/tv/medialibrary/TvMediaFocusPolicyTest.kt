@@ -1,9 +1,17 @@
 package io.github.kkwans.fileway.tv.medialibrary
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
 class TvMediaFocusPolicyTest {
+    @Test
+    fun detailReturnUsesQualifiedLibraryAndItemKey() {
+        assertEquals("lib_1/item_1", tvMediaDetailFocusId("lib_1", "item_1"))
+        assertNull(tvMediaDetailFocusId(null, "item_1"))
+        assertNull(tvMediaDetailFocusId("lib_1", null))
+    }
+
     @Test
     fun existingStableTargetIsPreserved() {
         assertEquals(TvMediaFocusTarget("item_2", "poster"), resolveTvMediaFocusTarget(

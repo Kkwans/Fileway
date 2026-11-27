@@ -868,6 +868,9 @@ internal class TvMediaRouteState(
 }
 
 internal fun tvMediaKey(value: MediaCatalogRef): String = "${value.libraryId}/${value.itemId}"
+
+internal fun tvMediaDetailFocusId(libraryId: String?, itemId: String?): String? =
+    if (libraryId != null && itemId != null) "$libraryId/$itemId" else null
 internal fun tvVariantKey(value: MediaCatalogVariant): String = "${value.editionId}/${value.variantId}/${value.bindingId}"
 
 private fun MediaFailure.invalidatesTvData(): Boolean = kind in setOf(

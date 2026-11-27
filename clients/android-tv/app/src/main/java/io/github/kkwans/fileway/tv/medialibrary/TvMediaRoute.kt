@@ -189,10 +189,11 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
             route.closePerson(); personPage = null
             if (personReturnItem != null && personReturnLibrary != null) {
                 val returnItem = personReturnItem
+                val returnLibrary = personReturnLibrary
                 searching = false
                 item = personReturnItem; library = personReturnLibrary; season = personReturnSeason
                 personReturnItem = null; personReturnLibrary = null; personReturnSeason = null
-                restore(returnItem.orEmpty(), "detail-back")
+                restore(tvMediaDetailFocusId(returnLibrary, returnItem), "detail-back")
             } else {
                 searching = true
                 restore(target.id, target.origin)
@@ -211,7 +212,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
         }
         fun back() {
             when {
-                creditsPage -> { creditsPage = false; route.closeCredits(); restore(itemId, "detail-back") }
+                creditsPage -> { creditsPage = false; route.closeCredits(); restore(tvMediaDetailFocusId(libraryId, itemId), "detail-back") }
                 route.sourceRef != null -> closeSources()
                 item != null -> {
                     item = null; library = null; season = null
