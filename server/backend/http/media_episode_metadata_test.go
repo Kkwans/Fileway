@@ -3,6 +3,7 @@ package fbhttp
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -181,7 +182,21 @@ func TestMetadataRefreshJobBackfillsSeasonMetadataForSameLanguageSeries(t *testi
 }
 
 func TestEpisodeDetailUsesSeriesProviderEpisodeMetadata(t *testing.T) {
-	f := newMediaScanHTTPFixture(t)
+	artworkCalls := 0
+	f := newMediaScanHTTPFixture(t, func(h *trashHTTPHarness) {
+		h.storage.TMDBHTTPClient = &http.Client{Transport: matchTestTransport(func(r *http.Request) (*http.Response, error) {
+			artworkCalls++
+			if r.URL.Host != "image.tmdb.org" {
+				t.Fatalf("unexpected artwork route: %s", r.URL.String())
+			}
+			payload, err := base64.StdEncoding.DecodeString("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=")
+			if err != nil {
+				t.Fatal(err)
+			}
+			return &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"image/png"}},
+				Body: io.NopCloser(bytes.NewReader(payload))}, nil
+		})}
+	})
 	catalogFixtureWrite(t, f, "Show.S01E01.mkv", "video")
 	catalogFixtureWrite(t, f, "tvshow.nfo", `<tvshow><title>本地剧</title><year>2024</year></tvshow>`)
 	library, source := f.libraryAndSource(t)
@@ -234,7 +249,7 @@ func TestEpisodeDetailUsesSeriesProviderEpisodeMetadata(t *testing.T) {
 	document := medialibrary.ProviderMatchDocument{
 		Item: mediametadata.Item{Kind: mediametadata.TVShow, Fields: map[string][]string{"title": {"在线剧"}}},
 		Seasons: []medialibrary.ProviderSeasonDocument{{
-			SeasonNumber: 1,
+			SeasonNumber: 1, PosterPath: "/season.jpg",
 			Item: mediametadata.Item{Kind: mediametadata.Season, Fields: map[string][]string{
 				"title": {"第一季"}, "plot": {"季简介"},
 			}},
@@ -271,5 +286,19 @@ func TestEpisodeDetailUsesSeriesProviderEpisodeMetadata(t *testing.T) {
 	if seasonDetail.Item.Title != "第一季" || seasonDetail.Fields["plot"].Source != "online" ||
 		len(seasonDetail.Fields["plot"].Values) != 1 || seasonDetail.Fields["plot"].Values[0] != "季简介" {
 		t.Fatalf("season provider projection: %+v", seasonDetail)
+	}
+	if seasonDetail.Card == nil || seasonDetail.Card.Artwork == nil ||
+		!strings.Contains(seasonDetail.Card.Artwork.Endpoint, "/artwork/tmdb_seasonposter_") {
+		t.Fatalf("season artwork descriptor: %+v", seasonDetail.Card)
+	}
+	artwork := f.call(t, f.owner.ID, http.MethodGet, seasonDetail.Card.Artwork.Endpoint, nil)
+	if artwork.Code != http.StatusOK || artwork.Header().Get("Content-Type") != "image/png" {
+		t.Fatalf("season artwork: %d %s calls=%d", artwork.Code, artwork.Header().Get("Content-Type"), artworkCalls)
+	}
+	endpoint := seasonDetail.Card.Artwork.Endpoint
+	assetID := endpoint[strings.LastIndex(endpoint, "/")+1:]
+	forged := strings.TrimSuffix(endpoint, assetID) + strings.TrimSuffix(assetID, "_1") + "_2"
+	if response := f.call(t, f.owner.ID, http.MethodGet, forged, nil); response.Code != http.StatusForbidden && response.Code != http.StatusNotFound {
+		t.Fatalf("forged season artwork accepted: %d %s", response.Code, response.Body)
 	}
 }

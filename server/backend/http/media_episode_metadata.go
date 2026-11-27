@@ -13,9 +13,11 @@ import (
 
 type catalogEpisodeMetadataKey struct{ LibraryID, EpisodeID string }
 type catalogEpisodeMetadata struct {
-	Fields      map[string][]string
-	OnlineFirst bool
-	Revision    int64
+	Fields       map[string][]string
+	PosterPath   string
+	SeasonNumber int
+	OnlineFirst  bool
+	Revision     int64
 }
 
 func (v *catalogView) episodeProviderMetadata(ctx context.Context, library *medialibrary.Library, episodeID string) (*catalogEpisodeMetadata, error) {
@@ -71,41 +73,29 @@ func (v *catalogView) seasonProviderMetadata(ctx context.Context, library *media
 	if structure.Kind != "season" {
 		return nil, medialibrary.ErrNotFound
 	}
-	seasonNumber := -1
-	var after *int
-	for {
-		page, err := v.d.store.MediaLibrary.ListStructureSeasons(ctx, v.d.user.ID, library.ID, structure.SeriesID, after, 100)
-		if err != nil {
-			return nil, err
-		}
-		for _, season := range page.Items {
-			if season.SeasonID == seasonID {
-				seasonNumber = season.Number
-				break
-			}
-		}
-		if seasonNumber >= 0 || page.NextNumber == nil {
-			break
-		}
-		after = page.NextNumber
+	candidate, err := v.d.store.MediaLibrary.GetSeriesSeasonCandidate(ctx, v.d.user.ID, library.ID, structure.SeriesID, seasonID)
+	if errors.Is(err, medialibrary.ErrNotFound) {
+		v.seasonMetadata[key] = &catalogEpisodeMetadata{}
+		return v.seasonMetadata[key], nil
 	}
-	result := &catalogEpisodeMetadata{}
-	if seasonNumber >= 0 {
-		series, err := v.d.store.MediaLibrary.GetCatalogItem(ctx, v.d.user.ID, library.ID, structure.SeriesID)
-		if err != nil {
-			return nil, err
-		}
-		match, err := v.d.store.MediaLibrary.VisibleProviderMatch(ctx, v.d.user.ID, library.ID, series.ID, series.Revision)
-		if err != nil {
-			return nil, err
-		}
-		if match != nil {
-			result.OnlineFirst, result.Revision = match.OnlineFirst, match.Revision
-			for _, season := range match.Document.Seasons {
-				if season.SeasonNumber == seasonNumber {
-					result.Fields = season.Item.Fields
-					break
-				}
+	if err != nil {
+		return nil, err
+	}
+	series, err := v.d.store.MediaLibrary.GetCatalogItem(ctx, v.d.user.ID, library.ID, structure.SeriesID)
+	if err != nil {
+		return nil, err
+	}
+	match, err := v.d.store.MediaLibrary.VisibleProviderMatch(ctx, v.d.user.ID, library.ID, series.ID, series.Revision)
+	if err != nil {
+		return nil, err
+	}
+	result := &catalogEpisodeMetadata{SeasonNumber: candidate.SeasonNumber}
+	if match != nil {
+		result.OnlineFirst, result.Revision = match.OnlineFirst, match.Revision
+		for _, season := range match.Document.Seasons {
+			if season.SeasonNumber == candidate.SeasonNumber {
+				result.Fields, result.PosterPath = season.Item.Fields, season.PosterPath
+				break
 			}
 		}
 	}

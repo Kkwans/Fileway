@@ -775,6 +775,15 @@ func (v *catalogView) projectCard(ctx context.Context, library *medialibrary.Lib
 			}
 		}
 	}
+	if c.Kind == "season" {
+		season, err := v.seasonProviderMetadata(ctx, library, c.ID)
+		if err != nil {
+			return catalogCard{}, err
+		}
+		if poster := tmdbSeasonArtwork(library.ID, c.ID, c.Revision, season.Revision, int64(season.SeasonNumber), season.PosterPath); poster != nil && (season.OnlineFirst || card.Artwork == nil) {
+			card.Artwork = poster
+		}
+	}
 	if match := filtered.providerMatch; match != nil {
 		if poster := tmdbCatalogArtwork(library.ID, c.ID, c.Revision, match, mediaprovider.Poster); poster != nil && (match.OnlineFirst || card.Artwork == nil) {
 			card.Artwork = poster

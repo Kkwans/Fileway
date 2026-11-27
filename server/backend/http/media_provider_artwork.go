@@ -17,6 +17,7 @@ import (
 )
 
 const tmdbArtworkPrefix = "tmdb_"
+const tmdbSeasonPosterRole mediaprovider.ArtworkKind = "seasonposter"
 
 func tmdbCatalogArtwork(libraryID, itemID string, itemRevision int64, match *medialibrary.ProviderMatch, role mediaprovider.ArtworkKind) *catalogArtwork {
 	if match == nil || tmdbArtworkPath(match, role) == "" {
@@ -25,6 +26,43 @@ func tmdbCatalogArtwork(libraryID, itemID string, itemRevision int64, match *med
 	id := tmdbArtworkPrefix + string(role) + "_" + strconv.FormatInt(match.Revision, 10)
 	return &catalogArtwork{AssetID: id, Revision: itemRevision, Role: string(role),
 		Endpoint: "/api/media-library/v1/libraries/" + libraryID + "/items/" + itemID + "/artwork/" + id}
+}
+
+func tmdbSeasonArtwork(libraryID, seasonID string, seasonRevision, matchRevision, seasonNumber int64, posterPath string) *catalogArtwork {
+	if seasonNumber < 0 || posterPath == "" {
+		return nil
+	}
+	if _, err := mediaprovider.CatalogArtworkURL(mediaprovider.Poster, posterPath); err != nil {
+		return nil
+	}
+	id := fmt.Sprintf("%sseasonposter_%d_%d", tmdbArtworkPrefix, matchRevision, seasonNumber)
+	return &catalogArtwork{AssetID: id, Revision: seasonRevision, Role: string(mediaprovider.Poster),
+		Endpoint: "/api/media-library/v1/libraries/" + libraryID + "/items/" + seasonID + "/artwork/" + id}
+}
+
+func tmdbSeasonPosterArtwork(libraryID, seasonID string, seasonRevision int64, match *medialibrary.ProviderMatch, assetID string) (*catalogArtwork, string) {
+	revisionText, seasonText, ok := strings.Cut(strings.TrimPrefix(assetID, tmdbArtworkPrefix+"seasonposter_"), "_")
+	if !ok || match == nil {
+		return nil, ""
+	}
+	revision, err := strconv.ParseInt(revisionText, 10, 64)
+	if err != nil || revision != match.Revision {
+		return nil, ""
+	}
+	seasonNumber, err := strconv.Atoi(seasonText)
+	if err != nil {
+		return nil, ""
+	}
+	for _, season := range match.Document.Seasons {
+		if season.SeasonNumber == seasonNumber {
+			artwork := tmdbSeasonArtwork(libraryID, seasonID, seasonRevision, match.Revision, int64(seasonNumber), season.PosterPath)
+			if artwork == nil || artwork.AssetID != assetID {
+				return nil, ""
+			}
+			return artwork, season.PosterPath
+		}
+	}
+	return nil, ""
 }
 
 func tmdbArtworkPath(match *medialibrary.ProviderMatch, role mediaprovider.ArtworkKind) string {
@@ -99,7 +137,7 @@ func tmdbPortraitArtwork(libraryID, itemID string, itemRevision int64, match *me
 func serveTMDBArtwork(w http.ResponseWriter, r *http.Request, d *data, library *medialibrary.Library, itemID, artID string, flights *previewCoordinator) (int, error) {
 	role, _, _ := strings.Cut(strings.TrimPrefix(artID, tmdbArtworkPrefix), "_")
 	kind := mediaprovider.ArtworkKind(role)
-	if kind != mediaprovider.Poster && kind != mediaprovider.Backdrop && kind != mediaprovider.Profile {
+	if kind != mediaprovider.Poster && kind != mediaprovider.Backdrop && kind != mediaprovider.Profile && kind != tmdbSeasonPosterRole {
 		return mediaAccessError(fs.ErrPermission)
 	}
 	ctx := r.Context()
@@ -117,17 +155,36 @@ func serveTMDBArtwork(w http.ResponseWriter, r *http.Request, d *data, library *
 		return mediaAccessError(err)
 	}
 	store := d.store.MediaLibrary
-	match, err := store.VisibleProviderMatch(ctx, d.user.ID, library.ID, itemID, item.Revision)
-	if err != nil {
-		return mediaAccessError(err)
-	}
 	var art *catalogArtwork
 	var artworkPath string
-	if kind == mediaprovider.Profile {
-		art, artworkPath = tmdbPortraitArtwork(library.ID, itemID, item.Revision, match, artID)
+	if kind == tmdbSeasonPosterRole {
+		structure, err := store.GetItemStructure(ctx, d.user.ID, library.ID, itemID)
+		if err != nil || structure.Kind != "season" {
+			return mediaAccessError(fs.ErrPermission)
+		}
+		if _, err := store.GetSeriesSeasonCandidate(ctx, d.user.ID, library.ID, structure.SeriesID, itemID); err != nil {
+			return mediaAccessError(err)
+		}
+		series, err := store.GetCatalogItem(ctx, d.user.ID, library.ID, structure.SeriesID)
+		if err != nil {
+			return mediaAccessError(err)
+		}
+		match, err := store.VisibleProviderMatch(ctx, d.user.ID, library.ID, series.ID, series.Revision)
+		if err != nil {
+			return mediaAccessError(err)
+		}
+		art, artworkPath = tmdbSeasonPosterArtwork(library.ID, itemID, item.Revision, match, artID)
 	} else {
-		art = tmdbCatalogArtwork(library.ID, itemID, item.Revision, match, kind)
-		artworkPath = tmdbArtworkPath(match, kind)
+		match, err := store.VisibleProviderMatch(ctx, d.user.ID, library.ID, itemID, item.Revision)
+		if err != nil {
+			return mediaAccessError(err)
+		}
+		if kind == mediaprovider.Profile {
+			art, artworkPath = tmdbPortraitArtwork(library.ID, itemID, item.Revision, match, artID)
+		} else {
+			art = tmdbCatalogArtwork(library.ID, itemID, item.Revision, match, kind)
+			artworkPath = tmdbArtworkPath(match, kind)
+		}
 	}
 	if art == nil || art.AssetID != artID {
 		return mediaAccessError(fs.ErrPermission)
@@ -149,7 +206,11 @@ func serveTMDBArtwork(w http.ResponseWriter, r *http.Request, d *data, library *
 		return mediaAccessError(err)
 	}
 	w.Header().Set("Cache-Control", "private, no-store")
-	address, err := mediaprovider.CatalogArtworkURL(kind, artworkPath)
+	imageKind := kind
+	if kind == tmdbSeasonPosterRole {
+		imageKind = mediaprovider.Poster
+	}
+	address, err := mediaprovider.CatalogArtworkURL(imageKind, artworkPath)
 	if err != nil {
 		return mediaAccessError(err)
 	}

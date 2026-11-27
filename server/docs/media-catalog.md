@@ -212,7 +212,8 @@ authenticated artwork endpoint and its source authorization.
 - `GET /libraries/{id}/items/{series}/seasons` returns authorized seasons in
   local order, including season 0 as specials. Authorized season details use
   the matched provider's localized name, overview and first-air date when
-  available; missing values retain the local season presentation.
+  available; missing values retain the local season presentation. A confirmed
+  season poster is served through the same authorized artwork endpoint.
 - `GET /libraries/{id}/items/{series}/episodes?seasonId=...` returns an
   authorized, numbered episode page. An optional `orderId` must match the
   returned local order. Both routes accept `limit` and their own opaque

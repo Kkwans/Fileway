@@ -258,6 +258,26 @@ func (store *Store) GetSeriesEpisodeCandidate(ctx context.Context, viewer uint, 
 	return &c, err
 }
 
+type SeriesSeasonCandidate struct {
+	SeasonID     string
+	SeasonNumber int
+}
+
+func (store *Store) GetSeriesSeasonCandidate(ctx context.Context, viewer uint, libraryID, seriesID, seasonID string) (*SeriesSeasonCandidate, error) {
+	if _, err := activeCatalogLibrary(ctx, store.db, viewer, libraryID); err != nil {
+		return nil, err
+	}
+	var candidate SeriesSeasonCandidate
+	err := store.db.QueryRowContext(ctx, `SELECT sp.season_id,sp.season_number FROM episode_order eo
+JOIN season_position sp ON sp.library_id=eo.library_id AND sp.order_id=eo.id
+JOIN library_item season ON season.library_id=sp.library_id AND season.id=sp.season_id AND season.kind='season' AND season.parent_id=eo.series_id
+WHERE eo.library_id=? AND eo.series_id=? AND eo.scheme='local' AND sp.season_id=?`, libraryID, seriesID, seasonID).Scan(&candidate.SeasonID, &candidate.SeasonNumber)
+	if err == sql.ErrNoRows {
+		return nil, ErrNotFound
+	}
+	return &candidate, err
+}
+
 // ListDirectoryContextSources exposes private provenance for a series or
 // season to the service layer. Callers must verify the owner's live access to
 // each sidecar; a stored context is neither a grant nor a client DTO.
