@@ -1,5 +1,6 @@
 package io.github.kkwans.nasfilebrowser.ui.medialibrary
 
+import io.github.kkwans.nasfilebrowser.data.MediaMetadataJob
 import io.github.kkwans.nasfilebrowser.data.MediaScan
 import io.github.kkwans.nasfilebrowser.data.MediaScanPhase
 import io.github.kkwans.nasfilebrowser.data.MediaScanStatus
@@ -30,6 +31,20 @@ class MediaScanHistoryPresentationTest {
         val timestamp = 1_784_000_000_000L
         val subtitle = mediaScanHistorySubtitle(scan(MediaScanStatus.COMPLETED, timestamp))
         assertTrue(subtitle.contains(serverTime(timestamp)))
+    }
+
+    @Test
+    fun resultSummaryUsesRealOutcomeTotals() {
+        val summary = mediaScanResultSummary(MediaMetadataJob(
+            status = MediaScanStatus.RUNNING, generation = 1, failureCode = null,
+            matched = 5, review = 1, skipped = 1, failed = 1, pending = 2,
+        ))
+        assertEquals(10L, summary.total)
+        assertEquals(8L, summary.completed)
+        assertEquals(5L, summary.matched)
+        assertEquals(1L, summary.review)
+        assertEquals(1L, summary.failed)
+        assertEquals(2L, summary.pending)
     }
 
     private fun scan(status: MediaScanStatus, updatedAt: Long) = MediaScan(

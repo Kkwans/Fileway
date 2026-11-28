@@ -10,6 +10,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.data.*
@@ -182,17 +184,15 @@ private fun PhoneMediaScanProgress(repository: MediaLibraryRepository, libraryId
                         }
                     }
                 }
-                if (entry.status == MediaScanStatus.COMPLETED) {
+                if (entry.status == MediaScanStatus.COMPLETED && metadata == null) {
                     MediaSettingsAction("浏览已收录影片", "返回媒体库并筛选当前媒体库", R.drawable.ic_library, action = onBrowse)
                 }
-                MediaSettingsAction("历史记录", "仅查看本次结果时，可在这里打开过往扫描", R.drawable.ic_search, action = onHistory)
+                if (metadata == null) MediaSettingsAction("历史记录", "仅查看本次结果时，可在这里打开过往扫描", R.drawable.ic_search, action = onHistory)
             }
         } }
         metadata?.let { job -> item {
-            MediaSettingsGroup("TMDB 资料补全") {
-                val details = listOf("已匹配 ${job.matched}", "待确认 ${job.review}", "待处理 ${job.pending}") +
-                    listOfNotNull(job.skipped.takeIf { it > 0 }?.let { "已跳过 $it" }, job.failed.takeIf { it > 0 }?.let { "失败 $it" })
-                ScanProgressText(metadataStatus(job), details.joinToString(" · "))
+            MediaSettingsGroup("本次扫描结果") {
+                MediaScanResultSummaryCard(job)
                 if (job.status in activeScanStates || job.status in setOf(MediaScanStatus.FAILED, MediaScanStatus.CANCELED)) {
                     val cancel = job.status in activeScanStates
                     TextButton(onClick = {
@@ -209,6 +209,9 @@ private fun PhoneMediaScanProgress(repository: MediaLibraryRepository, libraryId
                 }
                 if (reviewCount > 0 && !reviewVisible) MediaSettingsAction("待确认", "$reviewCount 项记录，打开仍待匹配的影片",
                     R.drawable.ic_search, action = { reviewVisible = true })
+                if (scan?.status == MediaScanStatus.COMPLETED) MediaSettingsAction("浏览已收录影片", "返回媒体库查看本次扫描结果",
+                    R.drawable.ic_library, action = onBrowse)
+                MediaSettingsAction("历史记录", "查看过往扫描", R.drawable.ic_search, action = onHistory)
             }
         } }
         if (busy && scan == null) item { MediaLoading("正在读取扫描进度") }
@@ -251,6 +254,50 @@ private fun ScanProgressText(title: String, details: String) {
     Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(title, style = PhoneMediaType.itemTitle)
         Text(details, style = PhoneMediaType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+internal data class MediaScanResultSummary(
+    val total: Long, val completed: Long, val matched: Long, val review: Long,
+    val skipped: Long, val failed: Long, val pending: Long,
+)
+
+internal fun mediaScanResultSummary(job: MediaMetadataJob): MediaScanResultSummary {
+    val total = job.matched + job.review + job.skipped + job.failed + job.pending
+    return MediaScanResultSummary(total, total - job.pending, job.matched, job.review, job.skipped, job.failed, job.pending)
+}
+
+@Composable
+private fun MediaScanResultSummaryCard(job: MediaMetadataJob) {
+    val summary = mediaScanResultSummary(job)
+    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(metadataStatus(job), style = PhoneMediaType.itemTitle)
+                Text("已完成 ${summary.completed} / ${summary.total} 项", style = PhoneMediaType.secondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (summary.pending > 0) Text("待处理 ${summary.pending}", style = PhoneMediaType.action,
+                color = MaterialTheme.colorScheme.primary)
+        }
+        if (summary.total > 0) LinearProgressIndicator(
+            progress = { summary.completed.toFloat() / summary.total.toFloat() },
+            modifier = Modifier.fillMaxWidth().height(6.dp).clip(MaterialTheme.shapes.small),
+        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            ScanResultStat("已匹配", summary.matched, MaterialTheme.colorScheme.primary, Modifier.weight(1f))
+            ScanResultStat("待确认", summary.review, MaterialTheme.colorScheme.tertiary, Modifier.weight(1f))
+            ScanResultStat("已跳过", summary.skipped, MaterialTheme.colorScheme.onSurfaceVariant, Modifier.weight(1f))
+            ScanResultStat("失败", summary.failed, MaterialTheme.colorScheme.error, Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun ScanResultStat(label: String, value: Long, color: Color, modifier: Modifier = Modifier) {
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(value.toString(), style = PhoneMediaType.sectionTitle, color = color)
+        Text(label, style = PhoneMediaType.badge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
     }
 }
 
