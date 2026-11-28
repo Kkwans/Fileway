@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -21,6 +22,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.text.input.ImeAction
@@ -120,7 +122,11 @@ internal fun PhoneMediaSearch(query: String, searched: Boolean, mode: MediaSearc
             }
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                 val columns = phoneMediaGridSpec(maxWidth).columns
-                LazyVerticalGrid(columns = GridCells.Fixed(columns), modifier = Modifier.fillMaxSize(),
+                val gridState = key(mode) { rememberLazyGridState() }
+                PhoneMediaGridLoadMore(gridState, more, busy, issue != null, enabled = searched) {
+                    onAction(PhoneMediaAction.LoadMoreSearch)
+                }
+                LazyVerticalGrid(columns = GridCells.Fixed(columns), state = gridState, modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = pageInset, end = pageInset, top = FilewaySpace.small, bottom = FilewaySpace.section),
                     horizontalArrangement = Arrangement.spacedBy(FilewaySpace.content), verticalArrangement = Arrangement.spacedBy(FilewaySpace.page)) {
                     if (busy) item(key = "loading", span = { GridItemSpan(maxLineSpan) }) {

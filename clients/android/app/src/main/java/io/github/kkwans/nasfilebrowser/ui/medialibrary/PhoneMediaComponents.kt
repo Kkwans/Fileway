@@ -3,6 +3,7 @@ package io.github.kkwans.nasfilebrowser.ui.medialibrary
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -254,4 +255,22 @@ internal fun mediaPosterSubtitle(item: MediaPoster): String? =
     if (loading) MediaLoading("正在加载")
     else if (hasMore) TextButton(onClick = { onAction(PhoneMediaAction.LoadMore(section)) },
         modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("加载更多", style = PhoneMediaType.action) }
+}
+
+internal fun phoneMediaShouldLoadMore(lastVisibleIndex: Int, itemCount: Int, hasMore: Boolean,
+    loading: Boolean, problem: Boolean = false): Boolean =
+    hasMore && !loading && !problem && itemCount > 0 && lastVisibleIndex >= 0 &&
+        lastVisibleIndex >= itemCount - 7
+
+@Composable internal fun PhoneMediaGridLoadMore(state: LazyGridState, hasMore: Boolean, loading: Boolean,
+    problem: Boolean, enabled: Boolean = true, onLoadMore: () -> Unit) {
+    val currentOnLoadMore by rememberUpdatedState(onLoadMore)
+    LaunchedEffect(state, hasMore, loading, problem, enabled) {
+        if (!enabled || !hasMore || loading || problem) return@LaunchedEffect
+        snapshotFlow {
+            (state.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1) to state.layoutInfo.totalItemsCount
+        }.collect { (lastVisible, itemCount) ->
+            if (phoneMediaShouldLoadMore(lastVisible, itemCount, hasMore, loading, problem)) currentOnLoadMore()
+        }
+    }
 }

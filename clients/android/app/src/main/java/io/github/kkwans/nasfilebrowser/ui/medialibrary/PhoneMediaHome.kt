@@ -95,6 +95,8 @@ internal fun phoneMediaCatalogHeading(sort: MediaCatalogSort): String = when (so
     libraries: List<io.github.kkwans.nasfilebrowser.data.MediaLibrarySummary> = emptyList(),
     selectedLibrary: String? = null, onLibrary: (String?) -> Unit = {}, onBack: () -> Unit = {}) {
     key(state.scopeKey) {
+        if (page != PhoneMediaPage.HOME) PhoneMediaGridLoadMore(gridState, state.catalog.hasMore,
+            state.catalog.loading, state.catalog.problem != null) { onAction(PhoneMediaAction.LoadMore("catalog")) }
         var continueMenuOpen by remember { mutableStateOf(false) }
         BoxWithConstraints(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
             val grid = phoneMediaGridSpec(maxWidth)

@@ -90,5 +90,19 @@ class PhoneMediaHomeLayoutTest {
         assertEquals("最近更新", phoneMediaCatalogHeading(MediaCatalogSort.UPDATED))
     }
 
+    @Test
+    fun catalogLoadsMoreNearTheEndWithoutWaitingForTheLastRow() {
+        assertTrue(phoneMediaShouldLoadMore(lastVisibleIndex = 13, itemCount = 20, hasMore = true, loading = false))
+        assertFalse(phoneMediaShouldLoadMore(lastVisibleIndex = 12, itemCount = 20, hasMore = true, loading = false))
+    }
+
+    @Test
+    fun catalogPaginationWaitsForContentAndStopsOnLoadingFailureOrEnd() {
+        assertFalse(phoneMediaShouldLoadMore(lastVisibleIndex = 19, itemCount = 0, hasMore = true, loading = false))
+        assertFalse(phoneMediaShouldLoadMore(lastVisibleIndex = 19, itemCount = 20, hasMore = true, loading = true))
+        assertFalse(phoneMediaShouldLoadMore(lastVisibleIndex = 19, itemCount = 20, hasMore = true, loading = false, problem = true))
+        assertFalse(phoneMediaShouldLoadMore(lastVisibleIndex = 19, itemCount = 20, hasMore = false, loading = false))
+    }
+
     private fun poster(number: Int) = MediaPoster(number.toString(), "影片 $number", "2026")
 }

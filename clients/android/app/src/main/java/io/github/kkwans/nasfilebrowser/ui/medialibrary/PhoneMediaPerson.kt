@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -63,6 +64,10 @@ internal fun PhoneMediaPersonWorks(name: String, roles: List<String>, portrait: 
     onBack: () -> Unit, onAction: (PhoneMediaAction) -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val grid = phoneMediaGridSpec(maxWidth)
+        val gridState = rememberLazyGridState()
+        PhoneMediaGridLoadMore(gridState, hasMore, loading, problem != null) {
+            onAction(PhoneMediaAction.LoadMore("person-works"))
+        }
         Column(Modifier.fillMaxSize()) {
             FilewayTopAppBar("人物作品", leadingIcon = Art.drawable.fileway_ic_arrow_back,
                 leadingDescription = "返回人物搜索", onLeadingClick = onBack)
@@ -75,7 +80,7 @@ internal fun PhoneMediaPersonWorks(name: String, roles: List<String>, portrait: 
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
-            LazyVerticalGrid(columns = GridCells.Fixed(grid.columns), modifier = Modifier.weight(1f).fillMaxSize(),
+            LazyVerticalGrid(columns = GridCells.Fixed(grid.columns), state = gridState, modifier = Modifier.weight(1f).fillMaxSize(),
                 contentPadding = PaddingValues(start = grid.pageInset, end = grid.pageInset, top = grid.pageInset, bottom = FilewaySpace.section),
                 horizontalArrangement = Arrangement.spacedBy(FilewaySpace.content), verticalArrangement = Arrangement.spacedBy(FilewaySpace.page)) {
                 if (loading) item(key = "loading", span = { GridItemSpan(maxLineSpan) }) { MediaLoading("正在加载人物作品") }
