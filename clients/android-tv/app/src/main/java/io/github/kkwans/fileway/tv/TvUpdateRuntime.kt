@@ -386,8 +386,10 @@ internal class TvUpdateRuntime(private val context: Context, signerPin: String =
             return
         }
         val resolver = context.contentResolver
-        val downloads = MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
-        val entry = resolver.insert(downloads, ContentValues().apply {
+        val collection = if (directory.startsWith("Documents/", ignoreCase = true))
+            MediaStore.Files.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        else MediaStore.Downloads.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+        val entry = resolver.insert(collection, ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, name)
             put(MediaStore.MediaColumns.RELATIVE_PATH, "$directory/")
             put(MediaStore.MediaColumns.MIME_TYPE, "application/vnd.android.package-archive")
