@@ -105,6 +105,7 @@ import kotlin.coroutines.coroutineContext
         var paging by remember { mutableStateOf(false) }
         var busy by remember { mutableStateOf(false) }
         var error by remember { mutableStateOf<String?>(null) }
+        var scanActionError by remember { mutableStateOf<String?>(null) }
         var notice by remember { mutableStateOf<String?>(null) }
         var syncWarning by remember { mutableStateOf<String?>(null) }
         var browseStack by rememberSaveable(stateSaver = mediaFolderSaver) {
@@ -380,6 +381,7 @@ import kotlin.coroutines.coroutineContext
                 is MediaWriteResult.Success -> if (result.scope == repository.scope) {
                     val submittedKind = pendingKind
                     pendingId = null; pendingKind = null
+                    if (submittedKind == "scan") scanActionError = null
                     when (val value = result.value) {
                         is MediaLibrarySummary -> {
                             selected = value; selectedId = value.id; screen = "library"
@@ -439,13 +441,17 @@ import kotlin.coroutines.coroutineContext
                     refreshPage(); onChanged()
                 }
                 is MediaWriteResult.Failure -> if (result.scope == repository.scope) {
-                    val scanOperation = mediaLibraryScanOperation(pendingKind)
+                    val failedKind = pendingKind
+                    val scanOperation = mediaLibraryScanOperation(failedKind)
                     if (!result.error.mutationMayHaveCommitted || scanOperation) { pendingId = null; pendingKind = null }
                     if (draftLibraryId != null) setupPaused = true
-                    error = if (scanOperation) "扫描请求未完成，请重试；同一目录不会重复启动。"
-                        else if (result.error.mutationMayHaveCommitted)
-                        "操作结果尚未确认。可使用原操作记录确认，避免重复创建。"
-                        else managerFailure(result.error)
+                    val message = when {
+                        scanOperation && result.error.mutationMayHaveCommitted -> "扫描请求未完成，请重试；同一目录不会重复启动。"
+                        scanOperation -> managerFailure(result.error)
+                        result.error.mutationMayHaveCommitted -> "操作结果尚未确认。可使用原操作记录确认，避免重复创建。"
+                        else -> managerFailure(result.error)
+                    }
+                    if (failedKind == "scan") { scanActionError = message; error = null } else error = message
                 }
             }
         }
@@ -454,6 +460,7 @@ import kotlin.coroutines.coroutineContext
             if (busy || pendingId != null) return
             val operation = repository.newOperation()
             pendingId = operation.id; pendingKind = kind; busy = true; error = null
+            if (kind == "scan") scanActionError = null
             scope.launch {
                 try {
                     val result = action(operation)
@@ -465,9 +472,11 @@ import kotlin.coroutines.coroutineContext
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) {
                     if (draftLibraryId != null) setupPaused = true
-                    if (mediaLibraryScanOperation(pendingKind)) {
+                    val failedKind = pendingKind
+                    if (mediaLibraryScanOperation(failedKind)) {
                         pendingId = null; pendingKind = null
-                        error = "扫描请求未完成，请重试；同一目录不会重复启动。"
+                        val message = "扫描请求未完成，请重试；同一目录不会重复启动。"
+                        if (failedKind == "scan") { scanActionError = message; error = null } else error = message
                     } else error = "操作结果尚未确认，请使用原操作记录确认。"
                 }
                 finally { busy = false }
@@ -843,6 +852,7 @@ import kotlin.coroutines.coroutineContext
             if (screen == "library" && scanLibrary?.role == MediaLibraryRole.OWNER && draftLibraryId == null &&
                 support?.available == true && sources.any { it.access == MediaSourceAccess.AVAILABLE }) {
                 val availableSources = sources.filter { it.access == MediaSourceAccess.AVAILABLE }
+                val scanRunning = scan?.libraryId == scanLibrary.id && scan?.status in setOf(MediaScanStatus.QUEUED, MediaScanStatus.RUNNING)
                 Surface(color = MaterialTheme.colorScheme.background,
                     modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth()) {
                     Column {
@@ -850,12 +860,18 @@ import kotlin.coroutines.coroutineContext
                         Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text("${mediaScanModeLabel(scanMode)} · ${availableSources.size} 个可用目录",
                                 style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            if (busy && pendingKind == "scan") LinearProgressIndicator(Modifier.fillMaxWidth())
+                            if (scanRunning) Text("扫描进行中，可在上方查看进度或取消。", style = PhoneMediaType.secondary,
+                                color = MaterialTheme.colorScheme.primary)
+                            scanActionError?.let {
+                                Text(it, style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.error)
+                            }
                             FilewayButton(onClick = {
                                 val rules = support?.localRulesRevision ?: return@FilewayButton
                                 submit("scan") { repository.startScanBatch(it, scanLibrary.id, availableSources, rules, scanMode) }
-                            }, enabled = !busy && pendingId == null && !loading,
+                            }, enabled = !busy && pendingId == null && !loading && !scanRunning,
                                 modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
-                                Text("开始${mediaScanModeLabel(scanMode)}", style = PhoneMediaType.action)
+                                Text(mediaLibraryScanActionLabel(scanMode, busy && pendingKind == "scan", scanRunning), style = PhoneMediaType.action)
                             }
                         }
                     }
@@ -1006,6 +1022,12 @@ private fun MediaScanStat(label: String, value: Long, modifier: Modifier = Modif
 }
 
 internal fun mediaLibraryScanOperation(kind: String?): Boolean = kind in setOf("scan", "setup-scan")
+
+internal fun mediaLibraryScanActionLabel(mode: MediaScanMode, submitting: Boolean, running: Boolean = false): String = when {
+    running -> "扫描进行中"
+    submitting -> "正在提交${mediaScanModeLabel(mode)}…"
+    else -> "开始${mediaScanModeLabel(mode)}"
+}
 
 internal fun mediaLibraryKindLabel(kind: MediaLibraryKind): String = when (kind) {
     MediaLibraryKind.MOVIE -> "电影"

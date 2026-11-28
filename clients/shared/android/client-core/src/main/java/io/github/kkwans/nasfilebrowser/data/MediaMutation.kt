@@ -48,8 +48,8 @@ internal class MediaMutationRequest(
             MediaMutationKind.ARCHIVE_LIBRARY, MediaMutationKind.RESTORE_LIBRARY, MediaMutationKind.REVOKE_MEMBER -> setOf("operationId", "expectedRevision")
             MediaMutationKind.GRANT_MEMBER -> setOf("operationId", "expectedRevision", "role")
             MediaMutationKind.CREATE_SOURCE, MediaMutationKind.ATTEST_SOURCE -> setOf("operationId", "expectedRevision", "wireRoot")
-            MediaMutationKind.START_SCAN -> setOf("operationId", "expectedRevision", "bindingId", "rulesRevision")
-            MediaMutationKind.START_SCAN_BATCH -> setOf("operationId", "rulesRevision", "sources")
+            MediaMutationKind.START_SCAN -> setOf("operationId", "expectedRevision", "bindingId", "rulesRevision", "mode")
+            MediaMutationKind.START_SCAN_BATCH -> setOf("operationId", "rulesRevision", "sources", "mode")
             MediaMutationKind.CANCEL_SCAN, MediaMutationKind.RETRY_SCAN -> setOf("operationId", "expectedGeneration")
             MediaMutationKind.PATCH_METADATA -> setOf("operationId", "expectedRevision", "fields")
             MediaMutationKind.UNDO_METADATA -> setOf("operationId", "expectedRevision", "targetRevision")
@@ -85,6 +85,9 @@ internal class MediaMutationRequest(
         if ("expectedPolicyRevision" in keys) input.strictLong("expectedPolicyRevision")
         if ("targetRevision" in keys) input.strictLong("targetRevision")
         if ("rulesRevision" in keys) input.strictLong("rulesRevision")
+        if (kind in setOf(MediaMutationKind.START_SCAN, MediaMutationKind.START_SCAN_BATCH)) {
+            require(input.strictString("mode") in MediaScanMode.entries.map(MediaScanMode::wire))
+        }
         if ("matchRevision" in keys) {
             input.strictLong("matchRevision"); input.strictLong("itemRevision"); input.strictLong("structureRevision")
         }

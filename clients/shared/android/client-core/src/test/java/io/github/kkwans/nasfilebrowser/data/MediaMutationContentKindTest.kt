@@ -1,5 +1,6 @@
 package io.github.kkwans.nasfilebrowser.data
 
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.fail
@@ -24,6 +25,25 @@ class MediaMutationContentKindTest {
     @Test fun legacyLibraryMutationWithoutContentKindRemainsValid() {
         MediaMutationRequest(operation, MediaMutationKind.CREATE_LIBRARY,
             body = JSONObject().put("operationId", operation.id).put("name", "Mixed"))
+    }
+
+    @Test fun scanMutationsAcceptTheirMode() {
+        MediaMutationRequest(operation, MediaMutationKind.START_SCAN, libraryId = "lib_fixture",
+            body = JSONObject().put("operationId", operation.id).put("expectedRevision", 3)
+                .put("bindingId", "binding_fixture").put("rulesRevision", 18).put("mode", "incremental"))
+        MediaMutationRequest(operation, MediaMutationKind.START_SCAN_BATCH, libraryId = "lib_fixture",
+            body = JSONObject().put("operationId", operation.id).put("rulesRevision", 18).put("mode", "full_fill")
+                .put("sources", JSONArray().put(JSONObject().put("bindingId", "binding_fixture").put("expectedRevision", 3))))
+    }
+
+    @Test fun scanMutationsRejectUnknownMode() {
+        try {
+            MediaMutationRequest(operation, MediaMutationKind.START_SCAN, libraryId = "lib_fixture",
+                body = JSONObject().put("operationId", operation.id).put("expectedRevision", 3)
+                    .put("bindingId", "binding_fixture").put("rulesRevision", 18).put("mode", "mystery"))
+            fail("unknown scan mode accepted")
+        } catch (_: IllegalArgumentException) {
+        }
     }
 
     @Test fun unknownContentKindIsRejectedBeforeDispatch() {
