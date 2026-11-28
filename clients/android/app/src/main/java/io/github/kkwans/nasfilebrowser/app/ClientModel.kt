@@ -84,8 +84,11 @@ private data class CatalogMediaBinding(
 )
 private data class CatalogSelection(
     val repository: MediaLibraryRepository, val variant: MediaCatalogVariant,
-    val fromStart: Boolean, val checkpoint: MediaCatalogContinue?,
+    val fromStart: Boolean, val checkpoint: MediaCatalogContinue?, val displayTitle: String,
 )
+
+internal fun catalogPlaybackDisplayName(fileName: String, workTitle: String?): String =
+    workTitle?.trim()?.takeIf(String::isNotEmpty) ?: fileName
 private sealed interface DecoderSubtitleSource {
     val key: String
     val name: String
@@ -668,7 +671,7 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
     internal fun currentCatalogRef(): MediaCatalogRef? = catalogSelection?.variant?.ref
 
     internal fun openCatalogVideo(repository: MediaLibraryRepository, selected: MediaCatalogVariant,
-        fromStart: Boolean = false, checkpoint: MediaCatalogContinue? = null) {
+        fromStart: Boolean = false, checkpoint: MediaCatalogContinue? = null, workTitle: String? = null) {
         val bound = context ?: return
         if (catalogRepository?.first !== bound || catalogRepository?.second !== repository ||
             selected.ref.scope != repository.scope) return
@@ -680,9 +683,10 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         endPlayback()
         // Player chrome needs display metadata. These IDs are never resolved as
         // file paths or used to create a file-history record.
+        val displayTitle = catalogPlaybackDisplayName(selected.displayName, workTitle)
         val display = ResourceRef("", "/@catalog/${selected.ref.libraryId}/${selected.variantId}",
-            selected.displayName, false, selected.contentType, selected.size)
-        catalogSelection = CatalogSelection(repository, selected, fromStart, checkpoint)
+            displayTitle, false, selected.contentType, selected.size)
+        catalogSelection = CatalogSelection(repository, selected, fromStart, checkpoint, displayTitle)
         mutable.value = mutable.value.copy(selected = display, image = null, mediaQueue = null,
             busy = true, stage = "正在打开片源", error = null, progressStatus = null)
         operation = viewModelScope.launch {
@@ -710,7 +714,8 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
                 if (!sessionCurrent(bound) || mediaRequest != request) return@launch
                 player.open(connection.url, connection.startPositionMs, autoplay = foreground,
                     videoDecodePolicy = playbackPreferences.videoDecodePolicy.value)
-                catalogSelection = CatalogSelection(repository, selected, fromStart = false, checkpoint = null)
+                catalogSelection = CatalogSelection(repository, selected, fromStart = false, checkpoint = null,
+                    displayTitle = catalogSelection?.displayTitle ?: displayTitle)
                 val progress = CatalogWatchReporter(connection, player.state.value.mediaGeneration)
                 val maintenance = launch {
                     launch {
@@ -1763,7 +1768,8 @@ class ClientModel(application: Application) : AndroidViewModel(application) {
         if (catalogPlayback != null) {
             if (foreground) {
                 val selection = catalogSelection
-                if (player.state.value.ended && selection != null) openCatalogVideo(selection.repository, selection.variant, fromStart = true)
+                if (player.state.value.ended && selection != null) openCatalogVideo(selection.repository, selection.variant,
+                    fromStart = true, workTitle = selection.displayTitle)
                 else player.toggle()
             }
             return

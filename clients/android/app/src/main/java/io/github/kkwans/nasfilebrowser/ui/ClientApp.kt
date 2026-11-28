@@ -323,8 +323,8 @@ private fun MediaCatalogDestination(model: ClientModel) {
     if (repository != null) {
         PhoneMediaRoute(session, repository, model.previewImageLoader, onExit,
             currentSourceId = model::currentCatalogSourceId,
-            onHandoff = LocalMediaTvHandoff.current) { variant, fromStart, checkpoint ->
-            model.openCatalogVideo(repository, variant, fromStart, checkpoint)
+            onHandoff = LocalMediaTvHandoff.current) { variant, fromStart, checkpoint, workTitle ->
+            model.openCatalogVideo(repository, variant, fromStart, checkpoint, workTitle)
         }
     } else Column(Modifier.fillMaxSize().statusBarsPadding().consumeWindowInsets(WindowInsets.statusBars)) {
         FilewayTopAppBar("影视中心", leadingIcon = R.drawable.ic_arrow_back, leadingDescription = "返回", onLeadingClick = onExit)

@@ -56,7 +56,7 @@ internal fun PhoneMediaRoute(
     onExit: () -> Unit,
     currentSourceId: () -> String?,
     onHandoff: ((MediaCatalogRef, String) -> Unit)?,
-    onPlayback: (MediaCatalogVariant, Boolean, MediaCatalogContinue?) -> Unit,
+    onPlayback: (MediaCatalogVariant, Boolean, MediaCatalogContinue?, String?) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
     val route = remember(session, repository, scope) { PhoneMediaRouteState(session, repository, scope) }
@@ -104,6 +104,11 @@ internal fun PhoneMediaRoute(
     val pages = rememberSaveableStateHolder()
     val detailId = item
     val libraryId = library
+    fun playbackTitle(id: String?): String? = when {
+        id == null -> null
+        libraryId != null && detailId != null && key(repository.catalogRef(libraryId, detailId)) == id -> route.detail?.card?.title
+        else -> route.episodes.firstOrNull { key(it.ref) == id }?.card?.title
+    }
     DisposableEffect(route, watch) { onDispose { route.close(); watch.close() } }
     LaunchedEffect(route) {
         route.start(if (mediaTab == "categories") filter else "all")
@@ -141,7 +146,7 @@ internal fun PhoneMediaRoute(
         val sources = route.sourcesFor(pending.first).map { PhoneMediaPlaybackSource(variantKey(it), it.available, it.isDefault) }
         val directId = phoneMediaDirectPlaySource(sources, currentSourceId(), route.hasMoreSourcesFor(pending.first))
         if (directId != null) {
-            route.variant(directId)?.let { onPlayback(it, pending.second, null) }
+            route.variant(directId)?.let { onPlayback(it, pending.second, null, playbackTitle(pending.first)) }
             pendingDirectPlay = null
         } else if (route.sourceProblem(pending.first) != null || !route.hasMoreSourcesFor(pending.first)) {
             pendingDirectPlay = null
@@ -207,7 +212,7 @@ internal fun PhoneMediaRoute(
                     val sources = route.sourcesFor(id).map { PhoneMediaPlaybackSource(variantKey(it), it.available, it.isDefault) }
                     val directId = phoneMediaDirectPlaySource(sources, currentSourceId(), route.hasMoreSourcesFor(id))
                     directId?.let(route::variant)?.let {
-                        onPlayback(it, fromStart, null)
+                        onPlayback(it, fromStart, null, playbackTitle(id))
                         return
                     }
                     if (route.loadingSourcesFor(id) || route.sourcesFor(id).isEmpty() && route.sourceProblem(id) == null) {
@@ -308,7 +313,7 @@ internal fun PhoneMediaRoute(
             is PhoneMediaAction.SelectSeason -> route.selectSeason(intent.id)
             is PhoneMediaAction.Play -> if (intent.kind == MediaTargetKind.CONTINUE) {
                 watching.items.firstOrNull { it.id == intent.id && watching.removing != it.id }?.let {
-                    onPlayback(it.variant, intent.fromStart, it)
+                    onPlayback(it.variant, intent.fromStart, it, it.card.title)
                 }
             } else source(intent.id, intent.fromStart, playDirect = true)
             is PhoneMediaAction.RemoveContinue -> watching.items.firstOrNull { it.id == intent.id }?.let(watch::remove)
@@ -329,7 +334,7 @@ internal fun PhoneMediaRoute(
                 if (confirmed != null) route.variant(confirmed)?.takeIf { it.available }?.let {
                     sourceSelection = null
                     route.closeSources()
-                    onPlayback(it, startFromBeginning, null)
+                    onPlayback(it, startFromBeginning, null, playbackTitle(ref?.let(::key)))
                 }
             }
             is PhoneMediaAction.Retry -> when (intent.section) {
