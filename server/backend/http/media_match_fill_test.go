@@ -283,11 +283,12 @@ func TestMediaMatchFillFiltersByProbedDurationBeforeProviderTraffic(t *testing.T
 	catalogFixtureWrite(t, f, "Boundary [tmdb-movie-43].mkv", "owned video")
 	catalogFixtureWrite(t, f, "Unknown [tmdb-movie-44].mkv", "owned video")
 	catalogFixtureWrite(t, f, "Eligible [tmdb-movie-45].mkv", "owned video")
+	catalogFixtureWrite(t, f, "Short Cd1 [tmdb-movie-46].mkv", "owned video")
 	library, source := f.libraryAndSource(t)
 	scanFixtureLibrary(t, f, library, source, "duration-filter-scan")
 	owner := f.owner.ID
 	items, _ := fixtureItems(t, f, owner, library.ID, "")
-	if len(items) != 4 {
+	if len(items) != 5 {
 		t.Fatalf("fixture item count: %d", len(items))
 	}
 	durations := map[string]int64{"Short": 59*60_000 + 59_999, "Boundary": 60 * 60_000, "Eligible": 120 * 60_000}
@@ -302,8 +303,17 @@ WHERE source_file_id IN (SELECT v.source_file_id FROM variant v JOIN edition e O
 				t.Fatal(err)
 			}
 		}
+		if strings.HasPrefix(detail.Item.Title, "Short Cd1") {
+			if err := f.store.WithTx(t.Context(), func(tx *sql.Tx) error {
+				_, err := tx.ExecContext(t.Context(), `UPDATE identification_evidence SET evidence_json=json_set(evidence_json,'$.durationMs',?,'$.durationSourceVersion',(SELECT source_version FROM source_file WHERE id=identification_evidence.source_file_id))
+WHERE source_file_id IN (SELECT v.source_file_id FROM variant v JOIN edition e ON e.id=v.edition_id AND e.library_id=v.library_id WHERE e.library_id=? AND e.item_id=?)`, int64(30*60_000), library.ID, item.ID)
+				return err
+			}); err != nil {
+				t.Fatal(err)
+			}
+		}
 		for prefix, duration := range durations {
-			if !strings.HasPrefix(detail.Item.Title, prefix) {
+			if !strings.HasPrefix(detail.Item.Title, prefix) || strings.HasPrefix(detail.Item.Title, "Short Cd1") {
 				continue
 			}
 			if err := f.store.WithTx(t.Context(), func(tx *sql.Tx) error {
@@ -339,11 +349,15 @@ WHERE source_file_id IN (SELECT v.source_file_id FROM variant v JOIN edition e O
 	outbound := 0
 	f.h.storage.TMDBHTTPClient = &http.Client{Transport: matchTestTransport(func(r *http.Request) (*http.Response, error) {
 		outbound++
-		if r.URL.Path != "/3/movie/45" || r.URL.Query().Has("query") {
+		if r.URL.Path != "/3/movie/45" && r.URL.Path != "/3/movie/46" || r.URL.Query().Has("query") {
 			t.Errorf("filtered item reached provider: %s", r.URL)
 		}
+		id, title := "45", "Eligible"
+		if r.URL.Path == "/3/movie/46" {
+			id, title = "46", "Short Cd1"
+		}
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(
-			`{"id":45,"title":"Eligible","release_date":"2020-09-01","overview":"Allowed by duration"}`))}, nil
+			`{"id":` + id + `,"title":"` + title + `","release_date":"2020-09-01","overview":"Allowed by duration"}`))}, nil
 	})}
 	if _, err := f.store.SetLibraryMetadataPolicy(t.Context(), owner, library.ID, "duration-filter-policy", 0,
 		medialibrary.LibraryMetadataPolicy{Mode: medialibrary.MetadataLocalFirst, ConnectionID: conn, MovieMinMinutes: 90, SeriesMinMinutes: 15}); err != nil {
@@ -363,6 +377,10 @@ WHERE source_file_id IN (SELECT v.source_file_id FROM variant v JOIN edition e O
 		}
 		title := identification.File.ParsedTitle
 		switch {
+		case strings.HasPrefix(title, "Short Cd1"):
+			if !strings.Contains(response.Body.String(), `"state":"matched"`) {
+				t.Fatalf("partial multipart duration was filtered: %s", response.Body)
+			}
 		case strings.HasPrefix(title, "Short"), strings.HasPrefix(title, "Boundary"):
 			if !strings.Contains(response.Body.String(), `"state":"skipped"`) || !strings.Contains(response.Body.String(), `"reason":"movie_below_minimum_duration"`) {
 				t.Fatalf("short movie was not filtered: %s", response.Body)
@@ -379,7 +397,7 @@ WHERE source_file_id IN (SELECT v.source_file_id FROM variant v JOIN edition e O
 			t.Fatalf("unexpected fixture title: %q", title)
 		}
 	}
-	if outbound != 1 {
+	if outbound != 2 {
 		t.Fatalf("provider request count: %d", outbound)
 	}
 }

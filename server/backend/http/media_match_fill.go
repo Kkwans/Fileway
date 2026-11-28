@@ -180,11 +180,13 @@ func fillCatalogMatch(ctx context.Context, d *data, library *medialibrary.Librar
 	if err != nil {
 		return fillMatchResult{}, err
 	}
-	if state, reason := medialibrary.MetadataDurationDecision(kind, durations, *policy); state != "allowed" {
-		if preview != nil {
-			return fillMatchResult{State: state, Reason: reason, Decision: preview}, nil
+	if len(input.Parts) == 0 {
+		if state, reason := medialibrary.MetadataDurationDecision(kind, durations, *policy); state != "allowed" {
+			if preview != nil {
+				return fillMatchResult{State: state, Reason: reason, Decision: preview}, nil
+			}
+			return fillMatchResult{State: state, Reason: reason}, nil
 		}
-		return fillMatchResult{State: state, Reason: reason}, nil
 	}
 	// A leaf with multiple distinct files can have contradictory filename
 	// evidence. Do not auto-confirm from the one chosen for presentation.
