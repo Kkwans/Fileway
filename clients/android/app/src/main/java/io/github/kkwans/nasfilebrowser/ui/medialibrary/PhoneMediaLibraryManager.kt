@@ -760,15 +760,6 @@ import kotlin.coroutines.coroutineContext
                                             }
                                             Text(mediaScanModeDescription(scanMode), style = PhoneMediaType.secondary,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                            if (sources.all { it.access == MediaSourceAccess.AVAILABLE }) {
-                                                FilewayButton(onClick = {
-                                                    val rules = support?.localRulesRevision ?: return@FilewayButton
-                                                    submit("scan") { repository.startScanBatch(it, library.id, sources, rules, scanMode) }
-                                                }, enabled = !busy && pendingId == null && draftLibraryId == null && support?.available == true && !loading,
-                                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                                                    Text("开始${mediaScanModeLabel(scanMode)}", style = PhoneMediaType.action)
-                                                }
-                                            }
                                         }
                                     }
                                 }
@@ -839,6 +830,28 @@ import kotlin.coroutines.coroutineContext
                     }
                 }
             }
+            }
+            val scanLibrary = selected
+            if (screen == "library" && scanLibrary?.role == MediaLibraryRole.OWNER && draftLibraryId == null &&
+                support?.available == true && sources.any { it.access == MediaSourceAccess.AVAILABLE }) {
+                val availableSources = sources.filter { it.access == MediaSourceAccess.AVAILABLE }
+                Surface(color = MaterialTheme.colorScheme.background,
+                    modifier = Modifier.widthIn(max = 640.dp).fillMaxWidth()) {
+                    Column {
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("${mediaScanModeLabel(scanMode)} · ${availableSources.size} 个可用目录",
+                                style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            FilewayButton(onClick = {
+                                val rules = support?.localRulesRevision ?: return@FilewayButton
+                                submit("scan") { repository.startScanBatch(it, scanLibrary.id, availableSources, rules, scanMode) }
+                            }, enabled = !busy && pendingId == null && !loading,
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) {
+                                Text("开始${mediaScanModeLabel(scanMode)}", style = PhoneMediaType.action)
+                            }
+                        }
+                    }
+                }
             }
             if (screen == "create" || screen == "directory") {
                 val creating = screen == "create"
