@@ -3,10 +3,16 @@ package io.github.kkwans.nasfilebrowser.ui.medialibrary
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.github.kkwans.nasfilebrowser.R
@@ -49,14 +55,26 @@ internal fun phoneMediaDirectPlaySource(
             modifier = Modifier.padding(horizontal = FilewaySpace.page, vertical = FilewaySpace.small))
         if (state.title.isNotBlank()) Text(state.title, style = PhoneMediaType.workTitle,
             modifier = Modifier.padding(horizontal = FilewaySpace.page, vertical = FilewaySpace.small))
-        LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false).selectableGroup(),
+        val listState = key(state.itemId) { rememberLazyListState() }
+        val currentOnAction by rememberUpdatedState(onAction)
+        LaunchedEffect(listState, state.itemId, state.hasMore, state.loading, state.busy, state.problem) {
+            if (!state.hasMore || state.loading || state.busy || state.problem != null) return@LaunchedEffect
+            snapshotFlow {
+                (listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1) to listState.layoutInfo.totalItemsCount
+            }.collect { (lastVisible, itemCount) ->
+                if (phoneMediaShouldLoadMore(lastVisible, itemCount, hasMore = true, loading = false, problem = false)) {
+                    currentOnAction(PhoneMediaAction.LoadMore("sources"))
+                }
+            }
+        }
+        LazyColumn(state = listState, modifier = Modifier.fillMaxWidth().weight(1f, fill = false).selectableGroup(),
             contentPadding = PaddingValues(start = FilewaySpace.page, top = FilewaySpace.small,
                 end = FilewaySpace.page, bottom = FilewaySpace.section),
             verticalArrangement = Arrangement.spacedBy(8.dp)) {
             state.problem?.let { problem -> item(key = "problem") {
                 MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("sources")) })
             } }
-            if (state.loading) item(key = "loading") { MediaLoading("正在加载片源") }
+            if (state.loading && state.entries.isEmpty()) item(key = "loading") { MediaLoading("正在加载片源") }
             if (state.busy) item(key = "resolving") { MediaLoading("正在确认片源") }
             if (state.entries.isEmpty() && !state.loading && state.problem == null) item(key = "empty") {
                 FilewayEmptyState(R.drawable.ic_video, "暂无可用片源", "片源可能尚未完成扫描，或你已失去访问权限。")
@@ -76,6 +94,9 @@ internal fun phoneMediaDirectPlaySource(
                             modifier = Modifier.heightIn(min = 48.dp)) { Text(source.recoveryLabel, style = PhoneMediaType.action) }
                     }
                 }
+            }
+            if (state.loading && state.entries.isNotEmpty()) item(key = "loading-more") {
+                MediaLoading("正在加载更多片源")
             }
             if (state.hasMore && !state.loading) item(key = "more") {
                 TextButton(onClick = { onAction(PhoneMediaAction.LoadMore("sources")) },
