@@ -487,8 +487,10 @@ internal fun PhoneMediaCredits(title: String, credits: List<MediaCredit>, loadin
 
 internal fun phoneMediaEpisodeImage(artwork: MediaArtwork?, backdrop: MediaArtwork?): MediaArtwork? = artwork ?: backdrop
 
+private val mediaEpisodeFilename = Regex("""(?i)(?:^|[._\s-])(?:S\d{1,2})?EP?(\d{1,3})(?=$|[._\s-])""")
+
 internal fun phoneMediaEpisodeTitle(numberLabel: String, title: String): String =
-    if (title.isBlank()) numberLabel else "$numberLabel · $title"
+    if (title.isBlank() || mediaEpisodeFilename.containsMatchIn(title)) numberLabel else "$numberLabel · $title"
 
 @Composable
 private fun EpisodeRow(episode: MediaEpisode, loader: ImageLoader, onAction: (PhoneMediaAction) -> Unit, busy: Boolean, inset: Dp) {

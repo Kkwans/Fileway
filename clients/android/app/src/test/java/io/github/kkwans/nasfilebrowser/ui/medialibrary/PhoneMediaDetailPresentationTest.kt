@@ -19,6 +19,8 @@ class PhoneMediaDetailPresentationTest {
         assertEquals("第一集 · 叉叉叉叉", phoneMediaEpisodeTitle("第一集", "叉叉叉叉"))
         assertEquals("第一集", phoneMediaEpisodeTitle("第一集", " "))
         assertEquals("第二集", phoneMediaEpisodeTitle("第二集", ""))
+        assertEquals("第一集", phoneMediaEpisodeTitle("第一集", "Loki.2021.EP01.4K.X264.AAC.mkv"))
+        assertEquals("第二集", phoneMediaEpisodeTitle("第二集", "Show.Name.S02E03.1080p.mkv"))
     }
 
     @Test
