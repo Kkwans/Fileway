@@ -196,7 +196,8 @@ internal fun phoneMediaGridSpec(width: Dp): PhoneMediaGridSpec {
         item.primaryRating?.let { rating ->
             Surface(Modifier.align(Alignment.TopEnd).padding(10.dp),
                 color = colors.surface.copy(alpha = .94f), shape = MaterialTheme.shapes.small) {
-                Text(rating.value, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = PhoneMediaType.badge)
+                Text(mediaPosterRatingLabel(rating), Modifier.padding(horizontal = 6.dp, vertical = 4.dp),
+                    style = PhoneMediaType.badge, maxLines = 1)
             }
         }
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = 14.dp, end = 14.dp, bottom = 16.dp)) {
@@ -226,7 +227,7 @@ internal fun mediaPosterSubtitle(item: MediaPoster): String? =
             item.primaryRating?.let { rating ->
                 Surface(Modifier.align(Alignment.TopEnd).padding(8.dp),
                     color = MaterialTheme.colorScheme.surface.copy(alpha = .96f), shape = MaterialTheme.shapes.small) {
-                    Text(rating.value, Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    Text(mediaPosterRatingLabel(rating), Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
                         .semantics { contentDescription = listOfNotNull(rating.source, rating.metric, rating.value).joinToString(" ") },
                         style = PhoneMediaType.badge, maxLines = 1)
                 }

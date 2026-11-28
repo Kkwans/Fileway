@@ -93,6 +93,7 @@ internal fun PhoneMediaRoute(
     var collectionPage by remember(route) { mutableStateOf<MediaCatalogCollectionRef?>(null) }
     var startFromBeginning by remember(route) { mutableStateOf(false) }
     var sourceSelection by remember(route) { mutableStateOf<PhoneMediaSourceSelection?>(null) }
+    var pendingDirectPlay by remember(route) { mutableStateOf<Pair<String, Boolean>?>(null) }
     val homeGrid = rememberLazyGridState()
     val libraryGrid = key(phoneMediaCatalogGridKey("libraries", route.libraryFilter, route.filter, route.catalogSort)) {
         rememberLazyGridState()
@@ -130,7 +131,28 @@ internal fun PhoneMediaRoute(
         }
     }
 
+    LaunchedEffect(pendingDirectPlay, route.variants, route.sourcesLoading, route.sourcesCursor, route.sourcesProblem) {
+        val pending = pendingDirectPlay ?: return@LaunchedEffect
+        val ref = if (libraryId != null && detailId != null && key(repository.catalogRef(libraryId, detailId)) == pending.first)
+            repository.catalogRef(libraryId, detailId)
+        else route.episodes.firstOrNull { key(it.ref) == pending.first }?.ref
+        if (ref == null) { pendingDirectPlay = null; return@LaunchedEffect }
+        if (route.loadingSourcesFor(pending.first)) return@LaunchedEffect
+        val sources = route.sourcesFor(pending.first).map { PhoneMediaPlaybackSource(variantKey(it), it.available, it.isDefault) }
+        val directId = phoneMediaDirectPlaySource(sources, currentSourceId(), route.hasMoreSourcesFor(pending.first))
+        if (directId != null) {
+            route.variant(directId)?.let { onPlayback(it, pending.second, null) }
+            pendingDirectPlay = null
+        } else if (route.sourceProblem(pending.first) != null || !route.hasMoreSourcesFor(pending.first)) {
+            pendingDirectPlay = null
+            startFromBeginning = pending.second
+            sourceSelection = PhoneMediaSourceSelection(key(ref))
+            route.openSources(ref)
+        }
+    }
+
     fun back() {
+        pendingDirectPlay = null
         if (creditsPage) { creditsPage = false; route.closeCredits() }
         else if (collectionPage != null && detailId == null) { collectionPage = null; route.closeCollection() }
         else if (personPage != null && detailId == null) {
@@ -186,6 +208,11 @@ internal fun PhoneMediaRoute(
                     val directId = phoneMediaDirectPlaySource(sources, currentSourceId(), route.hasMoreSourcesFor(id))
                     directId?.let(route::variant)?.let {
                         onPlayback(it, fromStart, null)
+                        return
+                    }
+                    if (route.loadingSourcesFor(id) || route.sourcesFor(id).isEmpty() && route.sourceProblem(id) == null) {
+                        pendingDirectPlay = id to fromStart
+                        route.preloadSources(ref)
                         return
                     }
                 }
@@ -547,10 +574,14 @@ private fun PhoneMediaRouteState.detailState(scope: String, id: String): PhoneMe
         userStateRevision = state?.revision, favorite = state?.favorite == true, watched = state?.manualWatched == true,
         userStateBusy = userStateBusy || pendingUserState != null,
         userStateProblem = userStateProblem ?: pendingUserState?.let { MediaProblem("结果尚待确认", "使用原操作确认，避免重复提交。", "确认") },
-        ratings = item?.ratings?.items.orEmpty().mapNotNull { observation ->
-            val value = observation.rating
-            val score = value.value ?: return@mapNotNull null
-            rating(observation.id, value.provider ?: value.rawSource, value.metric, score, value.scale, value.count)
+        ratings = buildList {
+            addAll(item?.ratings?.items.orEmpty().mapNotNull { observation ->
+                val value = observation.rating
+                val score = value.value ?: return@mapNotNull null
+                rating(observation.id, value.provider ?: value.rawSource, value.metric, score, value.scale, value.count)
+            })
+            val primary = card?.primaryRating?.let { rating(it.provider, it.provider, it.metric, it.value, it.scale, null) }
+            if (primary != null && none { it.source == primary.source }) add(primary)
         },
         collections = item?.collections?.items.orEmpty().map { collection ->
             listOfNotNull(collection.name, collection.number?.let { "编号 $it" }).joinToString(" · ")

@@ -18,6 +18,14 @@ internal data class MediaSection<T>(val entries: List<T> = emptyList(), val load
 internal data class MediaRating(val id: String, val source: String, val value: String,
     val metric: String? = null, val count: String? = null, val scope: String? = null,
     val detailValue: String = value)
+
+internal fun mediaPosterRatingLabel(rating: MediaRating): String =
+    listOf(rating.source, rating.value).filter(String::isNotBlank).joinToString(" ")
+
+internal fun phoneMediaDetailRatings(ratings: List<MediaRating>): List<MediaRating> {
+    val grouped = ratings.filter { it.value.isNotBlank() }.groupBy { it.source }
+    return listOf("豆瓣", "IMDb", "烂番茄").mapNotNull { grouped[it]?.firstOrNull() }
+}
 internal data class MediaPoster(val id: String, val title: String, val subtitle: String,
     val poster: MediaArtwork? = null, val backdrop: MediaArtwork? = null,
     val primaryRating: MediaRating? = null, val availability: String? = null)

@@ -103,9 +103,13 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
                 state.problem?.let { problem -> item(key = "problem") {
                     MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("detail")) }, Modifier.padding(horizontal = inset))
                 } }
-                if (state.ratings.any { it.value.isNotBlank() }) item(key = "ratings") {
-                    LazyRow(contentPadding = PaddingValues(horizontal = inset), horizontalArrangement = Arrangement.spacedBy(24.dp)) {
-                        items(state.ratings.filter { it.value.isNotBlank() }, key = { it.id }) { RatingColumn(it) }
+                val ratings = phoneMediaDetailRatings(state.ratings)
+                if (ratings.isNotEmpty()) item(key = "ratings") {
+                    Column(Modifier.padding(horizontal = inset), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        PhoneDetailHeading("评分")
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            ratings.forEach { rating -> RatingCard(rating, Modifier.widthIn(min = 140.dp, max = 220.dp)) }
+                        }
                     }
                 }
                 state.playProblem?.let { problem -> item(key = "play-problem") {
@@ -397,16 +401,26 @@ private fun DetailSourceRow(state: PhoneMediaDetailState, onAction: (PhoneMediaA
 }
 
 @Composable
-private fun RatingColumn(rating: MediaRating) {
-    Column(Modifier.widthIn(max = 220.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(listOfNotNull(rating.source, rating.metric).filter(String::isNotBlank).joinToString(" · "),
-                Modifier.alignByBaseline(), style = PhoneDetailType.action)
-            Text(rating.detailValue, Modifier.alignByBaseline(), style = PhoneMediaType.workTitle,
-                color = FilewayTheme.status.warning)
-        }
-        listOfNotNull(rating.count, rating.scope).filter(String::isNotBlank).forEach {
-            Text(it, style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant)
+private fun RatingCard(rating: MediaRating, modifier: Modifier = Modifier) {
+    Surface(modifier, shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainerLow) {
+        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(rating.source, style = PhoneDetailType.action, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    rating.metric?.takeIf(String::isNotBlank)?.let {
+                        Text(it, style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+                Text(rating.detailValue, style = PhoneMediaType.workTitle,
+                    color = FilewayTheme.status.warning, maxLines = 1)
+            }
+            listOfNotNull(rating.count, rating.scope).filter(String::isNotBlank).forEach {
+                Text(it, style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
         }
     }
 }

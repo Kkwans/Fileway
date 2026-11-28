@@ -360,7 +360,8 @@ internal fun phoneMediaCatalogHeading(sort: MediaCatalogSort): String = when (so
                     entry.primaryRating?.let { rating ->
                         Surface(Modifier.align(Alignment.TopEnd).padding(12.dp),
                             color = MaterialTheme.colorScheme.surface.copy(alpha = .94f), shape = MaterialTheme.shapes.small) {
-                            Text(rating.value, Modifier.padding(horizontal = 8.dp, vertical = 4.dp), style = PhoneMediaType.badge)
+                            Text(mediaPosterRatingLabel(rating), Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                                style = PhoneMediaType.badge, maxLines = 1)
                         }
                     }
                     Column(Modifier.align(Alignment.BottomStart).padding(start = 16.dp, end = if (entries.size > 1) 132.dp else 16.dp, bottom = 16.dp)) {
