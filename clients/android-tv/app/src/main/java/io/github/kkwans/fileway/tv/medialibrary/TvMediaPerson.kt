@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -25,11 +26,14 @@ import io.github.kkwans.fileway.design.R as Art
 
 @Composable
 internal fun TvMediaPeopleShelf(people: List<MediaCatalogPerson>, imageLoader: ImageLoader,
-    portrait: (MediaCatalogPerson) -> TvMediaArtwork?, onPerson: (String, String) -> Unit) {
+    portrait: (MediaCatalogPerson) -> TvMediaArtwork?, onPerson: (String, String) -> Unit,
+    loading: Boolean, error: String?, hasMore: Boolean, onMore: (() -> Unit)?) {
     if (people.isEmpty()) return
+    val listState = rememberLazyListState()
+    TvMediaRowLoadMore(listState, hasMore, loading, error, onMore)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         MediaSectionTitle("人物")
-        LazyRow(modifier = Modifier.focusGroup(), contentPadding = MediaLayout.rowPadding,
+        LazyRow(state = listState, modifier = Modifier.focusGroup(), contentPadding = MediaLayout.rowPadding,
             horizontalArrangement = Arrangement.spacedBy(MediaLayout.itemGap)) {
             items(people, key = { "${it.ref.libraryId}/${it.ref.personId}" }) { person ->
                 val id = "person:${person.ref.libraryId}/${person.ref.personId}"

@@ -131,9 +131,15 @@ internal fun TvMediaSearchScreen(query: String, searched: Boolean, mode: TvMedia
                             TvMediaSearchMode.COLLECTIONS -> "没有找到相关合集，试试使用合集名称中的一部分。"
                         })
                     }
-                    mode == TvMediaSearchMode.PEOPLE -> item(key = "people") { TvMediaPeopleShelf(people, imageLoader, personPortrait, onPerson) }
-                    mode == TvMediaSearchMode.FILES -> item(key = "files") { TvMediaFileShelf(files, imageLoader, onItem) }
-                    mode == TvMediaSearchMode.COLLECTIONS -> item(key = "collections") { TvMediaCollectionShelf(collections, imageLoader, onCollection) }
+                    mode == TvMediaSearchMode.PEOPLE -> item(key = "people") {
+                        TvMediaPeopleShelf(people, imageLoader, personPortrait, onPerson, peopleLoading, peopleError, peopleHasMore, onMore)
+                    }
+                    mode == TvMediaSearchMode.FILES -> item(key = "files") {
+                        TvMediaFileShelf(files, imageLoader, onItem, filesLoading, filesError, filesHasMore, onMore)
+                    }
+                    mode == TvMediaSearchMode.COLLECTIONS -> item(key = "collections") {
+                        TvMediaCollectionShelf(collections, imageLoader, onCollection, collectionsLoading, collectionsError, collectionsHasMore, onMore)
+                    }
                     else -> Unit
                 }
                 if (issue != null && !empty) item(key = "issue-more") { MediaStatus(issue, onRetry, compact = true) }

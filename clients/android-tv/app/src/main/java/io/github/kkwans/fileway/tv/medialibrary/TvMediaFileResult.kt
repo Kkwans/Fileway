@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -22,11 +23,14 @@ import coil3.ImageLoader
 internal data class TvMediaFileResult(val id: String, val fileName: String, val card: TvMediaCard)
 
 @Composable
-internal fun TvMediaFileShelf(files: List<TvMediaFileResult>, imageLoader: ImageLoader, onItem: (String) -> Unit) {
+internal fun TvMediaFileShelf(files: List<TvMediaFileResult>, imageLoader: ImageLoader, onItem: (String) -> Unit,
+    loading: Boolean, error: String?, hasMore: Boolean, onMore: (() -> Unit)?) {
     if (files.isEmpty()) return
+    val listState = rememberLazyListState()
+    TvMediaRowLoadMore(listState, hasMore, loading, error, onMore)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         MediaSectionTitle("文件")
-        LazyRow(modifier = Modifier.focusGroup(), contentPadding = MediaLayout.rowPadding,
+        LazyRow(state = listState, modifier = Modifier.focusGroup(), contentPadding = MediaLayout.rowPadding,
             horizontalArrangement = Arrangement.spacedBy(MediaLayout.itemGap)) {
             items(files, key = { it.id }) { file ->
                 val focusId = "file:${file.id}"

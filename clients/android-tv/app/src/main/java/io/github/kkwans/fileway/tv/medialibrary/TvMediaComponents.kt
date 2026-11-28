@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
@@ -245,17 +246,7 @@ internal fun MediaShelf(
 ) {
     if (!tvMediaShelfVisible(shelf)) return
     val listState = key(shelf.id) { rememberLazyListState() }
-    val currentOnMore by rememberUpdatedState(onMore)
-    LaunchedEffect(listState, shelf.hasMore, shelf.loading, shelf.error, onMore != null) {
-        if (!shelf.hasMore || shelf.loading || shelf.error != null || onMore == null) return@LaunchedEffect
-        snapshotFlow {
-            (listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1) to listState.layoutInfo.totalItemsCount
-        }.collect { (lastVisible, itemCount) ->
-            if (tvMediaShouldLoadMore(lastVisible, itemCount, shelf.hasMore, shelf.loading, shelf.error)) {
-                currentOnMore?.invoke()
-            }
-        }
-    }
+    TvMediaRowLoadMore(listState, shelf.hasMore, shelf.loading, shelf.error, onMore)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         MediaSectionTitle(shelf.title)
         if (shelf.error != null) MediaStatus(shelf.error, onRetry = onRetry?.let { { it(shelf.id) } }, compact = true)
@@ -269,6 +260,20 @@ internal fun MediaShelf(
         }
         if (shelf.hasMore && onMore != null) MediaAction(if (shelf.loading) "正在加载…" else "加载更多",
             onMore, Modifier.padding(horizontal = MediaLayout.pageInset), enabled = !shelf.loading)
+    }
+}
+
+@Composable
+internal fun TvMediaRowLoadMore(state: LazyListState, hasMore: Boolean, loading: Boolean,
+    error: String?, onMore: (() -> Unit)?) {
+    val currentOnMore by rememberUpdatedState(onMore)
+    LaunchedEffect(state, hasMore, loading, error, onMore != null) {
+        if (!hasMore || loading || error != null || onMore == null) return@LaunchedEffect
+        snapshotFlow {
+            (state.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1) to state.layoutInfo.totalItemsCount
+        }.collect { (lastVisible, itemCount) ->
+            if (tvMediaShouldLoadMore(lastVisible, itemCount, hasMore, loading, error)) currentOnMore?.invoke()
+        }
     }
 }
 

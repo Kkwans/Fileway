@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -26,11 +27,13 @@ internal data class TvMediaCollectionResult(val libraryId: String, val collectio
 
 @Composable
 internal fun TvMediaCollectionShelf(collections: List<TvMediaCollectionResult>, imageLoader: ImageLoader,
-    onCollection: (String, String) -> Unit) {
+    onCollection: (String, String) -> Unit, loading: Boolean, error: String?, hasMore: Boolean, onMore: (() -> Unit)?) {
     if (collections.isEmpty()) return
+    val listState = rememberLazyListState()
+    TvMediaRowLoadMore(listState, hasMore, loading, error, onMore)
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         MediaSectionTitle("合集")
-        LazyRow(modifier = Modifier.focusGroup(), contentPadding = MediaLayout.rowPadding,
+        LazyRow(state = listState, modifier = Modifier.focusGroup(), contentPadding = MediaLayout.rowPadding,
             horizontalArrangement = Arrangement.spacedBy(MediaLayout.itemGap)) {
             items(collections, key = { it.id }) { collection ->
                 val focusId = "collection:${collection.id}"
