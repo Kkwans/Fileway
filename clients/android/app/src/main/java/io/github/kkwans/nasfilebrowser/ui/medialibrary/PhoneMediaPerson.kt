@@ -87,7 +87,7 @@ internal fun PhoneMediaPersonWorks(name: String, roles: List<String>, portrait: 
                 problem?.let { issue -> item(key = "problem", span = { GridItemSpan(maxLineSpan) }) {
                     MediaProblemCard(issue, { onAction(PhoneMediaAction.Retry("person-works")) })
                 } }
-                if (entries.isEmpty() && !loading && problem == null) item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
+                if (entries.isEmpty() && !loading && problem == null && !hasMore) item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
                     FilewayEmptyState(R.drawable.ic_person, "暂无可见作品", "该人物可能没有当前账号可访问的影视。")
                 }
                 items(entries, key = { "person-works/${it.id}" }) { entry ->

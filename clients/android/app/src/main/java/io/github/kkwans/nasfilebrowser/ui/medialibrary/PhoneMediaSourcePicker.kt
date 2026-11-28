@@ -76,7 +76,7 @@ internal fun phoneMediaDirectPlaySource(
             } }
             if (state.loading && state.entries.isEmpty()) item(key = "loading") { MediaLoading("正在加载片源") }
             if (state.busy) item(key = "resolving") { MediaLoading("正在确认片源") }
-            if (state.entries.isEmpty() && !state.loading && state.problem == null) item(key = "empty") {
+            if (state.entries.isEmpty() && !state.loading && state.problem == null && !state.hasMore) item(key = "empty") {
                 FilewayEmptyState(R.drawable.ic_video, "暂无可用片源", "片源可能尚未完成扫描，或你已失去访问权限。")
             }
             state.entries.groupBy { it.editionId }.forEach { (editionId, sources) ->

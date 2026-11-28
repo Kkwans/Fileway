@@ -71,7 +71,7 @@ internal fun PhoneMediaCollectionWorks(name: String, entries: List<MediaPoster>,
                 problem?.let { issue -> item(key = "problem", span = { GridItemSpan(maxLineSpan) }) {
                     MediaProblemCard(issue, { onAction(PhoneMediaAction.Retry("collection-works")) })
                 } }
-                if (entries.isEmpty() && !loading && problem == null) item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
+                if (entries.isEmpty() && !loading && problem == null && !hasMore) item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
                     FilewayEmptyState(Art.drawable.fileway_ic_library, "暂无可见作品", "该合集可能没有当前账号可访问的影视。")
                 }
                 items(entries, key = { "collection-works/${it.id}" }) { entry ->
