@@ -430,6 +430,9 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                                 listOfNotNull(collection.name, collection.number?.let { "编号 $it" }).joinToString(" · ")
                             },
                             seasons = route.seasons.map { TvMediaSeason(it.ref.itemId, it.label) },
+                            seasonsLoading = route.seasonsLoading,
+                            seasonsError = route.seasonsError,
+                            seasonsHasMore = route.seasonsCursor != null,
                             selectedSeasonId = route.selectedSeason,
                             episodes = route.episodes.map { episode -> TvMediaEpisode(
                                 tvMediaKey(episode.ref), episode.card.title, "第 ${episode.episodeNumber} 集",
@@ -463,6 +466,7 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                             },
                             onAllPeople = { creditsPage = true; route.openCredits() },
                             onSeason = { route.selectSeason(it) },
+                            onMoreSeasons = if (route.seasonsCursor != null) ({ route.loadSeasons(false) }) else null,
                             onEpisode = { id -> route.episodes.firstOrNull { tvMediaKey(it.ref) == id }?.let { openSources(it.ref, TvMediaSourceIntent.PLAY) } },
                             onEpisodeOptions = { id -> route.episodes.firstOrNull { tvMediaKey(it.ref) == id }?.let { openSources(it.ref, TvMediaSourceIntent.BROWSE) } },
                             onMoreEpisodes = if (route.episodesCursor != null) ({ route.loadEpisodes(false) }) else null,

@@ -10,6 +10,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.*
@@ -53,6 +54,7 @@ fun TvMediaDetail(
     onPerson: ((String) -> Unit)? = null,
     onAllPeople: (() -> Unit)? = null,
     onSeason: ((String) -> Unit)? = null,
+    onMoreSeasons: (() -> Unit)? = null,
     onEpisode: ((String) -> Unit)? = null,
     onEpisodeOptions: ((String) -> Unit)? = null,
     onMoreEpisodes: (() -> Unit)? = null,
@@ -75,6 +77,12 @@ fun TvMediaDetail(
         if (jumpWasOpen && !jumpOpen) withFrameNanos { jumpFocus.requestFocus() }
         jumpWasOpen = jumpOpen
     }
+    val seasonListState = rememberLazyListState()
+    TvMediaRowLoadMore(seasonListState, state.seasonsHasMore, state.seasonsLoading, state.seasonsError,
+        onMoreSeasons, empty = state.seasons.isEmpty())
+    val episodeListState = rememberLazyListState()
+    TvMediaRowLoadMore(episodeListState, onMoreEpisodes != null, state.episodesLoading, state.episodesError,
+        onMoreEpisodes, empty = state.episodes.isEmpty())
     Box(modifier.fillMaxSize().background(colors.canvas)) {
         MediaHeroCanvas(state.item, imageLoader, Modifier.matchParentSize())
         LazyColumn(state = scrollState, modifier = Modifier.fillMaxSize(),
@@ -160,7 +168,7 @@ fun TvMediaDetail(
                     if (state.loading) MediaLoadingStatus("正在更新影片资料…", compact = true)
                 }
             }
-        if (state.seasons.isNotEmpty() || state.episodes.isNotEmpty() || state.episodesLoading || state.episodesError != null) item(key = "episodes") {
+        if (state.seasons.isNotEmpty() || state.seasonsHasMore || state.episodes.isNotEmpty() || state.episodesLoading || state.episodesError != null) item(key = "episodes") {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = MediaLayout.pageInset),
                     verticalAlignment = Alignment.CenterVertically) {
@@ -170,7 +178,7 @@ fun TvMediaDetail(
                     if (onMoreEpisodes != null) MediaQuietAction("更多剧集", onMoreEpisodes,
                         enabled = !state.episodesLoading)
                 }
-                if (state.seasons.isNotEmpty()) LazyRow(Modifier.focusGroup(), contentPadding = MediaLayout.rowPadding,
+                if (state.seasons.isNotEmpty()) LazyRow(state = seasonListState, modifier = Modifier.focusGroup(), contentPadding = MediaLayout.rowPadding,
                     horizontalArrangement = Arrangement.spacedBy(MediaLayout.itemGap)) {
                     items(state.seasons, key = { it.id }) { season ->
                         if (onSeason != null) Column {
@@ -182,10 +190,10 @@ fun TvMediaDetail(
                 }
                 if (state.episodesLoading) MediaLoadingStatus("正在加载剧集…", compact = true)
                 if (state.episodesError != null) MediaStatus(state.episodesError, onRetryEpisodes, compact = true)
-                if (!state.episodesLoading && state.episodesError == null && state.episodes.isEmpty()) MediaStatus("这一季尚未收录剧集。", compact = true)
+                if (!state.episodesLoading && state.episodesError == null && state.episodes.isEmpty() && onMoreEpisodes == null) MediaStatus("这一季尚未收录剧集。", compact = true)
                 if (state.episodes.isNotEmpty()) BoxWithConstraints(Modifier.fillMaxWidth()) {
                     val width = mediaCardWidth(maxWidth, 272.dp, 3)
-                    LazyRow(Modifier.focusGroup(), contentPadding = MediaLayout.rowPadding,
+                    LazyRow(state = episodeListState, modifier = Modifier.focusGroup(), contentPadding = MediaLayout.rowPadding,
                         horizontalArrangement = Arrangement.spacedBy(MediaLayout.itemGap)) {
                         items(state.episodes, key = { it.id }) { episode ->
                             MediaEpisodeCard(episode, imageLoader, onEpisode?.let { { it(episode.id) } },
@@ -306,6 +314,20 @@ fun TvMediaCredits(
     val colors = LocalMediaColors.current
     val closeFocus = remember { FocusRequester() }
     LaunchedEffect(Unit) { withFrameNanos { closeFocus.requestFocus() } }
+    val gridState = rememberLazyGridState()
+    val currentOnMore by rememberUpdatedState(onMore)
+    LaunchedEffect(gridState, hasMore, loading, error, people.isEmpty()) {
+        if (!hasMore || loading || error != null) return@LaunchedEffect
+        if (people.isEmpty() && tvMediaShouldLoadEmptyPage(hasMore, loading, error)) {
+            currentOnMore()
+            return@LaunchedEffect
+        }
+        snapshotFlow {
+            (gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1) to gridState.layoutInfo.totalItemsCount
+        }.collect { (lastVisible, itemCount) ->
+            if (tvMediaShouldLoadMore(lastVisible, itemCount, hasMore, loading, error)) currentOnMore()
+        }
+    }
     Column(modifier.fillMaxSize().background(colors.canvas)) {
         Row(Modifier.fillMaxWidth().padding(start = MediaLayout.pageInset, end = MediaLayout.pageInset,
             top = 28.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically,
@@ -317,7 +339,7 @@ fun TvMediaCredits(
                     overflow = TextOverflow.Ellipsis)
             }
         }
-        LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 160.dp),
+        LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 160.dp), state = gridState,
             contentPadding = PaddingValues(start = MediaLayout.pageInset, end = MediaLayout.pageInset,
                 bottom = 48.dp), horizontalArrangement = Arrangement.spacedBy(MediaLayout.itemGap),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
@@ -334,7 +356,7 @@ fun TvMediaCredits(
             if (hasMore) item(key = "more", span = { GridItemSpan(maxLineSpan) }) {
                 MediaAction(if (loading) "正在加载…" else "加载更多演职人员", onMore, enabled = !loading)
             }
-            if (people.isEmpty() && !loading && error == null) item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
+            if (people.isEmpty() && !hasMore && !loading && error == null) item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
                 Text("暂无演职员资料", style = MediaType.body, color = colors.secondary)
             }
         }
