@@ -43,6 +43,13 @@ class MediaLibraryLoadPolicyTest {
     }
 
     @Test
+    fun directLibraryEntryReturnsToCallerInsteadOfLibraryList() {
+        assertFalse(mediaLibraryManagerBackGoesToList(directLibraryId = "lib_1", selectedId = "lib_1"))
+        assertTrue(mediaLibraryManagerBackGoesToList(directLibraryId = null, selectedId = "lib_1"))
+        assertTrue(mediaLibraryManagerBackGoesToList(directLibraryId = "lib_1", selectedId = "lib_2"))
+    }
+
+    @Test
     fun onlyOwnerDetailNeedsAuxiliaryLoading() {
         assertTrue(mediaLibraryNeedsAuxiliaryLoad("library", MediaLibraryRole.OWNER))
         assertFalse(mediaLibraryNeedsAuxiliaryLoad("library", MediaLibraryRole.VIEWER))

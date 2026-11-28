@@ -141,7 +141,8 @@ import kotlin.coroutines.coroutineContext
                 "history" -> { historyScanId = null; historyReviewOpen = false; screen = "library" }
                 "library" -> {
                     if (selectedId == draftLibraryId && draftLibraryId != null) setupPaused = true
-                    screen = "libraries"; selectedId = null; selected = null
+                    if (!mediaLibraryManagerBackGoesToList(initiallySelectedLibraryId, selectedId)) onBack()
+                    else { screen = "libraries"; selectedId = null; selected = null }
                 }
                 else -> onBack()
             }
@@ -1070,6 +1071,9 @@ internal fun mediaLibraryManagerInitialScreen(createInitially: Boolean, selected
     !selectedLibraryId.isNullOrBlank() -> "library"
     else -> "libraries"
 }
+
+internal fun mediaLibraryManagerBackGoesToList(directLibraryId: String?, selectedId: String?): Boolean =
+    directLibraryId.isNullOrBlank() || directLibraryId != selectedId
 
 internal fun mediaLibraryCreatePrimaryAction(folderCount: Int, busy: Boolean): String = when {
     busy -> "正在保存…"
