@@ -994,7 +994,7 @@ private fun MediaScanSummaryCard(scan: MediaScan, metadata: MediaMetadataJob?, o
 
 @Composable
 private fun MediaScanStat(label: String, value: Long, modifier: Modifier = Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
+    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         Text(value.toString(), style = PhoneMediaType.sectionTitle)
         Text(label, style = PhoneMediaType.badge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
