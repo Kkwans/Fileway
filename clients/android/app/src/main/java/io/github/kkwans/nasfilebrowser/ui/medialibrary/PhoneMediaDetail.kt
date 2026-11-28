@@ -509,12 +509,45 @@ private val mediaEpisodeFilename = Regex("""(?i)(?:^|[._\s-])(?:S\d{1,2})?EP?(\d
 internal fun phoneMediaEpisodeTitle(numberLabel: String, title: String): String =
     if (title.isBlank() || mediaEpisodeFilename.containsMatchIn(title)) numberLabel else "$numberLabel · $title"
 
+internal fun phoneMediaEpisodeBadge(numberLabel: String): String =
+    numberLabel.filter(Char::isDigit).ifEmpty { "E" }
+
 @Composable
 private fun EpisodeRow(episode: MediaEpisode, loader: ImageLoader, onAction: (PhoneMediaAction) -> Unit, busy: Boolean, inset: Dp) {
     var menu by remember(episode.id) { mutableStateOf(false) }
     Surface(onClick = { onAction(if (episode.playable) PhoneMediaAction.Play(episode.id, kind = MediaTargetKind.EPISODE)
         else PhoneMediaAction.Sources(episode.id, MediaTargetKind.EPISODE)) }, enabled = !busy,
         modifier = Modifier.padding(horizontal = inset).fillMaxWidth(), shape = MaterialTheme.shapes.medium, color = Color.Transparent) {
+        if (episode.image == null) {
+            Column(Modifier.fillMaxWidth()) {
+                Row(Modifier.fillMaxWidth().heightIn(min = 64.dp), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(Modifier.size(48.dp).background(MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.shapes.medium),
+                        contentAlignment = Alignment.Center) {
+                        Text(phoneMediaEpisodeBadge(episode.numberLabel), style = PhoneDetailType.action,
+                            color = MaterialTheme.colorScheme.primary)
+                    }
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(phoneMediaEpisodeTitle(episode.numberLabel, episode.title), style = PhoneDetailType.item,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        if (episode.unavailableReason != null || episode.subtitle.isNotBlank()) {
+                            Text(episode.unavailableReason ?: episode.subtitle, style = PhoneDetailType.metadata,
+                                color = if (episode.unavailableReason != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                    Box {
+                        MediaIconAction(Art.drawable.fileway_ic_more_vert, "${episode.numberLabel}的更多操作", { menu = true }, enabled = !busy)
+                        DropdownMenu(menu, { menu = false }) {
+                            FilewayMenuItem("查看剧集详情", { menu = false; onAction(PhoneMediaAction.OpenItem(episode.id)) })
+                            FilewayMenuItem("片源与版本", { menu = false; onAction(PhoneMediaAction.Sources(episode.id, MediaTargetKind.EPISODE)) })
+                        }
+                    }
+                }
+                MediaProgress(episode.progress, Modifier.fillMaxWidth())
+            }
+            return@Surface
+        }
         BoxWithConstraints(Modifier.fillMaxWidth()) {
             val stack = maxWidth < 300.dp || LocalDensity.current.fontScale > 1.3f
             val artwork: @Composable (Modifier) -> Unit = { imageModifier ->
