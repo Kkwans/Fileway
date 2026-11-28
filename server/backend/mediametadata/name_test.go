@@ -152,6 +152,16 @@ func TestPromotionalOnlyFilenameUsesUnambiguousDirectoryEvidence(t *testing.T) {
 	}
 }
 
+func TestDirectoryBracketedAliasesProvideUsableTitleEvidence(t *testing.T) {
+	parsed := ParseNameInDirectory("Chang 1997 Dvdrip Xvid Ac3.5.1Ch Cd1-Waf.avi", "창 [娼, 노는 계집 창, 1997]")
+	if parsed.Directory == nil || parsed.Directory.Title != "娼" || parsed.Directory.Year == nil || *parsed.Directory.Year != 1997 {
+		t.Fatalf("bracketed directory aliases were not parsed: %+v", parsed.Directory)
+	}
+	if aliases := TitleAliases(parsed.Directory.Title); len(aliases) != 0 {
+		t.Fatalf("single directory alias should be used directly, got %v", aliases)
+	}
+}
+
 func TestChineseSitePrefixDoesNotPolluteTitle(t *testing.T) {
 	parsed := ParseName("【首发于高清影视之家 www.BBQDDQ.com】人间中毒[中文字幕].Obsessed.2014.BluRay.1080p.HEVC-CHD.mkv")
 	if parsed.Title != "人间中毒 Obsessed" || parsed.Year == nil || *parsed.Year != 2014 || len(parsed.Ambiguities) != 0 {

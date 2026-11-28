@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
@@ -205,6 +206,17 @@ func TestAutomaticMatchInputSplitsMixedDirectoryAliases(t *testing.T) {
 	input := automaticMatchInput(item, true)
 	if len(input.Aliases) != 2 || input.Aliases[0] != "隐入尘烟" || input.Aliases[1] != "Return to Dust" {
 		t.Fatalf("mixed directory aliases were not split: %+v", input)
+	}
+}
+
+func TestAutomaticMatchInputUsesSingleDirectoryAliasDirectly(t *testing.T) {
+	year := 1997
+	item := mediaIdentificationResponse{StructureKind: "video", File: &mediaIdentificationFile{
+		ParsedTitle: "Chang", Year: &year, DirectoryTitle: "娼",
+	}}
+	input := automaticMatchInput(item, true)
+	if !slices.Contains(input.Aliases, "娼") {
+		t.Fatalf("single directory alias was dropped: %#v", input)
 	}
 }
 

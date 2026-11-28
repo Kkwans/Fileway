@@ -94,6 +94,7 @@ var (
 	directoryYearRange     = regexp.MustCompile(`(?:18|19|20|21)[0-9]{2}[ ._]*[-–][ ._]*(?:18|19|20|21)[0-9]{2}`)
 	completeSeasonPattern  = regexp.MustCompile(`(?i)([0-9]{1,3})[ ._]*集全`)
 	seriesDirectoryPattern = regexp.MustCompile(`^(?:韩剧|剧集|电视剧)[【\[]([^】\]]+)[】\]]`)
+	directoryAliasPattern  = regexp.MustCompile(`^(.+?)\s*[\[【（(]([^\]】）)]+)[\]】）)]\s*$`)
 	animeTitlePattern      = regexp.MustCompile(`(?i)^\[CoolComic404\]\[([^\]]+)\]`)
 	partPattern            = regexp.MustCompile(`(?i)(?:cd|disc|part)[ ._\-]*([0-9]{1,2}|VIII|VII|VI|IV|III|II|IX|X|V|I)`)
 	chinesePartPattern     = regexp.MustCompile(`[上中下][部集篇]`)
@@ -220,6 +221,25 @@ func ParseDirectoryName(directory string) DirectoryNameEvidence {
 	title := parsed.Title
 	if match := seriesDirectoryPattern.FindStringSubmatch(directory); len(match) == 2 {
 		title = cleanNameTitle(match[1])
+	}
+	if match := directoryAliasPattern.FindStringSubmatch(directory); len(match) == 3 {
+		parts := strings.FieldsFunc(match[2], func(r rune) bool { return r == ',' || r == '，' })
+		aliases := make([]string, 0, len(parts))
+		hasYear := false
+		for _, part := range parts {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			if yearPattern.MatchString(part) {
+				hasYear = true
+				continue
+			}
+			aliases = append(aliases, part)
+		}
+		if hasYear && len(aliases) >= 2 {
+			title = cleanNameTitle(aliases[0])
+		}
 	}
 	year := parsed.Year
 	if directoryYearRange.MatchString(directory) {
