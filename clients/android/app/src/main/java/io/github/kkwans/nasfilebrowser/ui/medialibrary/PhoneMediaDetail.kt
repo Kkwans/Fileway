@@ -1,6 +1,7 @@
 package io.github.kkwans.nasfilebrowser.ui.medialibrary
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.lazy.grid.*
@@ -27,6 +28,7 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayMediaTechnicalPane
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTheme
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import io.github.kkwans.fileway.design.R as Art
+import kotlinx.coroutines.launch
 
 /** Insets and account-scoped data belong to the route; only local presentation lives here. */
 internal fun phoneMediaDetailShowsPlaybackBar(canSelectSources: Boolean, canHandoff: Boolean): Boolean =
@@ -43,6 +45,9 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
         var menu by remember { mutableStateOf(false) }
         val creditsRowState = rememberLazyListState()
         val seasonRowState = rememberLazyListState()
+        val scope = rememberCoroutineScope()
+        val hasEpisodeSection = state.seasons.isNotEmpty() || state.seasonsHasMore || state.seasonsLoading || state.seasonsProblem != null ||
+            state.episodes.entries.isNotEmpty() || state.episodes.hasMore || state.episodes.loading || state.episodes.problem != null
         val currentOnAction by rememberUpdatedState(onAction)
         LaunchedEffect(creditsRowState, state.credits.hasMore, state.credits.loading, state.credits.problem) {
             if (!state.credits.hasMore || state.credits.loading || state.credits.problem != null) return@LaunchedEffect
@@ -118,6 +123,19 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
                 if (state.canSelectSources) item(key = "sources") {
                     DetailSourceRow(state, onAction, Modifier.padding(horizontal = inset))
                 }
+                if (hasEpisodeSection) item(key = "episode-shortcut") {
+                    PhoneDetailAction(
+                        state.episodeSummary?.takeIf(String::isNotBlank)?.let { "选集 · $it" } ?: "选集",
+                        Art.drawable.fileway_ic_playlist_play,
+                        { scope.launch {
+                            repeat(12) {
+                                if (listState.layoutInfo.visibleItemsInfo.any { item -> item.key == "seasons" }) return@launch
+                                listState.animateScrollBy(with(density) { 600.dp.toPx() })
+                            }
+                        } },
+                        Modifier.padding(horizontal = inset),
+                    )
+                }
                 if (state.canChangeUserState) item(key = "user-state") {
                     Column(Modifier.padding(horizontal = inset), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -181,8 +199,7 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
                         }
                     }
                 }
-                if (state.seasons.isNotEmpty() || state.seasonsHasMore || state.seasonsLoading || state.seasonsProblem != null ||
-                    state.episodes.entries.isNotEmpty() || state.episodes.hasMore || state.episodes.loading || state.episodes.problem != null) {
+                if (hasEpisodeSection) {
                     item(key = "seasons") {
                         Column(Modifier.padding(horizontal = inset), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             PhoneDetailHeading("剧集") {
