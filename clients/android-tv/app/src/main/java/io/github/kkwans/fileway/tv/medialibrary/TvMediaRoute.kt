@@ -388,10 +388,14 @@ private val TvHomeFocusOrigins = setOf("poster", "hero", "hero-play", "continue"
                     val result = route.detail
                     val card = result?.card
                     val detail = result?.detail
-                    val ratings = detail?.ratings?.items.orEmpty().mapNotNull { observation ->
-                        val value = observation.rating
-                        value.value?.let { score -> tvRating(value.provider ?: value.rawSource, value.metric, score, value.scale,
-                            value.count, value.countPrecision) }
+                    val ratings = buildList {
+                        addAll(detail?.ratings?.items.orEmpty().mapNotNull { observation ->
+                            val value = observation.rating
+                            value.value?.let { score -> tvRating(value.provider ?: value.rawSource, value.metric, score, value.scale,
+                                value.count, value.countPrecision) }
+                        })
+                        val primary = tvRating(card?.primaryRating)
+                        if (primary != null && none { it.source == primary.source }) add(primary)
                     }
                     val reference = if (libraryId != null) repository.catalogRef(libraryId, itemId) else null
                     val playable = card?.actions?.can(MediaCatalogAction.PLAY) == true
