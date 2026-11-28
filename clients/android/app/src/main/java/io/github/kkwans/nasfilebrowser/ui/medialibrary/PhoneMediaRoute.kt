@@ -561,7 +561,8 @@ private fun PhoneMediaRouteState.detailState(scope: String, id: String): PhoneMe
     val state = card?.userState
     val detailSources = sourcesFor(id)
     return PhoneMediaDetailState(scope, id, item?.item?.revision?.toString().orEmpty(),
-        title = card?.title ?: item?.item?.title.orEmpty(),
+        title = card?.let { phoneMediaPosterTitle(it.title, it.structureKind, it.matchState == MediaCatalogMatchState.UNMATCHED) }
+            ?: item?.item?.title.orEmpty(),
         originalTitle = card?.originalTitle, metadata = card?.let(::summary).orEmpty(),
         backdrop = card?.backdrop?.let { MediaArtwork(catalog = it) },
         poster = card?.artwork?.takeIf { it.role == "poster" }?.let { MediaArtwork(catalog = it) },
@@ -638,9 +639,19 @@ private fun sourceRecoveryLabel(action: String?): String? = when (action) {
     else -> null
 }
 
-internal fun phoneMediaPosterTitle(title: String, kind: MediaItemKind): String {
+internal fun phoneMediaPosterTitle(title: String, kind: MediaItemKind, unmatched: Boolean = false): String {
     val value = title.trim()
     if (value.isEmpty()) return "未命名影视"
+    if (unmatched && kind == MediaItemKind.VIDEO) {
+        val withoutExtension = value.replace(Regex("""(?i)\.(?:mkv|mp4|avi|mov|wmv|flv|webm|m4v|ts)$"""), "")
+        val boundary = Regex("""(?i)[ ._-]+(?:18|19|20|21)[0-9]{2}(?=[ ._-]|$)""").find(withoutExtension)
+            ?: Regex("""(?i)[ ._-]+(?:dvdrip|bluray|blu-ray|web-?dl|hdtv|xvid|divx|x26[45]|h\.?26[45]|hevc|ac3|aac|dts|cd[0-9]+)(?=[ ._-]|$)""").find(withoutExtension)
+        val cleaned = (boundary?.let { withoutExtension.substring(0, it.range.first) } ?: withoutExtension)
+            .replace(Regex("""[._]+"""), " ")
+            .replace(Regex("""\s+"""), " ")
+            .trim()
+        return cleaned.ifBlank { "未命名影视" }
+    }
     if (kind !in setOf(MediaItemKind.EPISODE, MediaItemKind.VIDEO)) return value
     val episode = Regex("""(?i)(?:^|[._\s-])(?:S\d{1,2})?EP?(\d{1,3})(?=$|[._\s-])""").find(value) ?: return value
     val series = value.substring(0, episode.range.first)
@@ -653,7 +664,7 @@ internal fun phoneMediaPosterTitle(title: String, kind: MediaItemKind): String {
 }
 
 internal fun poster(card: MediaCatalogCard): MediaPoster = MediaPoster(
-    id = key(card.ref), title = phoneMediaPosterTitle(card.title, card.structureKind), subtitle = summary(card),
+    id = key(card.ref), title = phoneMediaPosterTitle(card.title, card.structureKind, card.matchState == MediaCatalogMatchState.UNMATCHED), subtitle = summary(card),
     poster = card.artwork?.takeIf { it.role == "poster" }?.let { MediaArtwork(catalog = it) },
     backdrop = card.backdrop?.let { MediaArtwork(catalog = it) },
     primaryRating = card.primaryRating?.let { rating(it.provider, it.provider, it.metric, it.value, it.scale, null) },

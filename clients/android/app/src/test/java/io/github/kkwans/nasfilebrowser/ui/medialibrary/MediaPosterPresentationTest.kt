@@ -45,6 +45,25 @@ class MediaPosterPresentationTest {
     }
 
     @Test
+    fun unmatchedMovieOmitsReleaseTechnicalSuffix() {
+        assertEquals("Chang", phoneMediaPosterTitle(
+            "Chang 1997 Dvdrip Xvid Ac3.5.1Ch Cd1-Waf",
+            MediaItemKind.VIDEO,
+            unmatched = true,
+        ))
+        assertEquals("Movie", phoneMediaPosterTitle(
+            "Movie.2026.1080p.WEB-DL.mkv",
+            MediaItemKind.VIDEO,
+            unmatched = true,
+        ))
+        assertEquals("Movie.2026.mkv", phoneMediaPosterTitle(
+            "Movie.2026.mkv",
+            MediaItemKind.VIDEO,
+            unmatched = false,
+        ))
+    }
+
+    @Test
     fun posterRatingShowsItsSource() {
         assertEquals("豆瓣 8.1", mediaPosterRatingLabel(MediaRating("r", "豆瓣", "8.1")))
     }
