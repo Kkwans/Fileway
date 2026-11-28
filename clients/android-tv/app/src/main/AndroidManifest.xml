@@ -18,6 +18,10 @@
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LEANBACK_LAUNCHER" /></intent-filter>
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>
+        <provider android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.updates" android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/update_paths" />
+        </provider>
         <service android:name=".TvUpdateForegroundService" android:exported="false" android:foregroundServiceType="dataSync" />
         <service android:name=".TvUpdateJobService" android:enabled="@bool/tv_update_job_service_enabled"
             android:exported="false" android:permission="android.permission.BIND_JOB_SERVICE" />

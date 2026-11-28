@@ -142,6 +142,7 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
         val updates = model.updates.state.value
         content.put("updates", JSONObject().put("phase", updates.phase.name).put("received", updates.received)
             .put("total", updates.total ?: JSONObject.NULL).put("message", updates.message ?: JSONObject.NULL)
+            .put("directory", updates.directory)
             .put("offers", JSONArray(updates.offers.take(8).map {
                 JSONObject().put("id", it.id).put("version", it.manifest.versionName)
             })))
@@ -246,6 +247,11 @@ class TvRemoteGateway(private val model:TvModel,context:Context){
             })
             "settings.updates"->when(p.getString("action")) {
                 "check"->model.updates.check()
+                "directory"->return JSONObject().put("directory", model.updates.state.value.directory)
+                "setDirectory"->{
+                    check(model.updates.setDirectory(p.getString("path"))){"目录无效或正在下载"}
+                    return JSONObject().put("directory", model.updates.state.value.directory)
+                }
                 "download"->model.updates.download(model.updates.state.value.offers.firstOrNull {
                     it.id == p.getString("id")
                 } ?: error("更新列表已变化，请重新检查"))

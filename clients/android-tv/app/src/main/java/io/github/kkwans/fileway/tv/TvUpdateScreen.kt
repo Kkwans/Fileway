@@ -2,14 +2,11 @@ package io.github.kkwans.fileway.tv
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.view.KeyEvent
 import android.os.Build
 import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,15 +16,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -35,41 +31,36 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Text
 import io.github.kkwans.fileway.design.R as Art
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
 @Composable
 internal fun TvUpdateScreen(model: TvModel, onBack: () -> Unit) {
     val state by model.updates.state.collectAsStateWithLifecycle()
     val interactive = LocalTvInteractive.current
     val activity = LocalActivity.current
-    val saveApk = rememberLauncherForActivityResult(
-        ActivityResultContracts.CreateDocument("application/vnd.android.package-archive"),
-        { destination -> model.updates.exportDownloaded(destination) },
-    )
     var pendingDownload by remember { mutableStateOf<TvUpdateOffer?>(null) }
     val downloadPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         val offer = pendingDownload
         pendingDownload = null
         if (offer != null) model.updates.download(offer)
-        else if (granted) model.updates.saveToDownloads() else model.updates.publicDownloadDenied()
+        else if (!granted) model.updates.publicDownloadDenied()
     }
     fun publicStorageGranted() = Build.VERSION.SDK_INT >= 29 ||
         activity?.checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_GRANTED
     val checkFocus = remember { FocusRequester() }
-    var notes by remember { mutableStateOf<TvUpdateManifest?>(null) }
-    var returnToNotes by remember { mutableStateOf<FocusRequester?>(null) }
+    var directoryDraft by remember(state.directory) { mutableStateOf(state.directory) }
+    var directoryError by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(interactive) {
         if (interactive) {
@@ -83,15 +74,11 @@ internal fun TvUpdateScreen(model: TvModel, onBack: () -> Unit) {
             checkFocus.requestFocus()
         }
     }
-    LaunchedEffect(returnToNotes) {
-        returnToNotes?.let {
-            withFrameNanos {}
-            it.requestFocus()
-            returnToNotes = null
-        }
-    }
 
-    Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(
+        Modifier.fillMaxSize().padding(horizontal = 48.dp, vertical = 28.dp),
+        verticalArrangement = Arrangement.spacedBy(20.dp),
+    ) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically) {
             TvToolbarAction("返回设置", Art.drawable.fileway_ic_arrow_back, onBack)
@@ -101,7 +88,6 @@ internal fun TvUpdateScreen(model: TvModel, onBack: () -> Unit) {
                     state.transferring -> "取消下载"
                     state.phase == TvUpdatePhase.WAITING_INSTALL -> "结束等待"
                     state.phase == TvUpdatePhase.CHECKING -> "正在检查…"
-                    state.phase == TvUpdatePhase.EXPORTING -> "正在导出…"
                     state.phase == TvUpdatePhase.INSTALLING -> "正在准备安装…"
                     state.phase == TvUpdatePhase.DISCONNECTED -> "重新连接"
                     else -> "检查更新"
@@ -117,31 +103,65 @@ internal fun TvUpdateScreen(model: TvModel, onBack: () -> Unit) {
                 Modifier.focusRequester(checkFocus),
             )
         }
-        LazyColumn(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(bottom = 12.dp)) {
+        LazyColumn(
+            Modifier.fillMaxSize().widthIn(max = 960.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+            contentPadding = PaddingValues(bottom = 32.dp),
+        ) {
             item("status") { TvUpdateStatus(state) }
+            item("directory") {
+                Column(
+                    Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, TvShape).padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Text("安装包目录", style = MaterialTheme.typography.titleMedium)
+                    Text("默认保存到 Documents/Fileway。可填写 Documents 或 Download 下的自定义目录；安装不依赖文件选择器。",
+                        style = MaterialTheme.typography.bodyMedium, color = LocalTvSurfaces.current.secondaryText)
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        TvField("目录", directoryDraft, { directoryDraft = it; directoryError = null },
+                            Modifier.weight(1f))
+                        TvButton("应用目录", {
+                            if (model.updates.setDirectory(directoryDraft)) directoryError = null
+                            else directoryError = "请输入 Documents 或 Download 下的有效目录"
+                        }, enabled = !state.busy)
+                    }
+                    directoryError?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
             items(state.offers, key = { it.manifest.channel }) { offer ->
                 val selected = state.selected == offer
                 val manifest = offer.manifest
-                val notesFocus = remember { FocusRequester() }
                 val action = when {
                     selected && state.transferring -> "取消下载"
                     selected && state.phase == TvUpdatePhase.READY -> "安装更新"
                     selected && state.phase == TvUpdatePhase.WAITING_INSTALL -> "重新发起安装"
                     selected && state.phase == TvUpdatePhase.INSTALLING -> "正在准备安装…"
-                    selected && state.phase == TvUpdatePhase.EXPORTING -> "正在导出…"
                     selected && state.phase == TvUpdatePhase.ERROR -> "重试下载"
                     else -> "下载此版本"
                 }
-                Column(Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, TvShape).padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("${manifest.channel.title} · ${tvSize(manifest.size)}", color = LocalTvSurfaces.current.secondaryText,
-                        style = MaterialTheme.typography.bodySmall)
+                Column(
+                    Modifier.fillMaxWidth().background(MaterialTheme.colorScheme.surface, TvShape).padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(18.dp)) {
                         TvUpdateVersion("当前版本", BuildConfig.VERSION_NAME, Modifier.weight(1f))
                         TvUpdateVersion("目标版本", manifest.versionName, Modifier.weight(1f))
+                        TvUpdateVersion("安装包", tvSize(manifest.size), Modifier.weight(1f))
                     }
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    if (manifest.notes.isNotBlank()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text("更新日志", style = MaterialTheme.typography.titleSmall)
+                            TvUpdateNotesInline(manifest.notes)
+                        }
+                    }
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Text("${manifest.channel.title} · ${tvSize(manifest.size)}",
+                            style = MaterialTheme.typography.bodySmall, color = LocalTvSurfaces.current.secondaryText)
+                        Box(Modifier.weight(1f))
                         TvButton(action, {
                             when {
                                 selected && state.transferring -> model.updates.cancelDownload()
@@ -156,26 +176,6 @@ internal fun TvUpdateScreen(model: TvModel, onBack: () -> Unit) {
                                 }
                             }
                         }, enabled = selected && state.transferring || !state.busy && (selected || state.phase != TvUpdatePhase.WAITING_INSTALL))
-                        if (selected && state.phase == TvUpdatePhase.READY && !state.savedInDownloads) TvButton("保存到下载", {
-                            if (publicStorageGranted()) {
-                                model.updates.saveToDownloads()
-                            } else downloadPermission.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
-                        })
-                        if (selected && state.phase == TvUpdatePhase.READY) TvButton("另存 APK", {
-                            model.updates.exportDestination()?.let { name ->
-                                try { saveApk.launch(name) }
-                                catch (_: android.content.ActivityNotFoundException) { model.updates.exportPickerUnavailable() }
-                                catch (_: SecurityException) { model.updates.exportPickerUnavailable() }
-                            }
-                        })
-                        if (manifest.notes.isNotBlank()) TvButton("发布说明", { notes = manifest },
-                            Modifier.focusRequester(notesFocus))
-                    }
-                }
-                if (notes == manifest) {
-                    TvUpdateNotes(manifest) {
-                        notes = null
-                        returnToNotes = notesFocus
                     }
                 }
             }
@@ -188,6 +188,22 @@ private fun TvUpdateVersion(label: String, version: String, modifier: Modifier) 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(3.dp)) {
         Text(label, style = MaterialTheme.typography.bodySmall, color = LocalTvSurfaces.current.secondaryText)
         Text(version, style = MaterialTheme.typography.titleMedium)
+    }
+}
+
+@Composable
+private fun TvUpdateNotesInline(notes: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        notes.lineSequence().filter(String::isNotBlank).forEach { line ->
+            val heading = line.trimStart().startsWith("#")
+            val bullet = line.trimStart().startsWith("-") || line.trimStart().startsWith("*")
+            Text(
+                if (bullet) "• ${line.trimStart().drop(1).trim()}" else line,
+                style = if (heading) MaterialTheme.typography.titleSmall else MaterialTheme.typography.bodyMedium,
+                fontWeight = if (heading) FontWeight.SemiBold else FontWeight.Normal,
+                color = if (heading) MaterialTheme.colorScheme.onSurface else LocalTvSurfaces.current.secondaryText,
+            )
+        }
     }
 }
 
@@ -207,7 +223,6 @@ private fun TvUpdateStatus(state: TvUpdateState) {
         TvUpdatePhase.DOWNLOADING -> "正在下载到电视"
         TvUpdatePhase.VERIFYING -> "正在校验安装包".takeIf { waiting }
         TvUpdatePhase.READY -> "安装包已通过校验，等待安装"
-        TvUpdatePhase.EXPORTING -> "正在导出已下载的 APK"
         TvUpdatePhase.INSTALLING -> "正在为系统安装准备文件".takeIf { waiting }
         else -> null
     }
@@ -216,8 +231,8 @@ private fun TvUpdateStatus(state: TvUpdateState) {
         Text("当前版本 ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodyLarge)
     }
     if (title != null || message != null) {
-        Column(Modifier.fillMaxWidth().background(LocalTvSurfaces.current.chrome, TvShape).padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Column(Modifier.fillMaxWidth().background(LocalTvSurfaces.current.chrome, TvShape).padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)) {
             title?.let {
                 Text(it, Modifier.semantics { liveRegion = LiveRegionMode.Polite }, style = MaterialTheme.typography.bodyLarge)
             }
@@ -241,34 +256,6 @@ private fun TvUpdateStatus(state: TvUpdateState) {
                     style = MaterialTheme.typography.bodyMedium,
                     color = if (state.phase == TvUpdatePhase.ERROR) MaterialTheme.colorScheme.error else LocalTvSurfaces.current.secondaryText)
             }
-        }
-    }
-}
-
-@Composable
-private fun TvUpdateNotes(manifest: TvUpdateManifest, dismiss: () -> Unit) {
-    TvPanel("发布说明", dismiss) {
-        val scroll = rememberLazyListState()
-        val scope = rememberCoroutineScope()
-        val step = with(LocalDensity.current) { 80.dp.toPx() }
-        val paragraphs = remember(manifest.notes) {
-            manifest.notes.lineSequence().chunked(16).map { it.joinToString("\n") }.toList()
-        }
-        LazyColumn(
-            Modifier.fillMaxSize().tvRemoteKeys { event ->
-                val distance = when (event.nativeKeyEvent.keyCode) {
-                    KeyEvent.KEYCODE_DPAD_UP -> -step
-                    KeyEvent.KEYCODE_DPAD_DOWN -> step
-                    else -> return@tvRemoteKeys false
-                }
-                scope.launch { scroll.scrollBy(distance) }
-                true
-            }.focusable(),
-            state = scroll,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item { Text("${manifest.channel.title} ${manifest.versionName}", style = MaterialTheme.typography.titleMedium) }
-            items(paragraphs) { Text(it, style = MaterialTheme.typography.bodyMedium) }
         }
     }
 }
