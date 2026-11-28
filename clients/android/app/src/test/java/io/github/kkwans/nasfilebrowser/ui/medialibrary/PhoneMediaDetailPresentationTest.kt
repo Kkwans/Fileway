@@ -24,13 +24,6 @@ class PhoneMediaDetailPresentationTest {
     }
 
     @Test
-    fun episodeBadgeUsesOnlyTheEpisodeNumber() {
-        assertEquals("1", phoneMediaEpisodeBadge("第 1 集"))
-        assertEquals("12", phoneMediaEpisodeBadge("第 12 集"))
-        assertEquals("E", phoneMediaEpisodeBadge("特别篇"))
-    }
-
-    @Test
     fun episodePrefersItsOwnArtworkAndFallsBackToBackdrop() {
         val artwork = MediaArtwork(endpoint = "/episode")
         val backdrop = MediaArtwork(endpoint = "/backdrop")

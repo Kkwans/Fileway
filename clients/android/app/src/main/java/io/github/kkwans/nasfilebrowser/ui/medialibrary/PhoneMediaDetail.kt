@@ -509,9 +509,6 @@ private val mediaEpisodeFilename = Regex("""(?i)(?:^|[._\s-])(?:S\d{1,2})?EP?(\d
 internal fun phoneMediaEpisodeTitle(numberLabel: String, title: String): String =
     if (title.isBlank() || mediaEpisodeFilename.containsMatchIn(title)) numberLabel else "$numberLabel · $title"
 
-internal fun phoneMediaEpisodeBadge(numberLabel: String): String =
-    numberLabel.filter(Char::isDigit).ifEmpty { "E" }
-
 @Composable
 private fun EpisodeRow(episode: MediaEpisode, loader: ImageLoader, onAction: (PhoneMediaAction) -> Unit, busy: Boolean, inset: Dp) {
     var menu by remember(episode.id) { mutableStateOf(false) }
@@ -524,8 +521,8 @@ private fun EpisodeRow(episode: MediaEpisode, loader: ImageLoader, onAction: (Ph
                     horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Box(Modifier.size(48.dp).background(MaterialTheme.colorScheme.surfaceContainerHighest, MaterialTheme.shapes.medium),
                         contentAlignment = Alignment.Center) {
-                        Text(phoneMediaEpisodeBadge(episode.numberLabel), style = PhoneDetailType.action,
-                            color = MaterialTheme.colorScheme.primary)
+                        FilewayIcon(Art.drawable.fileway_ic_play_arrow, null, Modifier.size(20.dp),
+                            tint = MaterialTheme.colorScheme.primary)
                     }
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(phoneMediaEpisodeTitle(episode.numberLabel, episode.title), style = PhoneDetailType.item,
