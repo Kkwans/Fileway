@@ -636,8 +636,22 @@ private fun sourceRecoveryLabel(action: String?): String? = when (action) {
     else -> null
 }
 
+internal fun phoneMediaPosterTitle(title: String, kind: MediaItemKind): String {
+    val value = title.trim()
+    if (value.isEmpty()) return "未命名影视"
+    if (kind !in setOf(MediaItemKind.EPISODE, MediaItemKind.VIDEO)) return value
+    val episode = Regex("""(?i)(?:^|[._\s-])(?:S\d{1,2})?EP?(\d{1,3})(?=$|[._\s-])""").find(value) ?: return value
+    val series = value.substring(0, episode.range.first)
+        .trim(' ', '.', '_', '-')
+        .replace(Regex("""(?i)[._\s-]+(?:19|20)\d{2}$"""), "")
+        .replace(Regex("""[._]+"""), " ")
+        .trim()
+    val episodeNumber = episode.groupValues[1].toIntOrNull() ?: return value
+    return "${series.ifBlank { "剧集" }} · 第 $episodeNumber 集"
+}
+
 internal fun poster(card: MediaCatalogCard): MediaPoster = MediaPoster(
-    id = key(card.ref), title = card.title.ifBlank { "未命名影视" }, subtitle = summary(card),
+    id = key(card.ref), title = phoneMediaPosterTitle(card.title, card.structureKind), subtitle = summary(card),
     poster = card.artwork?.takeIf { it.role == "poster" }?.let { MediaArtwork(catalog = it) },
     backdrop = card.backdrop?.let { MediaArtwork(catalog = it) },
     primaryRating = card.primaryRating?.let { rating(it.provider, it.provider, it.metric, it.value, it.scale, null) },
