@@ -439,11 +439,13 @@ import kotlin.coroutines.coroutineContext
                     refreshPage(); onChanged()
                 }
                 is MediaWriteResult.Failure -> if (result.scope == repository.scope) {
-                    if (!result.error.mutationMayHaveCommitted) { pendingId = null; pendingKind = null }
+                    val scanOperation = mediaLibraryScanOperation(pendingKind)
+                    if (!result.error.mutationMayHaveCommitted || scanOperation) { pendingId = null; pendingKind = null }
                     if (draftLibraryId != null) setupPaused = true
-                    error = if (result.error.mutationMayHaveCommitted)
+                    error = if (scanOperation) "扫描请求未完成，请重试；同一目录不会重复启动。"
+                        else if (result.error.mutationMayHaveCommitted)
                         "操作结果尚未确认。可使用原操作记录确认，避免重复创建。"
-                    else managerFailure(result.error)
+                        else managerFailure(result.error)
                 }
             }
         }
@@ -463,7 +465,10 @@ import kotlin.coroutines.coroutineContext
                 catch (cancelled: CancellationException) { throw cancelled }
                 catch (_: Exception) {
                     if (draftLibraryId != null) setupPaused = true
-                    error = "操作结果尚未确认，请使用原操作记录确认。"
+                    if (mediaLibraryScanOperation(pendingKind)) {
+                        pendingId = null; pendingKind = null
+                        error = "扫描请求未完成，请重试；同一目录不会重复启动。"
+                    } else error = "操作结果尚未确认，请使用原操作记录确认。"
                 }
                 finally { busy = false }
             }
@@ -999,6 +1004,8 @@ private fun MediaScanStat(label: String, value: Long, modifier: Modifier = Modif
         Text(label, style = PhoneMediaType.badge, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
+
+internal fun mediaLibraryScanOperation(kind: String?): Boolean = kind in setOf("scan", "setup-scan")
 
 internal fun mediaLibraryKindLabel(kind: MediaLibraryKind): String = when (kind) {
     MediaLibraryKind.MOVIE -> "电影"

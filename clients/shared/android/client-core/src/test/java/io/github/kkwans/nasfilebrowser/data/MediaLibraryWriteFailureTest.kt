@@ -18,6 +18,13 @@ class MediaLibraryWriteFailureTest {
         assertEquals(false, failure.mutationMayHaveCommitted)
     }
 
+    @Test fun scanStartsNeverBlockLibrarySetupBehindConfirmation() {
+        assertFalse(MediaMutationKind.START_SCAN in mediaLibrarySetupConfirmationKinds)
+        assertFalse(MediaMutationKind.START_SCAN_BATCH in mediaLibrarySetupConfirmationKinds)
+        assertTrue(MediaMutationKind.CREATE_LIBRARY in mediaLibrarySetupConfirmationKinds)
+        assertTrue(MediaMutationKind.CREATE_SOURCE in mediaLibrarySetupConfirmationKinds)
+    }
+
     @Test fun metadataRefreshUsesProviderFailureSemantics() {
         assertTrue(MediaMutationKind.REFRESH_METADATA in providerMutationKinds)
         val invalid = providerFailure(ServiceException(422, "library offline"), true)

@@ -799,10 +799,7 @@ class MediaLibraryRepository(
     /** Library setup resumes an unresolved write only after explicit user confirmation. */
     suspend fun pendingSetupOperation(): MediaOperation? {
         checkCurrent()
-        return journal.firstUnresolved(scope.account, setOf(
-            MediaMutationKind.CREATE_LIBRARY, MediaMutationKind.CREATE_SOURCE,
-            MediaMutationKind.START_SCAN, MediaMutationKind.START_SCAN_BATCH, MediaMutationKind.CANCEL_SCAN, MediaMutationKind.RETRY_SCAN,
-        ))
+        return journal.firstUnresolved(scope.account, mediaLibrarySetupConfirmationKinds)
     }
 
     suspend fun forgetResolvedOperation(operation: MediaOperation) {
@@ -994,6 +991,11 @@ private fun receipt(request: MediaMutationRequest, value: Any): MediaWriteReceip
     is MediaSeriesMappingResult -> MediaWriteReceipt(value.libraryId, revision = value.itemRevision, itemId = value.itemId)
     else -> error("媒体库回执类型无效")
 }
+
+internal val mediaLibrarySetupConfirmationKinds = setOf(
+    MediaMutationKind.CREATE_LIBRARY, MediaMutationKind.CREATE_SOURCE,
+    MediaMutationKind.CANCEL_SCAN, MediaMutationKind.RETRY_SCAN,
+)
 
 internal val providerMutationKinds = setOf(MediaMutationKind.UPDATE_METADATA_POLICY, MediaMutationKind.REFRESH_METADATA,
     MediaMutationKind.CONFIRM_PROVIDER_MATCH, MediaMutationKind.UNDO_PROVIDER_MATCH,
