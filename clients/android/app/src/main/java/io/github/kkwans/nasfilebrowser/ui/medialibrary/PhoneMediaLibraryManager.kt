@@ -51,6 +51,7 @@ import kotlin.coroutines.coroutineContext
     onReviewItem: (MediaCatalogRef) -> Unit,
     onBrowse: (String) -> Unit,
     createInitially: Boolean = false,
+    initiallySelectedLibraryId: String? = null,
 ) {
     val health by session.api.sessionHealth.collectAsState()
     if (session.api.identity.id != repository.scope.account.userId || health?.code == SessionHealthCode.ACCOUNT_CHANGED) {
@@ -62,8 +63,9 @@ import kotlin.coroutines.coroutineContext
     }
     key(session.owner, session.generation, session.api.identity.deviceSessionId) {
         val scope = rememberCoroutineScope()
-        var screen by rememberSaveable { mutableStateOf(if (createInitially) "create" else "libraries") }
-        var selectedId by rememberSaveable { mutableStateOf<String?>(null) }
+        val initialLibraryId = initiallySelectedLibraryId?.takeIf { it.isNotBlank() }
+        var screen by rememberSaveable { mutableStateOf(mediaLibraryManagerInitialScreen(createInitially, initialLibraryId)) }
+        var selectedId by rememberSaveable { mutableStateOf(initialLibraryId.takeIf { !createInitially }) }
         var historyScanId by rememberSaveable { mutableStateOf<String?>(null) }
         var name by rememberSaveable { mutableStateOf("") }
         var contentKind by rememberSaveable { mutableStateOf(MediaLibraryKind.MIXED) }
@@ -1062,6 +1064,12 @@ private val mediaFolderSaver = listSaver<List<ResourceRef>, String>(
 )
 
 internal fun mediaLibraryShowsCoreLoading(screen: String): Boolean = screen == "libraries" || screen == "library"
+
+internal fun mediaLibraryManagerInitialScreen(createInitially: Boolean, selectedLibraryId: String?): String = when {
+    createInitially -> "create"
+    !selectedLibraryId.isNullOrBlank() -> "library"
+    else -> "libraries"
+}
 
 internal fun mediaLibraryCreatePrimaryAction(folderCount: Int, busy: Boolean): String = when {
     busy -> "正在保存…"

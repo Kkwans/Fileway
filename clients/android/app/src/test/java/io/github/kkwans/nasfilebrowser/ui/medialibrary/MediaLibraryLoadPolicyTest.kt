@@ -31,6 +31,18 @@ class MediaLibraryLoadPolicyTest {
     }
 
     @Test
+    fun settingsCanOpenASpecificLibraryDirectly() {
+        assertEquals("library", mediaLibraryManagerInitialScreen(createInitially = false, selectedLibraryId = "lib_1"))
+        assertEquals("libraries", mediaLibraryManagerInitialScreen(createInitially = false, selectedLibraryId = null))
+        assertEquals("libraries", mediaLibraryManagerInitialScreen(createInitially = false, selectedLibraryId = " "))
+    }
+
+    @Test
+    fun createFlowStillTakesPriorityOverALibrarySelection() {
+        assertEquals("create", mediaLibraryManagerInitialScreen(createInitially = true, selectedLibraryId = "lib_1"))
+    }
+
+    @Test
     fun onlyOwnerDetailNeedsAuxiliaryLoading() {
         assertTrue(mediaLibraryNeedsAuxiliaryLoad("library", MediaLibraryRole.OWNER))
         assertFalse(mediaLibraryNeedsAuxiliaryLoad("library", MediaLibraryRole.VIEWER))

@@ -72,6 +72,7 @@ internal fun PhoneMediaRoute(
     var parentLibrary by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var parentSeason by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var managing by rememberSaveable(session.owner) { mutableStateOf(false) }
+    var managingLibraryId by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var createLibrary by rememberSaveable(session.owner) { mutableStateOf(false) }
     var settings by rememberSaveable(session.owner) { mutableStateOf<String?>(null) }
     var reviewing by rememberSaveable(session.owner) { mutableStateOf(false) }
@@ -163,7 +164,7 @@ internal fun PhoneMediaRoute(
         if (creditsPage || collectionPage != null && detailId == null || personPage != null && detailId == null || searching && detailId == null) back()
         else if (settings != null) closeSettings()
         else if (reviewItemId != null) back()
-        else if (managing) managing = false
+        else if (managing) { managing = false; managingLibraryId = null }
         else if (detailId != null || reviewing || route.sourceRef != null) back()
         else if (mediaTab == "settings") restoreSettingsTab()
         else if (phoneMediaShowsBack(phoneMediaPageForTab(mediaTab))) back()
@@ -240,8 +241,8 @@ internal fun PhoneMediaRoute(
                 mediaTab = "settings"
                 route.chooseQuery(null, "all")
             }
-            PhoneMediaAction.CreateLibrary -> { createLibrary = true; managing = true }
-            PhoneMediaAction.ManageLibraries -> { createLibrary = false; managing = true }
+            PhoneMediaAction.CreateLibrary -> { createLibrary = true; managing = true; managingLibraryId = null }
+            PhoneMediaAction.ManageLibraries -> { createLibrary = false; managing = true; managingLibraryId = null }
             is PhoneMediaAction.ReviewMatch -> reviewing = detailRef != null
             is PhoneMediaAction.OpenItem -> {
                 val first = route.home?.hero?.items.orEmpty()
@@ -335,14 +336,29 @@ internal fun PhoneMediaRoute(
             else -> Unit
         }
     }
+    fun openLibraryManager(id: String?) {
+        managingLibraryId = id
+        createLibrary = false
+        managing = true
+        settings = null
+    }
+    fun openLibraryFromSettings(id: String) {
+        val role = route.home?.libraries?.firstOrNull { it.id == id }?.role
+        if (role != null && mediaLibraryOpenDestination(role) == MediaLibraryOpenDestination.BROWSE) {
+            selectedLibrary = id
+            mediaTab = "libraries"
+            route.chooseLibrary(id)
+            route.refreshHome()
+        } else openLibraryManager(id)
+    }
     CompositionLocalProvider(LocalMediaArtworkBinding provides binding) {
         val safe = Modifier.fillMaxSize().statusBarsPadding().consumeWindowInsets(WindowInsets.statusBars)
         val subpage = safe.navigationBarsPadding().consumeWindowInsets(WindowInsets.navigationBars)
         if (settings != null) {
             Column(subpage) {
                 if (settings == "provider") PhoneMediaProviderSettings(repository, ::closeSettings)
-                else PhoneMediaSettings(::closeSettings, { settings = null; createLibrary = false; managing = true }, { settings = "provider" },
-                    route.home?.libraries?.size ?: 0, route.home?.state)
+                else PhoneMediaSettings(::closeSettings, { openLibraryManager(null) }, { settings = "provider" },
+                    route.home?.libraries.orEmpty(), ::openLibraryFromSettings, route.home?.state)
             }
         } else if (reviewLibraryId != null && reviewItemId != null) {
             val ref = repository.catalogRef(requireNotNull(reviewLibraryId), requireNotNull(reviewItemId))
@@ -352,14 +368,14 @@ internal fun PhoneMediaRoute(
         } else if (managing) {
             Column(subpage) {
                 pages.SaveableStateProvider("media-manager/${session.owner}") {
-                    PhoneMediaLibraryManager(session, repository, { managing = false; settings = null }, route::refreshHome,
+                    PhoneMediaLibraryManager(session, repository, { managing = false; managingLibraryId = null; settings = null }, route::refreshHome,
                         onProvider = { settings = "provider" },
                         onReviewItem = { ref -> reviewLibraryId = ref.libraryId; reviewItemId = ref.itemId },
                         onBrowse = { id ->
-                            managing = false; settings = null; selectedLibrary = id; mediaTab = "libraries"
+                            managing = false; managingLibraryId = null; settings = null; selectedLibrary = id; mediaTab = "libraries"
                             route.chooseLibrary(id); route.refreshHome()
                         },
-                        createInitially = createLibrary)
+                        createInitially = createLibrary, initiallySelectedLibraryId = managingLibraryId)
                 }
             }
         } else if (reviewing && detailId != null && libraryId != null) {
@@ -409,8 +425,8 @@ internal fun PhoneMediaRoute(
               Box(Modifier.weight(1f)) {
                if (mediaTab == "settings") {
                 Column(safe) {
-                    PhoneMediaSettings(::restoreSettingsTab, { createLibrary = false; managing = true }, { settings = "provider" },
-                        home?.libraries?.size ?: 0, home?.state)
+                    PhoneMediaSettings(::restoreSettingsTab, { openLibraryManager(null) }, { settings = "provider" },
+                        home?.libraries.orEmpty(), ::openLibraryFromSettings, home?.state)
                 }
                } else if (route.checking) {
                 Column(safe) {

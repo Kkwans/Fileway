@@ -137,28 +137,23 @@ internal fun mediaSettingsStatus(libraryCount: Int, state: MediaCatalogHomeState
 
 @Composable
 internal fun PhoneMediaSettings(onBack: () -> Unit, onLibraries: () -> Unit, onProvider: () -> Unit,
-    libraryCount: Int = 0, homeState: MediaCatalogHomeState? = null) {
-    val status = remember(libraryCount, homeState) { mediaSettingsStatus(libraryCount, homeState) }
+    libraries: List<MediaLibrarySummary>, onLibrary: (String) -> Unit, homeState: MediaCatalogHomeState? = null) {
+    val status = remember(libraries.size, homeState) { mediaSettingsStatus(libraries.size, homeState) }
     MediaSettingsPage("影视设置", onBack) {
         MediaSettingsStatusCard(status)
         MediaSettingsGroup("媒体库与扫描") {
-            MediaSettingsAction("媒体库管理", if (libraryCount > 0)
-                "$libraryCount 个媒体库 · 扫描记录与待确认结果" else "创建媒体库并选择影视目录",
-                R.drawable.ic_library, action = onLibraries)
+            if (libraries.isEmpty()) {
+                MediaSettingsAction("创建媒体库", "选择影视目录并开始扫描", R.drawable.ic_library, action = onLibraries)
+            } else {
+                libraries.forEach { library ->
+                    MediaSettingsAction(library.name, mediaLibraryRowSubtitle(library), R.drawable.ic_library) { onLibrary(library.id) }
+                }
+                MediaSettingsAction("管理媒体库", "新增媒体库或调整共享权限", R.drawable.ic_settings, action = onLibraries)
+            }
         }
         MediaSettingsGroup("资料源") {
             MediaSettingsAction("TMDB 数据源", "密钥、连接检测与默认中文资料",
                 R.drawable.ic_settings, action = onProvider)
-        }
-        MediaSettingsGroup("识别规则") {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("自动匹配", style = PhoneMediaType.body, fontWeight = FontWeight.SemiBold)
-                Text("结合片名、别名、年份、真实片长、目录结构与唯一候选；只有证据冲突时才需要确认。",
-                    style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .6f))
-                MediaSettingsAction("按媒体库调整", "资料优先级、语言地区与电影/剧集时长过滤",
-                    R.drawable.ic_settings, action = onLibraries)
-            }
         }
         Text("源视频、NFO 与图片不会被改名、移动或回写。",
             Modifier.padding(start = 4.dp, end = 4.dp, bottom = 8.dp),
