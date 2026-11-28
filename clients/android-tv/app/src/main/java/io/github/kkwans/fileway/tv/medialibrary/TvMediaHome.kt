@@ -63,6 +63,13 @@ fun TvMediaHome(
     val rows = state.rows.mapNotNull { row -> tvMediaHomeRowShelf(row)?.let { row.rowId to it } }
         .filter { (_, shelf) -> tvMediaShelfVisible(shelf) }
     val hasContent = state.featured.isNotEmpty() || state.continuing.isNotEmpty() || rows.isNotEmpty() || shelves.isNotEmpty()
+    val currentOnMoreShelf by rememberUpdatedState(onMoreShelf)
+    LaunchedEffect(scrollState, catalog?.hasMore, catalog?.loading, catalog?.error, onMoreShelf != null) {
+        if (catalog?.hasMore != true || catalog.loading || catalog.error != null || onMoreShelf == null) return@LaunchedEffect
+        snapshotFlow { scrollState.layoutInfo.visibleItemsInfo.any { it.key == "shelf:catalog:more" } }.collect { visible ->
+            if (visible) currentOnMoreShelf?.invoke("catalog")
+        }
+    }
     BoxWithConstraints(modifier.fillMaxSize().background(colors.canvas)) {
         val catalogWidth = mediaCardWidth(maxWidth, 128.dp, 6)
         val catalogColumns = ((maxWidth - MediaLayout.pageInset * 2 + MediaLayout.itemGap) /
@@ -171,7 +178,7 @@ private fun MediaCatalogHeader(
         }
         shelf.error?.let { MediaStatus(it, onRetry, compact = true) }
         if (shelf.items.isEmpty() && shelf.loading) MediaLoadingStatus("正在加载片库…", compact = true)
-        if (shelf.items.isEmpty() && !shelf.loading && shelf.error == null) {
+        if (shelf.items.isEmpty() && !shelf.loading && shelf.error == null && !shelf.hasMore) {
             Text("这个分类还没有可见内容。", Modifier.padding(horizontal = MediaLayout.pageInset),
                 style = MediaType.body, color = colors.secondary)
         }
