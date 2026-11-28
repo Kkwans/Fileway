@@ -8,11 +8,15 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -194,8 +198,19 @@ private fun TvMediaWorksGrid(
     modifier: Modifier = Modifier,
     moreLabel: String = "加载更多",
 ) {
+    val gridState = rememberLazyGridState()
+    val currentOnMore by rememberUpdatedState(onMore)
+    LaunchedEffect(gridState, hasMore, loading, error) {
+        if (!hasMore || loading || error != null) return@LaunchedEffect
+        snapshotFlow {
+            (gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1) to gridState.layoutInfo.totalItemsCount
+        }.collect { (lastVisible, itemCount) ->
+            if (tvMediaShouldLoadMore(lastVisible, itemCount, hasMore, loading, error)) currentOnMore()
+        }
+    }
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 160.dp),
+        state = gridState,
         modifier = modifier,
         contentPadding = PaddingValues(start = MediaLayout.pageInset, end = MediaLayout.pageInset, bottom = 48.dp),
         horizontalArrangement = Arrangement.spacedBy(MediaLayout.itemGap),

@@ -13,6 +13,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -243,13 +244,25 @@ internal fun MediaShelf(
     onMore: (() -> Unit)? = null,
 ) {
     if (!tvMediaShelfVisible(shelf)) return
+    val listState = key(shelf.id) { rememberLazyListState() }
+    val currentOnMore by rememberUpdatedState(onMore)
+    LaunchedEffect(listState, shelf.hasMore, shelf.loading, shelf.error, onMore != null) {
+        if (!shelf.hasMore || shelf.loading || shelf.error != null || onMore == null) return@LaunchedEffect
+        snapshotFlow {
+            (listState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1) to listState.layoutInfo.totalItemsCount
+        }.collect { (lastVisible, itemCount) ->
+            if (tvMediaShouldLoadMore(lastVisible, itemCount, shelf.hasMore, shelf.loading, shelf.error)) {
+                currentOnMore?.invoke()
+            }
+        }
+    }
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         MediaSectionTitle(shelf.title)
         if (shelf.error != null) MediaStatus(shelf.error, onRetry = onRetry?.let { { it(shelf.id) } }, compact = true)
         if (shelf.loading && !shelf.hasMore) MediaLoadingStatus(if (shelf.items.isEmpty()) "正在加载…" else "正在加载更多…", compact = true)
         if (shelf.items.isNotEmpty()) BoxWithConstraints(Modifier.fillMaxWidth()) {
             val width = mediaCardWidth(maxWidth, 128.dp, 6)
-            LazyRow(contentPadding = MediaLayout.rowPadding,
+            LazyRow(state = listState, contentPadding = MediaLayout.rowPadding,
                 horizontalArrangement = Arrangement.spacedBy(MediaLayout.itemGap), modifier = Modifier.focusGroup()) {
                 items(shelf.items, key = { it.id }) { item -> MediaPoster(item, imageLoader, { onItem(item.id) }, width = width) }
             }

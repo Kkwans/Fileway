@@ -98,6 +98,11 @@ data class TvMediaHomeRowState<T>(
 internal fun tvMediaShelfVisible(shelf: TvMediaShelf): Boolean =
     shelf.items.isNotEmpty() || shelf.loading || shelf.error != null || shelf.hasMore
 
+internal fun tvMediaShouldLoadMore(lastVisibleIndex: Int, itemCount: Int, hasMore: Boolean,
+    loading: Boolean, error: String?): Boolean =
+    hasMore && !loading && error == null && itemCount > 0 && lastVisibleIndex >= 0 &&
+        lastVisibleIndex >= itemCount - 3
+
 internal fun tvMediaCatalogShelfVisible(shelf: TvMediaShelf, categories: List<TvMediaCategory>): Boolean =
     tvMediaShelfVisible(shelf) || categories.isNotEmpty()
 

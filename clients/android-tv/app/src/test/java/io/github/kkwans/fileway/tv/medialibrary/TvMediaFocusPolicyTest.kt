@@ -107,6 +107,20 @@ class TvMediaFocusPolicyTest {
     }
 
     @Test
+    fun shelfLoadsMoreWhenFocusApproachesTheEnd() {
+        assertTrue(tvMediaShouldLoadMore(lastVisibleIndex = 5, itemCount = 8, hasMore = true, loading = false, error = null))
+        assertFalse(tvMediaShouldLoadMore(lastVisibleIndex = 4, itemCount = 8, hasMore = true, loading = false, error = null))
+    }
+
+    @Test
+    fun shelfPaginationStopsWhileBusyFailedOrComplete() {
+        assertFalse(tvMediaShouldLoadMore(lastVisibleIndex = 7, itemCount = 0, hasMore = true, loading = false, error = null))
+        assertFalse(tvMediaShouldLoadMore(lastVisibleIndex = 7, itemCount = 8, hasMore = true, loading = true, error = null))
+        assertFalse(tvMediaShouldLoadMore(lastVisibleIndex = 7, itemCount = 8, hasMore = true, loading = false, error = "offline"))
+        assertFalse(tvMediaShouldLoadMore(lastVisibleIndex = 7, itemCount = 8, hasMore = false, loading = false, error = null))
+    }
+
+    @Test
     fun emptyCategoryListFallsBackToNavigation() {
         assertEquals(TvMediaFocusTarget("files", "navigation"), resolveTvCatalogCategoryFocusTarget(
             "movie", emptyList()))
