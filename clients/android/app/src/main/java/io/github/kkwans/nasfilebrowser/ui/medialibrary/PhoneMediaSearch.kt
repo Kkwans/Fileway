@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -96,8 +97,13 @@ internal fun PhoneMediaSearch(query: String, searched: Boolean, mode: MediaSearc
                     MediaSearchMode.COLLECTIONS -> "合集名称"
                 }) }, singleLine = true, shape = MaterialTheme.shapes.medium,
                 trailingIcon = if (query.isEmpty()) null else ({
-                    IconButton(onClick = { onAction(PhoneMediaAction.UpdateSearchQuery("")) }) {
-                        FilewayIcon(Art.drawable.fileway_ic_close, "清空搜索")
+                    Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                        IconButton(onClick = { onAction(PhoneMediaAction.UpdateSearchQuery("")) }) {
+                            FilewayIcon(Art.drawable.fileway_ic_close, "清空搜索")
+                        }
+                        IconButton(onClick = { submit() }, enabled = !busy) {
+                            FilewayIcon(Art.drawable.fileway_ic_search, "提交搜索")
+                        }
                     }
                 }),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { submit() }))
