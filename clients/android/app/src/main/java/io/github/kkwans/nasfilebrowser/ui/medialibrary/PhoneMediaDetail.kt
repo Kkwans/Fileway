@@ -41,6 +41,43 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
         var fullTitle by rememberSaveable { mutableStateOf(false) }
         var compact by rememberSaveable { mutableStateOf(false) }
         var menu by remember { mutableStateOf(false) }
+        val creditsRowState = rememberLazyListState()
+        val seasonRowState = rememberLazyListState()
+        val currentOnAction by rememberUpdatedState(onAction)
+        LaunchedEffect(creditsRowState, state.credits.hasMore, state.credits.loading, state.credits.problem) {
+            if (!state.credits.hasMore || state.credits.loading || state.credits.problem != null) return@LaunchedEffect
+            if (state.credits.entries.isEmpty()) {
+                currentOnAction(PhoneMediaAction.LoadMore("credits"))
+                return@LaunchedEffect
+            }
+            snapshotFlow {
+                (creditsRowState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1) to creditsRowState.layoutInfo.totalItemsCount
+            }.collect { (lastVisible, itemCount) ->
+                if (phoneMediaShouldLoadMore(lastVisible, itemCount, hasMore = true, loading = false, problem = false)) {
+                    currentOnAction(PhoneMediaAction.LoadMore("credits"))
+                }
+            }
+        }
+        LaunchedEffect(seasonRowState, state.seasonsHasMore, state.seasonsLoading, state.seasonsProblem) {
+            if (!state.seasonsHasMore || state.seasonsLoading || state.seasonsProblem != null) return@LaunchedEffect
+            if (state.seasons.isEmpty()) {
+                currentOnAction(PhoneMediaAction.LoadMore("seasons"))
+                return@LaunchedEffect
+            }
+            snapshotFlow {
+                (seasonRowState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1) to seasonRowState.layoutInfo.totalItemsCount
+            }.collect { (lastVisible, itemCount) ->
+                if (phoneMediaShouldLoadMore(lastVisible, itemCount, hasMore = true, loading = false, problem = false)) {
+                    currentOnAction(PhoneMediaAction.LoadMore("seasons"))
+                }
+            }
+        }
+        LaunchedEffect(listState, state.episodes.hasMore, state.episodes.loading, state.episodes.problem) {
+            if (!state.episodes.hasMore || state.episodes.loading || state.episodes.problem != null) return@LaunchedEffect
+            snapshotFlow { listState.layoutInfo.visibleItemsInfo.any { it.key == "episodes-paging" } }.collect { visible ->
+                if (visible) currentOnAction(PhoneMediaAction.LoadMore("episodes"))
+            }
+        }
         val background = MaterialTheme.colorScheme.background
         BoxWithConstraints(modifier.fillMaxSize().background(background), contentAlignment = Alignment.TopCenter) {
             val contentWidth = maxWidth.coerceAtMost(640.dp)
@@ -129,19 +166,19 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
                         if (state.credits.loading && state.credits.entries.isEmpty()) {
                             PhoneDetailLoading("正在加载演职人员", Modifier.padding(horizontal = inset))
                         }
-                        if (state.credits.entries.isEmpty() && !state.credits.loading && state.credits.problem == null) {
+                        if (state.credits.entries.isEmpty() && !state.credits.loading && state.credits.problem == null && !state.credits.hasMore) {
                             Text("暂无演职员资料", Modifier.padding(horizontal = inset), style = PhoneDetailType.metadata,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        LazyRow(contentPadding = PaddingValues(horizontal = inset), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        LazyRow(state = creditsRowState, contentPadding = PaddingValues(horizontal = inset), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             items(state.credits.entries, key = { it.id }) { credit -> CreditColumn(credit, imageLoader) {
                                 onAction(PhoneMediaAction.OpenPerson(credit.personId))
                             } }
                         }
                     }
                 }
-                if (state.seasons.isNotEmpty() || state.seasonsLoading || state.seasonsProblem != null ||
-                    state.episodes.entries.isNotEmpty() || state.episodes.loading || state.episodes.problem != null) {
+                if (state.seasons.isNotEmpty() || state.seasonsHasMore || state.seasonsLoading || state.seasonsProblem != null ||
+                    state.episodes.entries.isNotEmpty() || state.episodes.hasMore || state.episodes.loading || state.episodes.problem != null) {
                     item(key = "seasons") {
                         Column(Modifier.padding(horizontal = inset), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             PhoneDetailHeading("剧集") {
@@ -151,7 +188,7 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
                             state.episodeSummary?.takeIf(String::isNotBlank)?.let {
                                 Text(it, style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            LazyRow(state = seasonRowState, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 items(state.seasons, key = { it.id }) { season ->
                                     FilterChip(state.selectedSeason == season.id,
                                         { onAction(PhoneMediaAction.SelectSeason(season.id)) },
@@ -191,7 +228,7 @@ internal fun PhoneMediaDetail(state: PhoneMediaDetailState, imageLoader: ImageLo
                     } else items(state.episodes.entries, key = { "episode/${it.id}" }) { episode ->
                         EpisodeRow(episode, imageLoader, onAction, state.busy, inset)
                     }
-                    if (state.episodes.entries.isEmpty() && !state.episodes.loading && state.episodes.problem == null) item(key = "episodes-empty") {
+                    if (state.episodes.entries.isEmpty() && !state.episodes.loading && state.episodes.problem == null && !state.episodes.hasMore) item(key = "episodes-empty") {
                         Text("本季尚未收录单集", Modifier.padding(horizontal = inset),
                             style = PhoneDetailType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -398,9 +435,13 @@ internal fun PhoneMediaCredits(title: String, credits: List<MediaCredit>, loadin
     hasMore: Boolean, imageLoader: ImageLoader, onBack: () -> Unit, onAction: (PhoneMediaAction) -> Unit, modifier: Modifier = Modifier) {
     BoxWithConstraints(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)) {
         val pageInset = phoneMediaGridSpec(maxWidth).pageInset
+        val gridState = rememberLazyGridState()
+        PhoneMediaGridLoadMore(gridState, hasMore, loading, problem != null) {
+            onAction(PhoneMediaAction.LoadMore("credits"))
+        }
         Column(Modifier.fillMaxSize()) {
             FilewayTopAppBar("演职人员", leadingIcon = Art.drawable.fileway_ic_arrow_back, leadingDescription = "返回", onLeadingClick = onBack)
-            LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 136.dp), modifier = Modifier.weight(1f).fillMaxWidth(),
+            LazyVerticalGrid(columns = GridCells.Adaptive(minSize = 136.dp), state = gridState, modifier = Modifier.weight(1f).fillMaxWidth(),
                 contentPadding = PaddingValues(start = pageInset, end = pageInset, bottom = 32.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 item(key = "title", span = { GridItemSpan(maxLineSpan) }) {
@@ -418,11 +459,11 @@ internal fun PhoneMediaCredits(title: String, credits: List<MediaCredit>, loadin
                 if (problem != null) item(key = "problem", span = { GridItemSpan(maxLineSpan) }) {
                     MediaProblemCard(problem, { onAction(PhoneMediaAction.Retry("credits")) })
                 }
-                if (hasMore) item(key = "more", span = { GridItemSpan(maxLineSpan) }) {
+                if (hasMore && !loading) item(key = "more", span = { GridItemSpan(maxLineSpan) }) {
                     TextButton({ onAction(PhoneMediaAction.LoadMore("credits")) }, Modifier.fillMaxWidth().heightIn(min = 48.dp),
                         shape = MaterialTheme.shapes.medium) { Text("加载更多", style = PhoneDetailType.action) }
                 }
-                if (credits.isEmpty() && !loading && problem == null) item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
+                if (credits.isEmpty() && !loading && problem == null && !hasMore) item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
                     Text("暂无演职员资料", style = PhoneDetailType.metadata, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
