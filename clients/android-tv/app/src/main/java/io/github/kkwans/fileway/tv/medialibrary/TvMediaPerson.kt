@@ -46,8 +46,10 @@ internal fun TvMediaPeopleShelf(people: List<MediaCatalogPerson>, imageLoader: I
                             Text(person.name, style = MediaType.itemTitle, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             Text(person.roles.joinToString(" · ").ifBlank { "演职人员" }, style = MediaType.secondary,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(person.preview.first().title.ifBlank { "未命名影视" }, style = MediaType.secondary,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            tvMediaPersonPreviewTitle(person.preview)?.let { title ->
+                                Text("作品：$title", style = MediaType.secondary,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            }
                         }
                     }
                 }

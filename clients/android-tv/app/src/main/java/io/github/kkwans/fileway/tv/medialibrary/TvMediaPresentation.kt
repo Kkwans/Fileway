@@ -103,6 +103,14 @@ internal fun tvMediaShouldLoadMore(lastVisibleIndex: Int, itemCount: Int, hasMor
     hasMore && !loading && error == null && itemCount > 0 && lastVisibleIndex >= 0 &&
         lastVisibleIndex >= itemCount - 3
 
+internal fun <T, R> tvMediaFirstPreview(preview: List<T>, map: (T) -> R): R? =
+    preview.firstOrNull()?.let(map)
+
+internal fun tvMediaPersonPreviewTitle(preview: List<MediaCatalogCard>): String? =
+    tvMediaFirstPreview(preview) { it.title.ifBlank { "未命名影视" } }
+
+internal fun tvMediaFeaturedInitialId(entries: List<TvMediaCard>): String? = entries.firstOrNull()?.id
+
 internal fun tvMediaCatalogShelfVisible(shelf: TvMediaShelf, categories: List<TvMediaCategory>): Boolean =
     tvMediaShelfVisible(shelf) || categories.isNotEmpty()
 

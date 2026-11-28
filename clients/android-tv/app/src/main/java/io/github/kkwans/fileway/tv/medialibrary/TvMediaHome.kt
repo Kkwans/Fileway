@@ -193,7 +193,7 @@ private fun MediaFeaturedCarousel(
     navigation: @Composable () -> Unit,
 ) {
     val colors = LocalMediaColors.current
-    var activeId by rememberSaveable(scopeKey) { mutableStateOf(entries.first().id) }
+    var activeId by rememberSaveable(scopeKey) { mutableStateOf(tvMediaFeaturedInitialId(entries)) }
     // A reordered list must not retarget the focused action. Disappearance is treated
     // as invalidation, including both a top-five eviction and permission revocation:
     // never retain an old artwork/payload or silently fall back to another work.
@@ -228,7 +228,9 @@ private fun MediaFeaturedCarousel(
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("最近入库内容已更新", style = MediaType.sectionTitle, color = colors.text)
                     Text("当前影片已不在此列表中，请重新选择。", style = MediaType.body, color = colors.secondary)
-                    MediaAction("重新浏览", { activeId = entries.first().id }, icon = Art.drawable.fileway_ic_refresh)
+                    if (entries.isNotEmpty()) MediaAction("重新浏览", {
+                        tvMediaFeaturedInitialId(entries)?.let { activeId = it }
+                    }, icon = Art.drawable.fileway_ic_refresh)
                 }
             }
         }

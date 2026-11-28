@@ -20,7 +20,7 @@ import androidx.tv.material3.Text
 import coil3.ImageLoader
 import io.github.kkwans.fileway.design.R as Art
 
-internal data class TvMediaCollectionResult(val libraryId: String, val collectionId: String, val name: String, val preview: TvMediaCard) {
+internal data class TvMediaCollectionResult(val libraryId: String, val collectionId: String, val name: String, val preview: TvMediaCard?) {
     val id: String get() = collectionId
 }
 
@@ -41,11 +41,12 @@ internal fun TvMediaCollectionShelf(collections: List<TvMediaCollectionResult>, 
                 }, Modifier.width(360.dp).heightIn(min = 128.dp).tvMediaReturnFocus(focusId, "collection-result")) {
                     Row(Modifier.fillMaxWidth().padding(20.dp), horizontalArrangement = Arrangement.spacedBy(16.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        MediaArtwork(collection.preview.backdrop, imageLoader, Modifier.width(128.dp).height(72.dp),
-                            fallbackTitle = collection.preview.title)
+                        MediaArtwork(collection.preview?.backdrop, imageLoader, Modifier.width(128.dp).height(72.dp),
+                            fallbackTitle = collection.name)
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(collection.name, style = MediaType.itemTitle, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text("可见作品预览", style = MediaType.secondary, maxLines = 1)
+                            Text(if (collection.preview != null) "可见作品预览" else "暂无可见作品预览",
+                                style = MediaType.secondary, maxLines = 1)
                         }
                     }
                 }
