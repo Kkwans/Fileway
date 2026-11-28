@@ -63,6 +63,12 @@ class PhoneMediaHomeLayoutTest {
     }
 
     @Test
+    fun libraryFilterDoesNotRepeatItsTypeAsASecondLine() {
+        assertEquals(listOf("电影"), mediaLibraryFilterLabels("电影", MediaLibraryKind.MOVIE))
+        assertEquals(listOf("我的电影", "电影"), mediaLibraryFilterLabels("我的电影", MediaLibraryKind.MOVIE))
+    }
+
+    @Test
     fun compactDensityAddsOnePosterColumnWithoutCrowdingWideScreens() {
         assertEquals(3, phoneMediaCatalogColumns(2, PhoneMediaDensity.COMPACT))
         assertEquals(2, phoneMediaCatalogColumns(2, PhoneMediaDensity.COMFORTABLE))

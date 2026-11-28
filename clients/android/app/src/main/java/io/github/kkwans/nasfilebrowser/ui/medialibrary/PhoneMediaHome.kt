@@ -33,6 +33,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import coil3.ImageLoader
 import io.github.kkwans.nasfilebrowser.R
 import io.github.kkwans.nasfilebrowser.data.MediaCatalogSort
+import io.github.kkwans.nasfilebrowser.data.MediaLibraryKind
 import io.github.kkwans.nasfilebrowser.data.MediaLibrarySummary
 import io.github.kkwans.nasfilebrowser.ui.FilewayIcon
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayEmptyState
@@ -235,6 +236,12 @@ internal fun phoneMediaCatalogHeading(sort: MediaCatalogSort): String = when (so
     }
 }
 
+internal fun mediaLibraryFilterLabels(name: String, kind: MediaLibraryKind): List<String> {
+    val title = name.trim().ifBlank { "媒体库" }
+    val type = mediaLibraryKindLabel(kind)
+    return if (title == type) listOf(title) else listOf(title, type)
+}
+
 @Composable private fun MediaBrowseToolbar(
     state: PhoneMediaHomeState,
     page: PhoneMediaPage,
@@ -255,8 +262,10 @@ internal fun phoneMediaCatalogHeading(sort: MediaCatalogSort): String = when (so
                 FilterChip(selected = selectedLibrary == library.id, onClick = { onLibrary(library.id) },
                     label = {
                         Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                            Text(library.name, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(mediaLibraryKindLabel(library.contentKind), style = PhoneMediaType.badge)
+                            mediaLibraryFilterLabels(library.name, library.contentKind).forEachIndexed { index, label ->
+                                Text(label, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    style = if (index == 0) PhoneMediaType.body else PhoneMediaType.badge)
+                            }
                         }
                     }, modifier = Modifier.heightIn(min = 48.dp))
             }
