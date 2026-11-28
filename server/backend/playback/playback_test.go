@@ -38,6 +38,16 @@ func (backend *memoryBackend) Update(entry *Entry) error {
 	return nil
 }
 
+func (backend *memoryBackend) FindByIdentity(userID uint, identity string) ([]*Entry, error) {
+	var result []*Entry
+	for _, entry := range backend.entries {
+		if entry.UserID == userID && entry.Identity == identity {
+			result = append(result, entry.Clone())
+		}
+	}
+	return result, nil
+}
+
 func (backend *memoryBackend) Delete(id string) error {
 	if backend.entries[id] == nil {
 		return ErrNotExist
@@ -84,6 +94,41 @@ func TestStorageInvalidatesReplacedFileAndSupportsExplicitClear(t *testing.T) {
 	}
 	if err := storage.Delete(3, "video.mkv"); err != nil {
 		t.Fatalf("idempotent delete = %v", err)
+	}
+}
+
+func TestStorageMergesPathAliasesByFileIdentity(t *testing.T) {
+	backend := newMemoryBackend()
+	storage := NewStorage(backend)
+	if _, err := storage.Save(7, "/home/Kkwans/TV/Loki.EP02.mkv", "v1:same", 10, 100); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := storage.Save(7, "/volume1/@home/Kkwans/TV/Loki.EP02.mkv", "v1:same", 20, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.Path != "/home/Kkwans/TV/Loki.EP02.mkv" || entry.Position != 20 || len(backend.entries) != 1 {
+		t.Fatalf("alias save = %#v entries=%d", entry, len(backend.entries))
+	}
+	for _, alias := range []string{"/home/Kkwans/TV/Loki.EP02.mkv", "/volume1/@home/Kkwans/TV/Loki.EP02.mkv"} {
+		loaded, err := storage.Get(7, alias, "v1:same")
+		if err != nil || loaded.Position != 20 {
+			t.Fatalf("Get(%q) = %#v, %v", alias, loaded, err)
+		}
+	}
+}
+
+func TestStorageDoesNotMergeDifferentFilesWithSameIdentity(t *testing.T) {
+	backend := newMemoryBackend()
+	storage := NewStorage(backend)
+	if _, err := storage.Save(7, "/one/film.mkv", "v1:same", 10, 100); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := storage.Save(7, "/two/other.mkv", "v1:same", 20, 100); err != nil {
+		t.Fatal(err)
+	}
+	if len(backend.entries) != 2 {
+		t.Fatalf("different files were merged: %d", len(backend.entries))
 	}
 }
 

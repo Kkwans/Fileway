@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"path"
 	"sync"
 	"time"
 
@@ -41,6 +42,10 @@ type StorageBackend interface {
 	Delete(id string) error
 }
 
+type identityFinder interface {
+	FindByIdentity(uint, string) ([]*Entry, error)
+}
+
 type Storage struct {
 	back StorageBackend
 	mu   sync.Mutex
@@ -68,10 +73,20 @@ func (storage *Storage) Recent(userID uint, limit int) ([]*Entry, error) {
 		return nil, err
 	}
 	result := make([]*Entry, 0, len(rows))
+	seen := make(map[string]bool, len(rows))
 	for _, entry := range rows {
-		if entry != nil && entry.UserID == userID {
-			result = append(result, entry.Clone())
+		if entry == nil || entry.UserID != userID {
+			continue
 		}
+		key := entry.ID
+		if entry.Identity != "" {
+			key = entry.Identity + "\x00" + path.Base(entry.Path)
+		}
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		result = append(result, entry.Clone())
 	}
 	return result, nil
 }
@@ -82,10 +97,16 @@ func (storage *Storage) Get(userID uint, value, identity string) (*Entry, error)
 
 	value = pathmeta.Clean(value)
 	entry, err := storage.back.GetByID(entryID(userID, value))
+	if errors.Is(err, ErrNotExist) {
+		entry, err = storage.identityAlias(userID, value, identity)
+	}
 	if err != nil {
 		return nil, err
 	}
-	if entry.UserID != userID || pathmeta.Clean(entry.Path) != value {
+	if entry == nil {
+		return nil, ErrNotExist
+	}
+	if entry.UserID != userID {
 		return nil, ErrNotExist
 	}
 	if entry.Identity != identity {
@@ -103,6 +124,27 @@ func (storage *Storage) Save(userID uint, value, identity string, position, dura
 
 	value = pathmeta.Clean(value)
 	id := entryID(userID, value)
+	alias, err := storage.identityAlias(userID, value, identity)
+	if err != nil {
+		return nil, err
+	}
+	if alias != nil && alias.ID != id {
+		if current, err := storage.back.GetByID(id); err == nil && current.ID != alias.ID {
+			if err := storage.back.Delete(current.ID); err != nil && !errors.Is(err, ErrNotExist) {
+				return nil, err
+			}
+		} else if err != nil && !errors.Is(err, ErrNotExist) {
+			return nil, err
+		}
+		alias.Identity = identity
+		alias.Position = position
+		alias.Duration = duration
+		alias.UpdatedAt = time.Now().UnixMilli()
+		if err := storage.back.Update(alias); err != nil {
+			return nil, err
+		}
+		return alias.Clone(), nil
+	}
 	entry, err := storage.back.GetByID(id)
 	switch {
 	case err == nil:
@@ -127,6 +169,27 @@ func (storage *Storage) Save(userID uint, value, identity string, position, dura
 		return nil, err
 	}
 	return entry.Clone(), nil
+}
+
+func (storage *Storage) identityAlias(userID uint, value, identity string) (*Entry, error) {
+	finder, ok := storage.back.(identityFinder)
+	if !ok || identity == "" {
+		return nil, nil
+	}
+	entries, err := finder.FindByIdentity(userID, identity)
+	if err != nil {
+		return nil, err
+	}
+	var match *Entry
+	for _, entry := range entries {
+		if entry == nil || entry.UserID != userID || entry.Identity != identity || path.Base(entry.Path) != path.Base(value) {
+			continue
+		}
+		if match == nil || entry.UpdatedAt > match.UpdatedAt {
+			match = entry
+		}
+	}
+	return match, nil
 }
 
 func (storage *Storage) Delete(userID uint, value string) error {

@@ -13,7 +13,7 @@ type playbackRecord struct {
 	ID        string `storm:"id"`
 	UserID    uint   `storm:"index"`
 	Path      string `storm:"index"`
-	Identity  string
+	Identity  string `storm:"index"`
 	Position  float64
 	Duration  float64
 	UpdatedAt int64 `storm:"index"`
@@ -26,6 +26,20 @@ type playbackBackend struct {
 func (backend playbackBackend) Recent(userID uint, limit int) ([]*playback.Entry, error) {
 	var records []playbackRecord
 	err := backend.db.Select(q.Eq("UserID", userID)).OrderBy("UpdatedAt", "ID").Reverse().Limit(limit).Find(&records)
+	if err != nil && !errors.Is(err, storm.ErrNotFound) {
+		return nil, err
+	}
+	result := make([]*playback.Entry, 0, len(records))
+	for _, record := range records {
+		result = append(result, record.entry())
+	}
+	return result, nil
+}
+
+func (backend playbackBackend) FindByIdentity(userID uint, identity string) ([]*playback.Entry, error) {
+	var records []playbackRecord
+	err := backend.db.Select(q.And(q.Eq("UserID", userID), q.Eq("Identity", identity))).
+		OrderBy("UpdatedAt", "ID").Reverse().Find(&records)
 	if err != nil && !errors.Is(err, storm.ErrNotFound) {
 		return nil, err
 	}

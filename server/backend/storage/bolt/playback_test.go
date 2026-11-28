@@ -46,6 +46,54 @@ func TestPlaybackBackendUpdatesZeroPositionAndDurationInOneRecord(t *testing.T) 
 	}
 }
 
+func TestPlaybackStorageMergesMountAliasesByFileIdentity(t *testing.T) {
+	db, err := storm.Open(filepath.Join(t.TempDir(), "playback-alias.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	storage := playback.NewStorage(playbackBackend{db: db})
+	if _, err := storage.Save(7, "/home/Kkwans/TV/Loki.EP02.mkv", "v1:same", 10, 100); err != nil {
+		t.Fatal(err)
+	}
+	entry, err := storage.Save(7, "/volume1/@home/Kkwans/TV/Loki.EP02.mkv", "v1:same", 20, 100)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if entry.Path != "/home/Kkwans/TV/Loki.EP02.mkv" || entry.Position != 20 {
+		t.Fatalf("alias entry = %#v", entry)
+	}
+	recent, err := storage.Recent(7, 10)
+	if err != nil || len(recent) != 1 || recent[0].Position != 20 {
+		t.Fatalf("recent = %#v, %v", recent, err)
+	}
+	loaded, err := storage.Get(7, "/volume1/@home/Kkwans/TV/Loki.EP02.mkv", "v1:same")
+	if err != nil || loaded.Position != 20 {
+		t.Fatalf("alias get = %#v, %v", loaded, err)
+	}
+}
+
+func TestPlaybackRecentDeduplicatesExistingMountAliases(t *testing.T) {
+	db, err := storm.Open(filepath.Join(t.TempDir(), "playback-recent-alias.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	backend := playbackBackend{db: db}
+	for _, entry := range []*playback.Entry{
+		{ID: "older", UserID: 7, Path: "/home/Kkwans/TV/Loki.EP02.mkv", Identity: "v1:same", Position: 10, UpdatedAt: 1},
+		{ID: "newer", UserID: 7, Path: "/volume1/@home/Kkwans/TV/Loki.EP02.mkv", Identity: "v1:same", Position: 20, UpdatedAt: 2},
+	} {
+		if err := backend.Save(entry); err != nil {
+			t.Fatal(err)
+		}
+	}
+	recent, err := playback.NewStorage(backend).Recent(7, 10)
+	if err != nil || len(recent) != 1 || recent[0].Position != 20 {
+		t.Fatalf("recent = %#v, %v", recent, err)
+	}
+}
+
 func TestPlaybackClearIncludesMoreThanRecentPageAndKeepsOtherOwner(t *testing.T) {
 	db, err := storm.Open(filepath.Join(t.TempDir(), "playback-clear.db"))
 	if err != nil {
