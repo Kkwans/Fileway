@@ -15,8 +15,8 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -29,6 +29,7 @@ import coil3.ImageLoader
 import io.github.kkwans.nasfilebrowser.data.MediaCatalogCollection
 import io.github.kkwans.nasfilebrowser.data.MediaCatalogFileMatch
 import io.github.kkwans.nasfilebrowser.data.MediaCatalogPerson
+import io.github.kkwans.nasfilebrowser.ui.FilewayIcon
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayEmptyState
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySpace
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
@@ -84,13 +85,19 @@ internal fun PhoneMediaSearch(query: String, searched: Boolean, mode: MediaSearc
         Column(Modifier.fillMaxSize()) {
             FilewayTopAppBar("搜索影视", leadingIcon = Art.drawable.fileway_ic_arrow_back,
                 leadingDescription = "返回", onLeadingClick = { onAction(PhoneMediaAction.CloseSearch) })
-            OutlinedTextField(query, { onAction(PhoneMediaAction.UpdateSearchQuery(it)) }, modifier = Modifier.fillMaxWidth().padding(horizontal = pageInset),
+            OutlinedTextField(query, { onAction(PhoneMediaAction.UpdateSearchQuery(it)) },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = pageInset, vertical = 8.dp),
                 label = { Text(when (mode) {
                     MediaSearchMode.WORKS -> "作品标题或原名"
                     MediaSearchMode.PEOPLE -> "演员、导演或编剧姓名"
                     MediaSearchMode.FILES -> "媒体文件名"
                     MediaSearchMode.COLLECTIONS -> "合集名称"
                 }) }, singleLine = true, shape = MaterialTheme.shapes.medium,
+                trailingIcon = if (query.isEmpty()) null else ({
+                    IconButton(onClick = { onAction(PhoneMediaAction.UpdateSearchQuery("")) }) {
+                        FilewayIcon(Art.drawable.fileway_ic_close, "清空搜索")
+                    }
+                }),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search), keyboardActions = KeyboardActions(onSearch = { submit() }))
             LazyRow(Modifier.fillMaxWidth(), contentPadding = PaddingValues(horizontal = pageInset),
                 horizontalArrangement = Arrangement.spacedBy(FilewaySpace.small)) {
@@ -111,9 +118,6 @@ internal fun PhoneMediaSearch(query: String, searched: Boolean, mode: MediaSearc
                         modifier = Modifier.heightIn(min = 48.dp), label = { Text("合集", style = PhoneMediaType.action) })
                 }
             }
-            Button(onClick = ::submit, enabled = query.isNotBlank() && !busy,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = pageInset).heightIn(min = 48.dp),
-                shape = MaterialTheme.shapes.medium) { Text("搜索", style = PhoneMediaType.action) }
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                 val columns = phoneMediaGridSpec(maxWidth).columns
                 LazyVerticalGrid(columns = GridCells.Fixed(columns), modifier = Modifier.fillMaxSize(),
