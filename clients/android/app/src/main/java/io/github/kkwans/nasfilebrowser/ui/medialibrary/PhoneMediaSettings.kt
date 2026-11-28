@@ -129,20 +129,10 @@ internal fun mediaSettingsStatus(libraryCount: Int, state: MediaCatalogHomeState
     }
 }
 
-@Composable internal fun MediaSettingsFact(label: String, value: String) {
-    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text(label, Modifier.weight(1f), style = PhoneMediaType.secondary,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, style = PhoneMediaType.action, fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurface)
-    }
-}
-
 @Composable internal fun MediaSettingsChip(label: String, selected: Boolean, enabled: Boolean = true,
     onClick: () -> Unit) {
     FilterChip(selected = selected, onClick = onClick, enabled = enabled, label = { Text(label) },
-        modifier = Modifier.heightIn(min = 44.dp), shape = MaterialTheme.shapes.medium)
+        modifier = Modifier.heightIn(min = 48.dp), shape = MaterialTheme.shapes.medium)
 }
 
 @Composable
@@ -166,10 +156,8 @@ internal fun PhoneMediaSettings(onBack: () -> Unit, onLibraries: () -> Unit, onP
                 Text("结合片名、别名、年份、真实片长、目录结构与唯一候选；只有证据冲突时才需要确认。",
                     style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .6f))
-                MediaSettingsFact("电影最低时长", "60 分钟")
-                MediaSettingsFact("电视剧单集最低时长", "10 分钟")
-                Text("可在每个媒体库的“资料优先级”中调整。", style = PhoneMediaType.secondary,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                MediaSettingsAction("按媒体库调整", "资料优先级、语言地区与电影/剧集时长过滤",
+                    R.drawable.ic_settings, action = onLibraries)
             }
         }
         Text("源视频、NFO 与图片不会被改名、移动或回写。",
