@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
@@ -54,6 +55,14 @@ fun TvMediaSourcePicker(
     val edition = if (editionId == null) initialEdition else state.editions.firstOrNull { it.id == editionId }
     val selectedSource = edition?.sources?.firstOrNull { it.id == selectedSourceId && it.available }
     val closeFocus = remember { FocusRequester() }
+    val listState = rememberLazyListState()
+    val currentOnMore by rememberUpdatedState(onMore)
+    LaunchedEffect(listState, state.loading, state.applying, state.error, onMore != null) {
+        if (onMore == null || state.loading || state.applying || state.error != null) return@LaunchedEffect
+        snapshotFlow { listState.layoutInfo.visibleItemsInfo.any { it.key == "more" } }.collect { visible ->
+            if (visible) currentOnMore?.invoke()
+        }
+    }
     val interactive = LocalTvInteractive.current
     Dialog(onDismissRequest = { if (interactive) onDismiss() }, properties = DialogProperties(
         usePlatformDefaultWidth = false, dismissOnClickOutside = false)) {
@@ -79,7 +88,7 @@ fun TvMediaSourcePicker(
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
                 }
-                LazyColumn(Modifier.weight(1f).fillMaxWidth().focusGroup(),
+                LazyColumn(state = listState, modifier = Modifier.weight(1f).fillMaxWidth().focusGroup(),
                     contentPadding = PaddingValues(4.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item(key = "title") {
                         Text(state.title, style = MediaType.pageTitle, color = colors.text,
@@ -110,7 +119,7 @@ fun TvMediaSourcePicker(
                         Text(listOfNotNull(edition.title, edition.runtimeLabel).joinToString(" · "),
                             style = MediaType.body, color = colors.secondary)
                     }
-                    if (state.loading) item(key = "loading") {
+                    if (state.loading && edition?.sources.isNullOrEmpty()) item(key = "loading") {
                         Box(Modifier.fillMaxWidth().heightIn(min = 120.dp), contentAlignment = Alignment.Center) {
                             MediaLoadingStatus("正在读取片源…", compact = true)
                         }
@@ -127,10 +136,15 @@ fun TvMediaSourcePicker(
                             onSelect = { selectedSourceId = source.id },
                             onRecover = onRecover?.let { { it(source.id) } })
                     }
-                    if (onMore != null) item(key = "more") {
-                        MediaAction("加载更多片源", onMore, enabled = !state.loading && !state.applying)
+                    if (state.loading && !edition?.sources.isNullOrEmpty()) item(key = "loading-more") {
+                        Box(Modifier.fillMaxWidth().heightIn(min = 120.dp), contentAlignment = Alignment.Center) {
+                            MediaLoadingStatus("正在加载更多片源…", compact = true)
+                        }
                     }
-                    if (!state.loading && state.error == null && edition?.sources.isNullOrEmpty()) item(key = "empty") {
+                    if (onMore != null && !state.loading && !state.applying) item(key = "more") {
+                        MediaAction("加载更多片源", onMore)
+                    }
+                    if (!state.loading && state.error == null && edition?.sources.isNullOrEmpty() && onMore == null) item(key = "empty") {
                         Text("当前没有可访问的片源。", style = MediaType.body, color = colors.secondary)
                     }
                 }
