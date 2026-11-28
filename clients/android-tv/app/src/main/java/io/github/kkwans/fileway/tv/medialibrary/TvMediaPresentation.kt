@@ -223,6 +223,11 @@ data class TvMediaEpisode(
     val canPlay: Boolean = false,
 )
 
+private val tvEpisodeFilename = Regex("""(?i)(?:^|[._\s-])(?:S\d{1,2})?EP?(\d{1,3})(?=$|[._\s-])""")
+
+internal fun tvMediaEpisodeTitle(numberLabel: String, title: String): String =
+    if (title.isBlank() || tvEpisodeFilename.containsMatchIn(title)) numberLabel else "$numberLabel · $title"
+
 data class TvMediaDetailState(
     val scopeKey: String,
     val item: TvMediaCard,

@@ -402,12 +402,12 @@ private fun MediaEpisodeCard(episode: TvMediaEpisode, imageLoader: ImageLoader, 
     Column(Modifier.width(width), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         val imageModifier = Modifier.fillMaxWidth().aspectRatio(16f / 9f)
         MediaSurface({ focus?.onOpen?.invoke(episode.id, "episode"); onPlay?.invoke() },
-            imageModifier.tvMediaReturnFocus(episode.id, "episode").semantics { contentDescription = "${episode.numberLabel} ${episode.title}" },
+            imageModifier.tvMediaReturnFocus(episode.id, "episode").semantics { contentDescription = tvMediaEpisodeTitle(episode.numberLabel, episode.title) },
             enabled = onPlay != null && episode.canPlay) {
             MediaArtwork(episode.still, imageLoader, Modifier.fillMaxSize())
             MediaProgress(episode.progress, Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(7.dp))
         }
-        Text("${episode.numberLabel} · ${episode.title}", style = MediaType.itemTitle, color = colors.text,
+        Text(tvMediaEpisodeTitle(episode.numberLabel, episode.title), style = MediaType.itemTitle, color = colors.text,
             minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
         Text(listOfNotNull(episode.extentLabel, episode.availabilityLabel).filter(String::isNotBlank).joinToString(" · "),
             style = MediaType.secondary, color = colors.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
