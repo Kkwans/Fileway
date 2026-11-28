@@ -861,7 +861,7 @@ import kotlin.coroutines.coroutineContext
                             Text("${mediaScanModeLabel(scanMode)} · ${availableSources.size} 个可用目录",
                                 style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             if (busy && pendingKind == "scan") LinearProgressIndicator(Modifier.fillMaxWidth())
-                            if (scanRunning) Text("扫描进行中，可在上方查看进度或取消。", style = PhoneMediaType.secondary,
+                            if (scanRunning) Text("扫描进行中 · 已处理 ${scan?.processed ?: 0} 项，可在上方查看进度或取消。", style = PhoneMediaType.secondary,
                                 color = MaterialTheme.colorScheme.primary)
                             scanActionError?.let {
                                 Text(it, style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.error)
