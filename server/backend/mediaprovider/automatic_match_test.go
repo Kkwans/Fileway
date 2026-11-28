@@ -1042,6 +1042,39 @@ func TestResolveAutomaticMatchRetriesAdultSearchOnlyAfterNoDirectCandidate(t *te
 	}
 }
 
+func TestResolveAutomaticMatchRetriesAdultSearchForDirectoryAlias(t *testing.T) {
+	adultCalls := 0
+	client := fixtureClient(func(request *http.Request) (*http.Response, error) {
+		switch request.URL.Path {
+		case "/3/search/movie":
+			query := request.URL.Query().Get("query")
+			if request.URL.Query().Get("include_adult") == "true" {
+				adultCalls++
+				if query == "Chang" {
+					return response(200, `{"page":1,"total_pages":1,"total_results":0,"results":[]}`), nil
+				}
+				if query != "娼" || request.URL.Query().Get("primary_release_year") != "1997" {
+					t.Fatalf("unexpected adult lookup %s", request.URL)
+				}
+				return response(200, `{"page":1,"total_pages":1,"total_results":1,"results":[{"id":12345,"title":"娼","release_date":"1997-09-13"}]}`), nil
+			}
+			if query != "Chang" && query != "娼" {
+				t.Fatalf("unexpected title lookup %s", request.URL)
+			}
+			return response(200, `{"page":1,"total_pages":1,"total_results":0,"results":[]}`), nil
+		case "/3/movie/12345":
+			return response(200, `{"id":12345,"title":"娼","original_title":"창","release_date":"1997-09-13","runtime":51}`), nil
+		default:
+			t.Fatalf("unexpected outbound request %s", request.URL)
+			return nil, nil
+		}
+	})
+	result, err := client.ResolveAutomaticMatch(t.Context(), AutomaticMatchInput{Kind: Movie, Title: "Chang", Aliases: []string{"娼"}, Year: 1997, DurationMs: 3_060_102, AllowTitleMatch: true}, "zh-CN", func(context.Context) error { return nil })
+	if err != nil || result.State != AutoMatched || result.Document.Entity.ID != 12345 || adultCalls != 2 || !slices.Contains(result.Evidence, "adult_search_fallback") {
+		t.Fatalf("adult directory-alias fallback failed: state=%s reason=%s calls=%d result=%+v err=%v", result.State, result.Reason, adultCalls, result, err)
+	}
+}
+
 func TestResolveAutomaticMatchRetriesWithoutYearOnlyAfterEmptySearch(t *testing.T) {
 	for _, tc := range []struct {
 		name, details string

@@ -325,32 +325,37 @@ queries:
 	}
 	adultFallback := false
 	if len(directCandidates) == 0 && input.Year > 0 && input.Kind == Movie && input.DurationMs > 0 {
-		if err := authorize(ctx); err != nil {
-			return AutomaticMatch{}, err
-		}
-		page, err := client.Search(ctx, SearchQuery{Kind: Movie, Title: title, Year: input.Year,
-			Language: language, Region: input.Region, Page: 1, IncludeAdult: true})
-		if err != nil {
-			return AutomaticMatch{}, err
-		}
-		documents = append(documents, page.Items...)
-		ranked = RankCandidates(MatchHint{Kind: Movie, Title: title, Year: input.Year}, documents)
-		for _, candidate := range ranked {
-			direct := matchesAnyTitle(candidate, []string{title})
-			if candidate.Year != input.Year {
-				continue
+		for _, query := range queries {
+			if err := authorize(ctx); err != nil {
+				return AutomaticMatch{}, err
 			}
-			if direct {
-				directCandidates = append(directCandidates, candidate)
-				eligible = append(eligible, candidate)
-			} else if alternativeSearch {
-				adultYearCandidates = append(adultYearCandidates, candidate)
+			page, err := client.Search(ctx, SearchQuery{Kind: Movie, Title: query, Year: input.Year,
+				Language: language, Region: input.Region, Page: 1, IncludeAdult: true})
+			if err != nil {
+				return AutomaticMatch{}, err
 			}
-		}
-		adultFallback = len(directCandidates) != 0
-		if len(eligible) == 0 && len(directCandidates) == 0 && alternativeSearch && len(adultYearCandidates) != 0 {
-			eligible = append(eligible, adultYearCandidates[:min(len(adultYearCandidates), maxAutomaticTitleQueries)]...)
-			adultFallback = true
+			documents = append(documents, page.Items...)
+			ranked = RankCandidates(MatchHint{Kind: Movie, Title: title, Year: input.Year}, documents)
+			for _, candidate := range ranked {
+				direct := matchesAnyTitle(candidate, []string{query})
+				if candidate.Year != input.Year {
+					continue
+				}
+				if direct {
+					directCandidates = append(directCandidates, candidate)
+					eligible = append(eligible, candidate)
+				} else if alternativeSearch {
+					adultYearCandidates = append(adultYearCandidates, candidate)
+				}
+			}
+			adultFallback = len(directCandidates) != 0
+			if len(eligible) == 0 && len(directCandidates) == 0 && alternativeSearch && len(adultYearCandidates) != 0 {
+				eligible = append(eligible, adultYearCandidates[:min(len(adultYearCandidates), maxAutomaticTitleQueries)]...)
+				adultFallback = true
+			}
+			if adultFallback {
+				break
+			}
 		}
 	}
 	if len(eligible) == 0 && len(directCandidates) == 0 && input.Year > 0 && (alternativeSearch || input.Kind == Series) && len(yearCandidates) != 0 {
