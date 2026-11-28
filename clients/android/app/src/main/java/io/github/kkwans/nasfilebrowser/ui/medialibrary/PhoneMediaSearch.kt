@@ -38,6 +38,8 @@ import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewaySpace
 import io.github.kkwans.nasfilebrowser.ui.designsystem.FilewayTopAppBar
 import io.github.kkwans.fileway.design.R as Art
 
+internal fun phoneMediaSearchShowsIntro(searched: Boolean, busy: Boolean): Boolean = !searched && !busy
+
 internal fun phoneMediaSearchShowsEmpty(
     searched: Boolean,
     empty: Boolean,
@@ -135,6 +137,10 @@ internal fun PhoneMediaSearch(query: String, searched: Boolean, mode: MediaSearc
                 LazyVerticalGrid(columns = GridCells.Fixed(columns), state = gridState, modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = pageInset, end = pageInset, top = FilewaySpace.small, bottom = FilewaySpace.section),
                     horizontalArrangement = Arrangement.spacedBy(FilewaySpace.content), verticalArrangement = Arrangement.spacedBy(FilewaySpace.page)) {
+                    if (phoneMediaSearchShowsIntro(searched, busy)) item(key = "search-intro", span = { GridItemSpan(maxLineSpan) }) {
+                        FilewayEmptyState(Art.drawable.fileway_ic_search, "搜索影视",
+                            "支持作品标题、原名、人物、媒体文件名与合集。输入后点击输入框右侧的搜索按钮。")
+                    }
                     if (busy) item(key = "loading", span = { GridItemSpan(maxLineSpan) }) {
                         MediaLoading(when (mode) {
                             MediaSearchMode.WORKS -> "正在搜索影视"
