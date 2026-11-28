@@ -635,7 +635,7 @@ import kotlin.coroutines.coroutineContext
                         item(key = "intro") {
                             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                                 Text("从已有目录开始", style = PhoneMediaType.pageTitle)
-                                Text("新媒体库默认仅自己可见。先填写名称并选择文件夹，再创建或直接扫描。",
+                                Text("先命名并选择文件夹。类型、资料策略与扫描方式可在创建后调整。",
                                     style = PhoneMediaType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
@@ -652,21 +652,6 @@ import kotlin.coroutines.coroutineContext
                                         ({ Text("名称须为 1–200 个字符且不含控制字符") }) else null)
                             }
                         }
-                        item(key = "content-kind") {
-                            MediaSettingsGroup("媒体库类型") {
-                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                    Text("只展示所选类型，混入的电影或剧集不会进入待确认。",
-                                        style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                        verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        listOf(MediaLibraryKind.MOVIE to "电影", MediaLibraryKind.SERIES to "电视剧",
-                                            MediaLibraryKind.MIXED to "混合").forEach { (value, label) ->
-                                            MediaSettingsChip(label, contentKind == value, !busy && pendingId == null) { contentKind = value }
-                                        }
-                                    }
-                                }
-                            }
-                        }
                         item(key = "draft-folders") {
                             MediaSettingsGroup("媒体文件夹") {
                                 draftFolders.forEach { folder ->
@@ -681,17 +666,6 @@ import kotlin.coroutines.coroutineContext
                                 }
                                 MediaSettingsAction("添加文件夹", if (draftFolders.isEmpty()) "可选，也可以创建后再添加" else "${draftFolders.size} 个文件夹已选",
                                     R.drawable.ic_folder, enabled = !busy && pendingId == null) { openDirectory("create") }
-                            }
-                        }
-                        item(key = "default-policy") {
-                            MediaSettingsGroup("信息获取") {
-                                MediaSettingsAction("TMDB 数据源", "先保存并检测密钥，创建后可选择连接、语言与地区",
-                                    R.drawable.ic_settings, enabled = !busy && pendingId == null, action = onProvider)
-                                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("默认仅本地资料", style = PhoneMediaType.itemTitle)
-                                    Text("创建后可在媒体库详情直接设置 TMDB 优先、本地优先或仅本地资料。默认语言为简体中文，地区为中国大陆。",
-                                        style = PhoneMediaType.body, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
                             }
                         }
                     }
@@ -886,24 +860,15 @@ import kotlin.coroutines.coroutineContext
                                 }, style = PhoneMediaType.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
                             }
                             if (creating) {
-                                Text(if (draftFolders.isEmpty()) "可以先创建媒体库，之后再添加文件夹。"
-                                    else "将创建媒体库并添加 ${draftFolders.size} 个文件夹；创建后可立即设置资料策略。",
+                                Text(if (draftFolders.isEmpty()) "可以先创建媒体库，之后再添加文件夹并开始扫描。"
+                                    else "将创建媒体库、添加 ${draftFolders.size} 个文件夹并按当前扫描方式开始。",
                                     style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                 if (draftFolders.size > 60) Text("一次最多扫描 60 个文件夹，可以先创建媒体库。",
                                     style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                if (draftFolders.isEmpty()) {
-                                    FilewayButton(onClick = { createLibrary(andScan = false) }, enabled = canCreate,
-                                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("创建媒体库") }
-                                } else {
-                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                                        FilewayOutlinedButton(onClick = { createLibrary(andScan = false) }, enabled = canCreate,
-                                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("仅创建") }
-                                        FilewayButton(onClick = { createLibrary(andScan = true) },
-                                            enabled = canCreate && draftFolders.size in 1..60,
-                                            modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
-                                            Text(if (busy) "正在保存…" else "创建并扫描")
-                                        }
-                                    }
+                                FilewayButton(onClick = { createLibrary(andScan = draftFolders.size in 1..60) },
+                                    enabled = canCreate,
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                                    Text(mediaLibraryCreatePrimaryAction(draftFolders.size, busy))
                                 }
                             } else FilewayButton(onClick = {
                                 if (verifiedBrowse == (browseStack.last().wirePath to browseRefresh) && browseStack.last() == currentDirectory) {
@@ -1084,6 +1049,13 @@ private val mediaFolderSaver = listSaver<List<ResourceRef>, String>(
 )
 
 internal fun mediaLibraryShowsCoreLoading(screen: String): Boolean = screen == "libraries" || screen == "library"
+
+internal fun mediaLibraryCreatePrimaryAction(folderCount: Int, busy: Boolean): String = when {
+    busy -> "正在保存…"
+    folderCount > 60 -> "仅创建媒体库"
+    folderCount > 0 -> "创建并扫描"
+    else -> "创建媒体库"
+}
 
 internal fun mediaLibraryNeedsAuxiliaryLoad(screen: String, role: MediaLibraryRole?): Boolean =
     screen == "library" && role == MediaLibraryRole.OWNER
