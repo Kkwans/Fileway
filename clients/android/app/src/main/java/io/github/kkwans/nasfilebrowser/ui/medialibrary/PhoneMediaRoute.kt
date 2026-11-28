@@ -441,12 +441,14 @@ internal fun PhoneMediaRoute(
                 route.personWorksCursor != null, imageLoader, onBack = ::back, onAction = action)
         } else if (searching) {
             pages.SaveableStateProvider("media-search/${session.owner}") {
-                PhoneMediaSearch(route.searchQuery, route.searchedQuery.isNotBlank(), route.searchMode,
-                    route.searchResults.map(::poster), route.searchLoading, route.searchProblem, route.searchCursor != null,
-                    route.people, route.peopleLoading, route.peopleProblem, route.peopleCursor != null,
-                    route.files, route.filesLoading, route.filesProblem, route.filesCursor != null,
-                    route.collections, route.collectionsLoading, route.collectionsProblem, route.collectionsCursor != null,
-                    route.home?.capabilities?.get("fileSearch") == true, route.home?.capabilities?.get("collections") == true, imageLoader, action)
+                Box(subpage) {
+                    PhoneMediaSearch(route.searchQuery, route.searchedQuery.isNotBlank(), route.searchMode,
+                        route.searchResults.map(::poster), route.searchLoading, route.searchProblem, route.searchCursor != null,
+                        route.people, route.peopleLoading, route.peopleProblem, route.peopleCursor != null,
+                        route.files, route.filesLoading, route.filesProblem, route.filesCursor != null,
+                        route.collections, route.collectionsLoading, route.collectionsProblem, route.collectionsCursor != null,
+                        route.home?.capabilities?.get("fileSearch") == true, route.home?.capabilities?.get("collections") == true, imageLoader, action)
+                }
             }
         } else {
             val home = route.home
