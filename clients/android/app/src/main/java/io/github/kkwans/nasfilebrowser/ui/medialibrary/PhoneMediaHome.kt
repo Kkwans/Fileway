@@ -82,6 +82,9 @@ internal fun phoneMediaCatalogSortLabel(sort: MediaCatalogSort): String = when (
     MediaCatalogSort.UPDATED -> "最近更新"
 }
 
+internal fun phoneMediaCatalogGridKey(page: String, libraryId: String?, category: String, sort: MediaCatalogSort): String =
+    listOf(page, libraryId.orEmpty(), category, sort.name).joinToString("\u0000")
+
 internal fun phoneMediaCatalogHeading(sort: MediaCatalogSort): String = when (sort) {
     MediaCatalogSort.NEWEST -> "最近加入"
     MediaCatalogSort.ID -> "全部影视"

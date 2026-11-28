@@ -25,6 +25,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -93,8 +94,12 @@ internal fun PhoneMediaRoute(
     var startFromBeginning by remember(route) { mutableStateOf(false) }
     var sourceSelection by remember(route) { mutableStateOf<PhoneMediaSourceSelection?>(null) }
     val homeGrid = rememberLazyGridState()
-    val libraryGrid = rememberLazyGridState()
-    val categoryGrid = rememberLazyGridState()
+    val libraryGrid = key(phoneMediaCatalogGridKey("libraries", route.libraryFilter, route.filter, route.catalogSort)) {
+        rememberLazyGridState()
+    }
+    val categoryGrid = key(phoneMediaCatalogGridKey("categories", null, route.filter, route.catalogSort)) {
+        rememberLazyGridState()
+    }
     val pages = rememberSaveableStateHolder()
     val detailId = item
     val libraryId = library
