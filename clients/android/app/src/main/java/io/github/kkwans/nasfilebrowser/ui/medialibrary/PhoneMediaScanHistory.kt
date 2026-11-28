@@ -191,7 +191,7 @@ private fun PhoneMediaScanProgress(repository: MediaLibraryRepository, libraryId
             }
         } }
         metadata?.let { job -> item {
-            MediaSettingsGroup("本次扫描结果") {
+            MediaSettingsGroup("资料补全结果") {
                 MediaScanResultSummaryCard(job)
                 if (job.status in activeScanStates || job.status in setOf(MediaScanStatus.FAILED, MediaScanStatus.CANCELED)) {
                     val cancel = job.status in activeScanStates
@@ -209,7 +209,7 @@ private fun PhoneMediaScanProgress(repository: MediaLibraryRepository, libraryId
                 }
                 if (reviewCount > 0 && !reviewVisible) MediaSettingsAction("待确认", "$reviewCount 项记录，打开仍待匹配的影片",
                     R.drawable.ic_search, action = { reviewVisible = true })
-                if (scan?.status == MediaScanStatus.COMPLETED) MediaSettingsAction("浏览已收录影片", "返回媒体库查看本次扫描结果",
+                if (scan?.status == MediaScanStatus.COMPLETED) MediaSettingsAction("浏览已收录影片", "返回媒体库查看当前媒体库",
                     R.drawable.ic_library, action = onBrowse)
                 MediaSettingsAction("历史记录", "查看过往扫描", R.drawable.ic_search, action = onHistory)
             }
@@ -274,7 +274,7 @@ private fun MediaScanResultSummaryCard(job: MediaMetadataJob) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 Text(metadataStatus(job), style = PhoneMediaType.itemTitle)
-                Text("已完成 ${summary.completed} / ${summary.total} 项", style = PhoneMediaType.secondary,
+                Text("补全条目 · 已完成 ${summary.completed} / ${summary.total} 项", style = PhoneMediaType.secondary,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (summary.pending > 0) Text("待处理 ${summary.pending}", style = PhoneMediaType.action,

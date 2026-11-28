@@ -980,6 +980,7 @@ private fun MediaScanSummaryCard(scan: MediaScan, metadata: MediaMetadataJob?, o
                 LinearProgressIndicator(Modifier.fillMaxWidth())
             }
             metadata?.let { job ->
+                Text("资料补全", style = PhoneMediaType.badge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     MediaScanStat("已匹配", job.matched, Modifier.weight(1f))
                     MediaScanStat("待确认", job.review, Modifier.weight(1f))
@@ -992,7 +993,7 @@ private fun MediaScanSummaryCard(scan: MediaScan, metadata: MediaMetadataJob?, o
                 if (secondary.isNotEmpty()) Text(secondary, style = PhoneMediaType.secondary, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             FilewayButton(onClick = onOpen, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                Text("查看扫描结果", style = PhoneMediaType.action)
+                Text("查看扫描与补全", style = PhoneMediaType.action)
             }
             if ((metadata?.review ?: 0) > 0) {
                 FilewayOutlinedButton(onClick = onReview, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
