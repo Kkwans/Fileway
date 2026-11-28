@@ -225,9 +225,9 @@ internal fun mediaPosterSubtitle(item: MediaPoster): String? =
             item.primaryRating?.let { rating ->
                 Surface(Modifier.align(Alignment.TopEnd).padding(8.dp),
                     color = MaterialTheme.colorScheme.surface.copy(alpha = .96f), shape = MaterialTheme.shapes.small) {
-                    Text(listOfNotNull(rating.source, rating.metric, rating.value).joinToString(" "),
-                        Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
-                        style = PhoneMediaType.badge)
+                    Text(rating.value, Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                        .semantics { contentDescription = listOfNotNull(rating.source, rating.metric, rating.value).joinToString(" ") },
+                        style = PhoneMediaType.badge, maxLines = 1)
                 }
             }
         }

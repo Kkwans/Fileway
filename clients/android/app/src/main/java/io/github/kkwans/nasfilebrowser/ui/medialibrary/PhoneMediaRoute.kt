@@ -81,6 +81,7 @@ internal fun PhoneMediaRoute(
     var showFeatured by rememberSaveable(session.owner) { mutableStateOf(true) }
     var density by rememberSaveable(session.owner) { mutableStateOf(PhoneMediaDensity.COMFORTABLE) }
     var mediaTab by rememberSaveable(session.owner) { mutableStateOf("home") }
+    var settingsReturnTab by rememberSaveable(session.owner) { mutableStateOf("home") }
     var searching by rememberSaveable(session.owner) { mutableStateOf(false) }
     var personPage by remember(route) { mutableStateOf<MediaCatalogPersonRef?>(null) }
     var personReturnItem by remember(route) { mutableStateOf<String?>(null) }
@@ -151,12 +152,20 @@ internal fun PhoneMediaRoute(
         settings = null
     }
 
+    fun restoreSettingsTab() {
+        val target = settingsReturnTab.takeIf { it in setOf("home", "libraries", "categories") } ?: "home"
+        mediaTab = target
+        route.chooseQuery(if (target == "libraries") selectedLibrary else null,
+            if (target == "categories") filter else "all")
+    }
+
     BackHandler {
         if (creditsPage || collectionPage != null && detailId == null || personPage != null && detailId == null || searching && detailId == null) back()
         else if (settings != null) closeSettings()
         else if (reviewItemId != null) back()
         else if (managing) managing = false
         else if (detailId != null || reviewing || route.sourceRef != null) back()
+        else if (mediaTab == "settings") restoreSettingsTab()
         else if (phoneMediaShowsBack(phoneMediaPageForTab(mediaTab))) back()
         else onExit()
     }
@@ -226,7 +235,11 @@ internal fun PhoneMediaRoute(
                     onHandoff(ref, route.detail?.card?.title ?: route.detail?.detail?.item?.title ?: "影视")
                 }
             }
-            PhoneMediaAction.Settings -> mediaTab = "settings"
+            PhoneMediaAction.Settings -> {
+                if (mediaTab != "settings") settingsReturnTab = mediaTab
+                mediaTab = "settings"
+                route.chooseQuery(null, "all")
+            }
             PhoneMediaAction.CreateLibrary -> { createLibrary = true; managing = true }
             PhoneMediaAction.ManageLibraries -> { createLibrary = false; managing = true }
             is PhoneMediaAction.ReviewMatch -> reviewing = detailRef != null
@@ -396,7 +409,7 @@ internal fun PhoneMediaRoute(
               Box(Modifier.weight(1f)) {
                if (mediaTab == "settings") {
                 Column(safe) {
-                    PhoneMediaSettings(onExit, { createLibrary = false; managing = true }, { settings = "provider" },
+                    PhoneMediaSettings(::restoreSettingsTab, { createLibrary = false; managing = true }, { settings = "provider" },
                         home?.libraries?.size ?: 0, home?.state)
                 }
                } else if (route.checking) {
@@ -445,6 +458,7 @@ internal fun PhoneMediaRoute(
                 onLibrary = { selectedLibrary = it; route.chooseLibrary(it) }, onBack = ::back)
               }
               PhoneMediaNavigation(mediaTab) { target ->
+                  if (target == "settings" && mediaTab != "settings") settingsReturnTab = mediaTab
                   mediaTab = target
                   route.chooseQuery(if (target == "libraries") selectedLibrary else null,
                       if (target == "categories") filter else "all")

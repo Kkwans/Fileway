@@ -932,7 +932,7 @@ private fun MediaLibraryRow(library: MediaLibrarySummary, enabled: Boolean, onOp
                 Text(mediaLibraryRowSubtitle(library), style = PhoneMediaType.secondary,
                     color = colors.onSurfaceVariant, maxLines = 2, overflow = TextOverflow.Ellipsis)
             }
-            TextButton(onClick = onHistory, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) {
+            if (library.role == MediaLibraryRole.OWNER) TextButton(onClick = onHistory, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) {
                 Text("扫描记录", style = PhoneMediaType.action)
             }
         }
