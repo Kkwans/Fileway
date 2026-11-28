@@ -110,6 +110,8 @@ var playbackPutHandler = withUser(func(w http.ResponseWriter, r *http.Request, d
 	if err != nil {
 		return http.StatusInternalServerError, err
 	}
+	_ = d.store.MediaLibrary.RecordExternalPlayback(r.Context(), d.user.ID, []byte(file.Path), identity,
+		int64(math.Round(request.Position*1000)), int64(math.Round(request.Duration*1000)))
 	return renderJSON(w, r, playbackResponse{
 		Path: entry.Path, Identity: entry.Identity, Position: entry.Position,
 		Duration: entry.Duration, UpdatedAt: entry.UpdatedAt, Exists: true,

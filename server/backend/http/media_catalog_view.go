@@ -818,6 +818,11 @@ func (v *catalogView) projectCard(ctx context.Context, library *medialibrary.Lib
 			card.PrimaryRating = &catalogRating{rating.Provider, string(rating.Metric), rating.Value, rating.Scale, rating.Audience, rating.Count, rating.CountKind, rating.CountPrecision}
 		}
 	}
+	if card.PrimaryRating == nil || card.PrimaryRating.Provider != "douban" {
+		if rating := catalogDoubanRating(card.Title, card.Year); rating != nil {
+			card.PrimaryRating = rating
+		}
+	}
 	if c.Kind == "series" {
 		if fullCounts {
 			card.Episodes = v.seriesCounts(ctx, library, c.ID, "")

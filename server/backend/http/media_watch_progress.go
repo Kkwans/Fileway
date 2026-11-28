@@ -30,6 +30,13 @@ func mediaWatchProgressHandler(leases *mediaPlaybackLeases) handleFunc {
 		if err != nil {
 			return catalogError(w, err)
 		}
+		positionSeconds := float64(progress.PositionMs) / 1000
+		var durationSeconds float64
+		if progress.DurationMs != nil {
+			durationSeconds = float64(*progress.DurationMs) / 1000
+		}
+		_, _ = d.store.Playback.Save(d.user.ID, string(lease.access.playback.Locator), lease.access.playback.SourceVersion,
+			positionSeconds, durationSeconds)
 		if err := checkMediaPlayback(ctx, d, leases, lease); err != nil {
 			return providerUnknown(w)
 		}

@@ -52,6 +52,10 @@ func TestWatchProgressReopensExactTimelineAndRejectsOldSessions(t *testing.T) {
 	if got := send(actor, first, 2, 28_000, false, http.StatusOK); got.PositionMs != 28_000 || got.Completed {
 		t.Fatal(got)
 	}
+	recent, err := f.f.h.storage.Playback.Recent(actor, 10)
+	if err != nil || len(recent) != 1 || recent[0].Position != 28 {
+		t.Fatalf("catalog checkpoint was not mirrored to recent playback: %+v %v", recent, err)
+	}
 	if got := send(actor, first, 1, 52_000, false, http.StatusOK); got.PositionMs != 28_000 || got.Sequence != 2 {
 		t.Fatal(got)
 	}

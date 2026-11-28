@@ -43,6 +43,17 @@ Web 构建产物不进 Git。`backend/frontend/dist/README.txt` 只保证 Go emb
 开发前端可在 `frontend` 执行 `corepack pnpm dev`；后端启动时显式配置文件根目录
 及仓库外的数据库路径，不在源码目录存放真实用户数据。
 
+### 离线豆瓣评分
+
+`scripts/import_douban_ratings.py` 可将公开豆瓣电影数据集转换为本地评分索引。
+启动服务端前设置 `FILEWAY_DOUBAN_RATINGS_FILE` 指向生成的 JSONL 文件；影视卡片会
+按 IMDb ID 优先、片名 + 年份兜底匹配豆瓣评分。未配置或未命中时不生成评分。
+
+```sh
+python scripts/import_douban_ratings.py /path/to/douban-ratings.jsonl
+FILEWAY_DOUBAN_RATINGS_FILE=/path/to/douban-ratings.jsonl ./fileway
+```
+
 ## 部署
 
 - [Linux 容器部署](../deploy/linux/README.md)：通用配置与可选硬件加速。
