@@ -124,7 +124,7 @@ internal fun TvMediaSearchScreen(query: String, searched: Boolean, mode: TvMedia
                 contentPadding = PaddingValues(bottom = 48.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 when {
                     issue != null && empty -> item(key = "issue") { MediaStatus(issue, onRetry) }
-                    searched && empty && !busy -> item(key = "empty") {
+                    tvMediaSearchShowsEmpty(searched, empty, busy, issue, more) -> item(key = "empty") {
                         MediaStatus(when (mode) {
                             TvMediaSearchMode.PEOPLE -> "没有找到相关人物，试试使用姓名中的一部分。"
                             TvMediaSearchMode.FILES -> "没有找到相关文件，试试使用文件名中的一部分。"
@@ -206,8 +206,12 @@ private fun TvMediaWorksGrid(
 ) {
     val gridState = rememberLazyGridState()
     val currentOnMore by rememberUpdatedState(onMore)
-    LaunchedEffect(gridState, hasMore, loading, error) {
+    LaunchedEffect(gridState, hasMore, loading, error, cards.isEmpty()) {
         if (!hasMore || loading || error != null) return@LaunchedEffect
+        if (cards.isEmpty() && tvMediaShouldLoadEmptyPage(hasMore, loading, error)) {
+            currentOnMore()
+            return@LaunchedEffect
+        }
         snapshotFlow {
             (gridState.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1) to gridState.layoutInfo.totalItemsCount
         }.collect { (lastVisible, itemCount) ->
@@ -224,7 +228,7 @@ private fun TvMediaWorksGrid(
     ) {
         if (loading) item(key = "loading", span = { GridItemSpan(maxLineSpan) }) { MediaLoadingStatus("正在加载…") }
         if (error != null) item(key = "error", span = { GridItemSpan(maxLineSpan) }) { MediaStatus(error, onRetry) }
-        if (!loading && error == null && cards.isEmpty() && emptyMessage != null) {
+        if (!loading && error == null && !hasMore && cards.isEmpty() && emptyMessage != null) {
             item(key = "empty", span = { GridItemSpan(maxLineSpan) }) { MediaStatus(emptyMessage) }
         }
         items(cards, key = { it.id }) { card ->

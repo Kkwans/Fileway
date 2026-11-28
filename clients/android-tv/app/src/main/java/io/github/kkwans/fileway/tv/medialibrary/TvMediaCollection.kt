@@ -28,9 +28,9 @@ internal data class TvMediaCollectionResult(val libraryId: String, val collectio
 @Composable
 internal fun TvMediaCollectionShelf(collections: List<TvMediaCollectionResult>, imageLoader: ImageLoader,
     onCollection: (String, String) -> Unit, loading: Boolean, error: String?, hasMore: Boolean, onMore: (() -> Unit)?) {
-    if (collections.isEmpty()) return
+    if (collections.isEmpty() && !hasMore) return
     val listState = rememberLazyListState()
-    TvMediaRowLoadMore(listState, hasMore, loading, error, onMore)
+    TvMediaRowLoadMore(listState, hasMore, loading, error, onMore, empty = collections.isEmpty())
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         MediaSectionTitle("合集")
         LazyRow(state = listState, modifier = Modifier.focusGroup(), contentPadding = MediaLayout.rowPadding,

@@ -103,6 +103,13 @@ internal fun tvMediaShouldLoadMore(lastVisibleIndex: Int, itemCount: Int, hasMor
     hasMore && !loading && error == null && itemCount > 0 && lastVisibleIndex >= 0 &&
         lastVisibleIndex >= itemCount - 3
 
+internal fun tvMediaSearchShowsEmpty(searched: Boolean, empty: Boolean, busy: Boolean,
+    problem: String?, hasMore: Boolean): Boolean =
+    searched && empty && !busy && problem == null && !hasMore
+
+internal fun tvMediaShouldLoadEmptyPage(hasMore: Boolean, loading: Boolean, error: String?): Boolean =
+    hasMore && !loading && error == null
+
 internal fun <T, R> tvMediaFirstPreview(preview: List<T>, map: (T) -> R): R? =
     preview.firstOrNull()?.let(map)
 

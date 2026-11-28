@@ -28,9 +28,9 @@ import io.github.kkwans.fileway.design.R as Art
 internal fun TvMediaPeopleShelf(people: List<MediaCatalogPerson>, imageLoader: ImageLoader,
     portrait: (MediaCatalogPerson) -> TvMediaArtwork?, onPerson: (String, String) -> Unit,
     loading: Boolean, error: String?, hasMore: Boolean, onMore: (() -> Unit)?) {
-    if (people.isEmpty()) return
+    if (people.isEmpty() && !hasMore) return
     val listState = rememberLazyListState()
-    TvMediaRowLoadMore(listState, hasMore, loading, error, onMore)
+    TvMediaRowLoadMore(listState, hasMore, loading, error, onMore, empty = people.isEmpty())
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         MediaSectionTitle("人物")
         LazyRow(state = listState, modifier = Modifier.focusGroup(), contentPadding = MediaLayout.rowPadding,

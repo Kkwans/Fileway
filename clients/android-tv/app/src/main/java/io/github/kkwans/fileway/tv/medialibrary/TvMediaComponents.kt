@@ -246,7 +246,7 @@ internal fun MediaShelf(
 ) {
     if (!tvMediaShelfVisible(shelf)) return
     val listState = key(shelf.id) { rememberLazyListState() }
-    TvMediaRowLoadMore(listState, shelf.hasMore, shelf.loading, shelf.error, onMore)
+    TvMediaRowLoadMore(listState, shelf.hasMore, shelf.loading, shelf.error, onMore, empty = shelf.items.isEmpty())
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         MediaSectionTitle(shelf.title)
         if (shelf.error != null) MediaStatus(shelf.error, onRetry = onRetry?.let { { it(shelf.id) } }, compact = true)
@@ -265,10 +265,14 @@ internal fun MediaShelf(
 
 @Composable
 internal fun TvMediaRowLoadMore(state: LazyListState, hasMore: Boolean, loading: Boolean,
-    error: String?, onMore: (() -> Unit)?) {
+    error: String?, onMore: (() -> Unit)?, empty: Boolean = false) {
     val currentOnMore by rememberUpdatedState(onMore)
-    LaunchedEffect(state, hasMore, loading, error, onMore != null) {
+    LaunchedEffect(state, hasMore, loading, error, onMore != null, empty) {
         if (!hasMore || loading || error != null || onMore == null) return@LaunchedEffect
+        if (empty && tvMediaShouldLoadEmptyPage(hasMore, loading, error)) {
+            currentOnMore?.invoke()
+            return@LaunchedEffect
+        }
         snapshotFlow {
             (state.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1) to state.layoutInfo.totalItemsCount
         }.collect { (lastVisible, itemCount) ->

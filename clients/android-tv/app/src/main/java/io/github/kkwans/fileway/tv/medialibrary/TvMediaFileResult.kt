@@ -25,9 +25,9 @@ internal data class TvMediaFileResult(val id: String, val fileName: String, val 
 @Composable
 internal fun TvMediaFileShelf(files: List<TvMediaFileResult>, imageLoader: ImageLoader, onItem: (String) -> Unit,
     loading: Boolean, error: String?, hasMore: Boolean, onMore: (() -> Unit)?) {
-    if (files.isEmpty()) return
+    if (files.isEmpty() && !hasMore) return
     val listState = rememberLazyListState()
-    TvMediaRowLoadMore(listState, hasMore, loading, error, onMore)
+    TvMediaRowLoadMore(listState, hasMore, loading, error, onMore, empty = files.isEmpty())
     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         MediaSectionTitle("文件")
         LazyRow(state = listState, modifier = Modifier.focusGroup(), contentPadding = MediaLayout.rowPadding,
