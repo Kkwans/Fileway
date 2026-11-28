@@ -47,7 +47,8 @@ Web 构建产物不进 Git。`backend/frontend/dist/README.txt` 只保证 Go emb
 
 `scripts/import_douban_ratings.py` 可将公开豆瓣电影数据集转换为本地评分索引。
 启动服务端前设置 `FILEWAY_DOUBAN_RATINGS_FILE` 指向生成的 JSONL 文件；影视卡片会
-按 IMDb ID 优先、片名 + 年份兜底匹配豆瓣评分。未配置或未命中时不生成评分。
+按 IMDb ID 优先、片名 + 年份兜底匹配豆瓣评分。容器未设置变量时默认读取
+`/config/douban-ratings.jsonl`；未配置或未命中时不生成评分。
 
 ```sh
 python scripts/import_douban_ratings.py /path/to/douban-ratings.jsonl

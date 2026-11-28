@@ -5,6 +5,17 @@ import (
 	"testing"
 )
 
+func TestDoubanRatingsPathUsesContainerDefault(t *testing.T) {
+	t.Setenv("FILEWAY_DOUBAN_RATINGS_FILE", "")
+	if got := doubanRatingsPath(); got != "/config/douban-ratings.jsonl" {
+		t.Fatalf("default path = %q", got)
+	}
+	t.Setenv("FILEWAY_DOUBAN_RATINGS_FILE", "/data/ratings.jsonl")
+	if got := doubanRatingsPath(); got != "/data/ratings.jsonl" {
+		t.Fatalf("configured path = %q", got)
+	}
+}
+
 func TestDoubanRatingIndexMatchesByIMDbThenTitleYear(t *testing.T) {
 	index, err := parseDoubanRatingIndex(strings.NewReader(`{"id":"1292052","title":"肖申克的救赎 The Shawshank Redemption","year":1994,"imdb":"tt0111161","rating":9.7,"votes":3000000}
 {"id":"1291546","title":"阿甘正传 Forrest Gump","year":1994,"imdb":"tt0109830","rating":9.5,"votes":2000000}

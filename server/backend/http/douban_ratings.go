@@ -21,8 +21,8 @@ type doubanRatingRecord struct {
 }
 
 type doubanRatingIndex struct {
-	byIMDb       map[string]doubanRatingRecord
-	byTitleYear  map[string]doubanRatingRecord
+	byIMDb      map[string]doubanRatingRecord
+	byTitleYear map[string]doubanRatingRecord
 }
 
 func parseDoubanRatingIndex(reader io.Reader) (*doubanRatingIndex, error) {
@@ -111,13 +111,16 @@ func (index *doubanRatingIndex) lookup(imdb, title string, year int) *doubanRati
 var doubanRatingsOnce sync.Once
 var doubanRatingsIndex *doubanRatingIndex
 
+func doubanRatingsPath() string {
+	if path := os.Getenv("FILEWAY_DOUBAN_RATINGS_FILE"); path != "" {
+		return path
+	}
+	return "/config/douban-ratings.jsonl"
+}
+
 func catalogDoubanRatings() *doubanRatingIndex {
 	doubanRatingsOnce.Do(func() {
-		path := os.Getenv("FILEWAY_DOUBAN_RATINGS_FILE")
-		if path == "" {
-			return
-		}
-		file, err := os.Open(path)
+		file, err := os.Open(doubanRatingsPath())
 		if err != nil {
 			return
 		}
